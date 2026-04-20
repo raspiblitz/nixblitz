@@ -1,0 +1,24 @@
+name: tui
+description: NixBlitz terminal user interface.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.4
+
+resolution: workspace
+
+dependencies:
+  args: ^2.7.0
+  riverpod: ^3.2.1
+  nocterm: ^0.6.0
+  nocterm_riverpod:
+    git:
+      url: https://forge.f44.fyi/f44/nocterm
+      path: packages/nocterm_riverpod
+  common:
+    path: ../common
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.31.0

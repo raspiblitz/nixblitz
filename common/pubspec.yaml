@@ -1,0 +1,17 @@
+name: common
+description: NixBlitz shared business logic — config, git, system operations.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.4
+
+resolution: workspace
+
+dependencies:
+  riverpod: ^3.2.1
+  path: ^1.9.1
+
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.31.0

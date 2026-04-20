@@ -1,0 +1,79 @@
+import 'package:nocterm/nocterm.dart';
+import 'package:nocterm_riverpod/nocterm_riverpod.dart';
+import 'package:common/common.dart';
+import '../widgets/service_card.dart';
+
+class DashboardView extends StatelessComponent {
+  const DashboardView({super.key});
+
+  @override
+  Component build(BuildContext context) {
+    final configAsync = context.watch(configProvider);
+    final statusAsync = context.watch(serviceStatusProvider);
+
+    return configAsync.when(
+      loading: () => const Center(child: Text('Loading config...')),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (config) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    config.system.hostname,
+                    style: const TextStyle(
+                      color: Color.fromRGB(220, 220, 220),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    '${config.system.platform} | ${config.bitcoind.network}',
+                    style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 1),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: statusAsync.when(
+                  loading: () => const Text('Checking services...'),
+                  error: (e, _) => Text('Could not read services: $e'),
+                  data: (statuses) {
+                    final statusMap = {
+                      for (final s in statuses) s.name: s,
+                    };
+
+                    ServiceStatus statusFor(String name) =>
+                        statusMap[name] ??
+                        ServiceStatus(name: name, state: ServiceState.unknown);
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(child: ServiceCard(status: statusFor('bitcoind'), isDisabled: !config.bitcoind.enabled)),
+                          Expanded(child: ServiceCard(status: statusFor('lnd'), isDisabled: !config.lnd.enabled)),
+                        ]),
+                        Row(children: [
+                          Expanded(child: ServiceCard(status: statusFor('clightning'), isDisabled: !config.cln.enabled)),
+                          Expanded(child: ServiceCard(status: statusFor('blitz-api'), isDisabled: !config.blitzApi.enabled)),
+                        ]),
+                        ServiceCard(status: statusFor('blitz-web'), isDisabled: !config.blitzWeb.enabled),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}

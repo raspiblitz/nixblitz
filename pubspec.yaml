@@ -1,0 +1,9 @@
+name: nixblitz_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.11.4
+
+workspace:
+  - common
+  - tui

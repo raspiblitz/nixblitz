@@ -1,0 +1,29 @@
+# Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+*.dart.js
+*.js_
+*.js.deps
+*.js.map
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# macOS
+.DS_Store
+
+# QEMU
+*.qcow2
+
+# Nix build output
+result
+result-*
+
+# Examples / old code
+examples_redesign/
+
+.devenv/

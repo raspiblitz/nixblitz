@@ -1,0 +1,31 @@
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
+  cfg = config.features.system.base;
+in {
+  options.features.system.base.enable = lib.mkEnableOption "base NixBlitz system configuration";
+
+  config = lib.mkIf cfg.enable {
+    nix.settings = {
+      experimental-features = ["nix-command" "flakes"];
+      trusted-users = ["root" "admin"];
+    };
+
+    # nix-bitcoin secrets management
+    nix-bitcoin.generateSecrets = true;
+
+    environment.systemPackages = with pkgs; [
+      git
+      htop
+      btop
+      tree
+      jq
+      nushell
+    ];
+
+    users.defaultUserShell = pkgs.nushell;
+  };
+}
