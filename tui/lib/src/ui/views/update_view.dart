@@ -48,6 +48,7 @@ class _UpdateViewState extends State<UpdateView> {
 
       _outputSub = output.listen(
         (line) {
+          LogService.info('[update] $line');
           final current = context.read(_updateOutputProvider);
           context.read(_updateOutputProvider.notifier).state = [...current, line];
         },
@@ -57,6 +58,7 @@ class _UpdateViewState extends State<UpdateView> {
       );
 
       exitCode.then((code) {
+        LogService.info('update exited with code $code');
         context.read(_updateExitCodeProvider.notifier).state = code;
         context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
         _started = false;
