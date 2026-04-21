@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:common/src/models/config_migrations.dart';
 
 class SystemConfig {
   final String hostname;
@@ -204,6 +205,15 @@ class BlitzWebConfig {
 }
 
 class NixblitzConfig {
+  final int version;
+
+  /// The minimum TUI schema version required to safely read this config.
+  /// Preserved from the file if present, otherwise defaults to [minCompatibleVersion].
+  /// This means: if a newer TUI wrote v5 requiring min v3, an older TUI at v3
+  /// or v4 reading this config preserves the "min v3" on write-back, so even
+  /// older TUIs (v1, v2) continue to be blocked.
+  final int configMinCompatibleVersion;
+
   final bool initialized;
   final SystemConfig system;
   final BitcoindConfig bitcoind;
@@ -214,6 +224,8 @@ class NixblitzConfig {
   final Map<String, dynamic> _extra;
 
   const NixblitzConfig({
+    this.version = currentConfigVersion,
+    this.configMinCompatibleVersion = minCompatibleVersion,
     required this.initialized,
     required this.system,
     required this.bitcoind,
@@ -235,6 +247,8 @@ class NixblitzConfig {
   );
 
   static const _knownKeys = {
+    'version',
+    'min_compatible_version',
     'initialized',
     'system',
     'bitcoind',
@@ -244,39 +258,65 @@ class NixblitzConfig {
     'blitz_web',
   };
 
+  /// Parse a config from JSON. Runs migrations if the version is older than
+  /// the current one. Unknown fields (future versions) are preserved in
+  /// `_extra` and written back out on save.
+  ///
+  /// Throws [ConfigTooNewException] if the config was written by a TUI that
+  /// declared a higher minimum compatible version than this TUI supports.
   factory NixblitzConfig.fromJson(Map<String, dynamic> json) {
+    // Check minimum compatible version — if the config was written by a newer
+    // TUI that declared a breaking change, refuse to load it.
+    final configMinVersion = json['min_compatible_version'] as int? ?? 1;
+    if (configMinVersion > currentConfigVersion) {
+      throw ConfigTooNewException(configMinVersion, currentConfigVersion);
+    }
+
+    // Run migrations if needed (noop if already current version)
+    final migrated = json.containsKey('version') &&
+            (json['version'] as int) >= currentConfigVersion
+        ? json
+        : migrateConfig(json);
+
     final extra = <String, dynamic>{};
-    for (final entry in json.entries) {
+    for (final entry in migrated.entries) {
       if (!_knownKeys.contains(entry.key)) {
         extra[entry.key] = entry.value;
       }
     }
 
     return NixblitzConfig(
-      initialized: json['initialized'] as bool? ?? false,
-      system: json['system'] != null
-          ? SystemConfig.fromJson(json['system'] as Map<String, dynamic>)
+      version: (migrated['version'] as int?) ?? currentConfigVersion,
+      // Preserve max(file's min, our min) — never weaken protection.
+      configMinCompatibleVersion: configMinVersion > minCompatibleVersion
+          ? configMinVersion
+          : minCompatibleVersion,
+      initialized: migrated['initialized'] as bool? ?? false,
+      system: migrated['system'] != null
+          ? SystemConfig.fromJson(migrated['system'] as Map<String, dynamic>)
           : SystemConfig.defaults(),
-      bitcoind: json['bitcoind'] != null
-          ? BitcoindConfig.fromJson(json['bitcoind'] as Map<String, dynamic>)
+      bitcoind: migrated['bitcoind'] != null
+          ? BitcoindConfig.fromJson(migrated['bitcoind'] as Map<String, dynamic>)
           : BitcoindConfig.defaults(),
-      lnd: json['lnd'] != null
-          ? LndConfig.fromJson(json['lnd'] as Map<String, dynamic>)
+      lnd: migrated['lnd'] != null
+          ? LndConfig.fromJson(migrated['lnd'] as Map<String, dynamic>)
           : LndConfig.defaults(),
-      cln: json['cln'] != null
-          ? ClnConfig.fromJson(json['cln'] as Map<String, dynamic>)
+      cln: migrated['cln'] != null
+          ? ClnConfig.fromJson(migrated['cln'] as Map<String, dynamic>)
           : ClnConfig.defaults(),
-      blitzApi: json['blitz_api'] != null
-          ? BlitzApiConfig.fromJson(json['blitz_api'] as Map<String, dynamic>)
+      blitzApi: migrated['blitz_api'] != null
+          ? BlitzApiConfig.fromJson(migrated['blitz_api'] as Map<String, dynamic>)
           : BlitzApiConfig.defaults(),
-      blitzWeb: json['blitz_web'] != null
-          ? BlitzWebConfig.fromJson(json['blitz_web'] as Map<String, dynamic>)
+      blitzWeb: migrated['blitz_web'] != null
+          ? BlitzWebConfig.fromJson(migrated['blitz_web'] as Map<String, dynamic>)
           : BlitzWebConfig.defaults(),
       extra: extra,
     );
   }
 
   Map<String, dynamic> toJson() => {
+    'version': version,
+    'min_compatible_version': configMinCompatibleVersion,
     'initialized': initialized,
     'system': system.toJson(),
     'bitcoind': bitcoind.toJson(),
@@ -329,6 +369,8 @@ class NixblitzConfig {
   }
 
   NixblitzConfig copyWith({
+    int? version,
+    int? configMinCompatibleVersion,
     bool? initialized,
     SystemConfig? system,
     BitcoindConfig? bitcoind,
@@ -338,6 +380,9 @@ class NixblitzConfig {
     BlitzWebConfig? blitzWeb,
     Map<String, dynamic>? extra,
   }) => NixblitzConfig(
+    version: version ?? this.version,
+    configMinCompatibleVersion:
+        configMinCompatibleVersion ?? this.configMinCompatibleVersion,
     initialized: initialized ?? this.initialized,
     system: system ?? this.system,
     bitcoind: bitcoind ?? this.bitcoind,

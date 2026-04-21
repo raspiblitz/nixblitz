@@ -1,5 +1,4 @@
-library common;
-
+export 'src/models/config_migrations.dart';
 export 'src/models/install_state.dart';
 export 'src/models/nixblitz_config.dart';
 export 'src/models/service_status.dart';

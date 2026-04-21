@@ -626,7 +626,11 @@ class _InstallViewState extends State<InstallView> {
       runGit(['config', 'user.email', 'nixblitz@localhost']);
       runGit(['config', 'user.name', 'NixBlitz']);
       runGit(['add', '.']);
-      runGit(['commit', '-m', 'Initial configuration']);
+      runGit([
+        'commit',
+        '-m',
+        'Initial configuration (schema v$currentConfigVersion)',
+      ]);
       LogService.info('Save config: git repository initialized and committed');
 
       configNotifier.updateConfig(updatedConfig);
