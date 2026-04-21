@@ -38,37 +38,37 @@ class DashboardView extends StatelessComponent {
               ),
             ),
             const SizedBox(height: 1),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: statusAsync.when(
-                  loading: () => const Text('Checking services...'),
-                  error: (e, _) => Text('Could not read services: $e'),
-                  data: (statuses) {
-                    final statusMap = {
-                      for (final s in statuses) s.name: s,
-                    };
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: statusAsync.when(
+                loading: () => const Text('Checking services...'),
+                error: (e, _) => Text('Could not read services: $e'),
+                data: (statuses) {
+                  final statusMap = {
+                    for (final s in statuses) s.name: s,
+                  };
 
-                    ServiceStatus statusFor(String name) =>
-                        statusMap[name] ??
-                        ServiceStatus(name: name, state: ServiceState.unknown);
+                  ServiceStatus statusFor(String name) =>
+                      statusMap[name] ??
+                      ServiceStatus(name: name, state: ServiceState.unknown);
 
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Expanded(child: ServiceCard(status: statusFor('bitcoind'), isDisabled: !config.bitcoind.enabled)),
-                          Expanded(child: ServiceCard(status: statusFor('lnd'), isDisabled: !config.lnd.enabled)),
-                        ]),
-                        Row(children: [
-                          Expanded(child: ServiceCard(status: statusFor('clightning'), isDisabled: !config.cln.enabled)),
-                          Expanded(child: ServiceCard(status: statusFor('blitz-api'), isDisabled: !config.blitzApi.enabled)),
-                        ]),
-                        ServiceCard(status: statusFor('blitz-web'), isDisabled: !config.blitzWeb.enabled),
-                      ],
-                    );
-                  },
-                ),
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        ServiceCard(status: statusFor('bitcoind'), isDisabled: !config.bitcoind.enabled),
+                        const SizedBox(width: 4),
+                        ServiceCard(status: statusFor('lnd'), isDisabled: !config.lnd.enabled),
+                      ]),
+                      Row(children: [
+                        ServiceCard(status: statusFor('clightning'), isDisabled: !config.cln.enabled),
+                        const SizedBox(width: 4),
+                        ServiceCard(status: statusFor('blitz-api'), isDisabled: !config.blitzApi.enabled),
+                      ]),
+                      ServiceCard(status: statusFor('blitz-web'), isDisabled: !config.blitzWeb.enabled),
+                    ],
+                  );
+                },
               ),
             ),
           ],

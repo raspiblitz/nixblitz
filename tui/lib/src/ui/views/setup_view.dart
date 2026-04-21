@@ -3,6 +3,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
 
 enum SetupStep { setPassword, waitBitcoind, initLightning, summary }
@@ -10,7 +11,6 @@ enum SetupStep { setPassword, waitBitcoind, initLightning, summary }
 final _setupStepProvider = StateProvider<SetupStep>(
   (ref) => SetupStep.setPassword,
 );
-final _passwordInputProvider = StateProvider<String>((ref) => '');
 
 class SetupView extends StatelessComponent {
   const SetupView({super.key});
@@ -30,80 +30,26 @@ class SetupView extends StatelessComponent {
 class _SetPasswordStep extends StatelessComponent {
   @override
   Component build(BuildContext context) {
-    final password = context.watch(_passwordInputProvider);
-    return Focusable(
-      focused: true,
-      onKeyEvent: (event) {
-        try {
-          if (event.logicalKey == LogicalKey.enter) {
-            if (password.length >= 8) {
-              final chpasswd = Process.runSync(
-                'bash',
-                ['-c', 'echo "admin:$password" | sudo chpasswd'],
-              );
-              if (chpasswd.exitCode != 0) {
-                LogService.error(
-                  'chpasswd failed: exit=${chpasswd.exitCode} stderr=${chpasswd.stderr}',
-                );
-              } else {
-                LogService.info('Password set successfully');
-              }
-              context.read(_setupStepProvider.notifier).state =
-                  SetupStep.waitBitcoind;
-            }
-            return true;
-          }
-          if (event.logicalKey == LogicalKey.backspace) {
-            final current = context.read(_passwordInputProvider);
-            if (current.isNotEmpty) {
-              context.read(_passwordInputProvider.notifier).state = current
-                  .substring(0, current.length - 1);
-            }
-            return true;
-          }
-          final char = event.character;
-          if (char != null && char.isNotEmpty) {
-            context.read(_passwordInputProvider.notifier).state =
-                context.read(_passwordInputProvider) + char;
-            return true;
-          }
-          return false;
-        } catch (e, st) {
-          LogService.error('Set password key handler failed', e, st);
-          return true;
+    return PasswordInput(
+      title: 'First Boot Setup',
+      subtitle: 'Set a password for the admin user. Used for SSH access.',
+      minLength: 8,
+      requireConfirmation: true,
+      onSubmit: (password) {
+        final chpasswd = Process.runSync(
+          'bash',
+          ['-c', 'echo "admin:$password" | sudo -n chpasswd'],
+        );
+        if (chpasswd.exitCode != 0) {
+          LogService.error(
+            'chpasswd failed: exit=${chpasswd.exitCode} stderr=${chpasswd.stderr}',
+          );
+        } else {
+          LogService.info('Password set successfully');
         }
+        context.read(_setupStepProvider.notifier).state =
+            SetupStep.waitBitcoind;
       },
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'First Boot Setup',
-              style: const TextStyle(
-                color: Color.fromRGB(247, 147, 26),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 1),
-            const Text('Set a password for the admin user.'),
-            const Text('This password is used for SSH access.'),
-            const SizedBox(height: 1),
-            Text('Password: ${'*' * password.length}'),
-            const SizedBox(height: 1),
-            Text(
-              password.length < 8
-                  ? 'Minimum 8 characters'
-                  : 'Press Enter to continue',
-              style: TextStyle(
-                color: password.length < 8
-                    ? const Color.fromRGB(255, 80, 80)
-                    : const Color.fromRGB(110, 220, 110),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -1,20 +1,57 @@
+import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/option_editor.dart';
+import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
 
 final _selectedOptionProvider = StateProvider<int>((ref) => 0);
+final _changingPasswordProvider = StateProvider<bool>((ref) => false);
+final _statusMessageProvider = StateProvider<String>((ref) => '');
 
 class ConfigureView extends StatelessComponent {
   const ConfigureView({super.key});
 
   @override
   Component build(BuildContext context) {
+    final changingPassword = context.watch(_changingPasswordProvider);
+
+    if (changingPassword) {
+      return PasswordInput(
+        title: 'Change Admin Password',
+        subtitle: 'Enter a new password for the admin user.',
+        minLength: 8,
+        requireConfirmation: true,
+        onSubmit: (password) {
+          final chpasswd = Process.runSync(
+            'bash',
+            ['-c', 'echo "admin:$password" | sudo -n chpasswd'],
+          );
+          if (chpasswd.exitCode != 0) {
+            LogService.error(
+              'chpasswd failed: exit=${chpasswd.exitCode} stderr=${chpasswd.stderr}',
+            );
+            context.read(_statusMessageProvider.notifier).state =
+                'Failed to change password. Passwordless sudo required.';
+          } else {
+            LogService.info('Password changed successfully');
+            context.read(_statusMessageProvider.notifier).state =
+                'Password changed successfully.';
+          }
+          context.read(_changingPasswordProvider.notifier).state = false;
+        },
+        onCancel: () {
+          context.read(_changingPasswordProvider.notifier).state = false;
+        },
+      );
+    }
+
     final configAsync = context.watch(configProvider);
     final serviceIndex = context.watch(selectedServiceIndexProvider);
     final selectedOption = context.watch(_selectedOptionProvider);
+    final statusMessage = context.watch(_statusMessageProvider);
 
     return configAsync.when(
       loading: () => const Center(child: Text('Loading...')),
@@ -35,6 +72,10 @@ class ConfigureView extends StatelessComponent {
           focused: true,
           onKeyEvent: (event) {
             try {
+              // Clear status message on any key press
+              if (statusMessage.isNotEmpty) {
+                context.read(_statusMessageProvider.notifier).state = '';
+              }
               if (event.logicalKey == LogicalKey.keyJ ||
                   event.logicalKey == LogicalKey.arrowDown) {
                 final max = options.length - 1;
@@ -72,6 +113,11 @@ class ConfigureView extends StatelessComponent {
               }
               if (event.logicalKey == LogicalKey.enter ||
                   event.logicalKey == LogicalKey.space) {
+                // Password change is a special action, not a config toggle
+                if (currentService == 'system' && selectedOption == 3) {
+                  context.read(_changingPasswordProvider.notifier).state = true;
+                  return true;
+                }
                 final updated = _toggleOption(
                   config,
                   currentService,
@@ -144,6 +190,20 @@ class ConfigureView extends StatelessComponent {
                   children: options,
                 ),
               ),
+              if (statusMessage.isNotEmpty) ...[
+                const SizedBox(height: 1),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text(
+                    statusMessage,
+                    style: TextStyle(
+                      color: statusMessage.contains('Failed')
+                          ? const Color.fromRGB(255, 80, 80)
+                          : const Color.fromRGB(110, 220, 110),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         );
@@ -223,6 +283,7 @@ class ConfigureView extends StatelessComponent {
               system: config.system.copyWith(platform: platforms[next]),
             );
           // hostname and timezone need text input, skip for now
+          // case 3 (password) is handled separately in the key handler
         }
     }
     return null;
@@ -251,6 +312,11 @@ class ConfigureView extends StatelessComponent {
             value: config.system.platform,
             options: const ['pi4', 'pi5', 'x86', 'vm'],
             focused: selectedIndex == 2,
+          ),
+          TextOptionEditor(
+            label: 'password',
+            value: 'Press Enter to change',
+            focused: selectedIndex == 3,
           ),
         ];
       case 'bitcoind':

@@ -21,7 +21,9 @@
       "Bash(nix log:*)",
       "Bash(./result/bin/nixblitz --version)",
       "Bash(sshpass -p nixblitz ssh -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no nixos@localhost -p 10022 'rm -f /tmp/nixblitz; rm -rf ~/nixblitz')",
-      "Bash(sshpass:*)"
+      "Bash(sshpass:*)",
+      "Bash(jj diff:*)",
+      "Bash(jj commit:*)"
     ]
   }
 }
