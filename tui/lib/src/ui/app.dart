@@ -49,14 +49,20 @@ class NixBlitzApp extends StatelessComponent {
     // On a live ISO, always start in install mode regardless of existing config,
     // so a failed install attempt can be retried.
     final isLiveIso = _isLiveIso();
+    final configPath = '$baseDir/config.json';
+    final configExists = File(configPath).existsSync();
+
+    // Safety: if we're not on a live ISO AND there's no config, this is
+    // an installed non-NixBlitz system. Refuse to start to prevent accidents
+    // (install mode would try to wipe a disk).
+    if (!isLiveIso && !configExists) {
+      return _RefusalScreen(message: _noConfigNonIsoMessage);
+    }
 
     AppView initialView;
     if (isLiveIso) {
       initialView = AppView.install;
     } else {
-      final configPath = '$baseDir/config.json';
-      final configExists = File(configPath).existsSync();
-
       if (!configExists) {
         initialView = AppView.install;
       } else {
@@ -220,6 +226,58 @@ class _Shell extends StatelessComponent {
             },
           ),
       ],
+    );
+  }
+}
+
+const String _noConfigNonIsoMessage = '''
+This system does not appear to be a NixBlitz installation.
+
+To install NixBlitz:
+  1. Boot a NixOS ISO (any recent 25.11 image)
+  2. Run: nix run git+https://forge.f44.fyi/f44/nixblitz_ng
+
+Refusing to start install mode on an installed system to prevent
+accidental disk wipe.
+
+Press any key to exit.''';
+
+class _RefusalScreen extends StatelessComponent {
+  final String message;
+
+  const _RefusalScreen({required this.message});
+
+  @override
+  Component build(BuildContext context) {
+    return ProviderScope(
+      child: NoctermApp(
+        title: 'NixBlitz',
+        theme: TuiThemeData.dark,
+        home: Focusable(
+          focused: true,
+          onKeyEvent: (event) {
+            _shutdownWithTerminalRestore(1);
+            return true;
+          },
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'NixBlitz — Cannot Start',
+                  style: TextStyle(
+                    color: Color.fromRGB(255, 80, 80),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(message),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
