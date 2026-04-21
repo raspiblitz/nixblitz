@@ -13,6 +13,8 @@ buildDartApplication {
     include = [
       "common"
       "tui"
+      "templates"
+      "scripts"
       "pubspec.yaml"
       "analysis_options.yaml"
     ];
@@ -36,6 +38,8 @@ buildDartApplication {
 
   preBuild = ''
     mkdir -p bin
+    # Regenerate embedded templates from source files
+    dart run scripts/gen_embedded_templates.dart
   '';
 
   meta = with lib; {

@@ -45,6 +45,10 @@ gen-workspace-lock:
 gen-workspace-graph:
   python3 scripts/gen_workspace_graph.py
 
+# Regenerate embedded templates from templates/ directory
+gen-templates:
+  dart run scripts/gen_embedded_templates.dart
+
 # Boot a NixOS ISO in QEMU for testing the installer
 vm-boot:
   #!/usr/bin/env nu
