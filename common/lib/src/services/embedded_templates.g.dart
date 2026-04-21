@@ -451,10 +451,10 @@ in {
       };
     };
 
-    boot.loader.grub = {
-      enable = true;
-      devices = ["/dev/vda"];
-    };
+    # Note: disko automatically configures boot.loader.grub.devices
+    # based on the disko.devices.disk.* definitions above. Setting it
+    # explicitly here would cause a "duplicated devices in mirroredBoots" error.
+    boot.loader.grub.enable = true;
   };
 }
 ''';
