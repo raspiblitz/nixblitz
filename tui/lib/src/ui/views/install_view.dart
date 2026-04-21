@@ -6,9 +6,9 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/confirm_prompt.dart';
+import '../widgets/scrollable_log.dart';
 import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
-import '_log_height.dart';
 
 final _diskSelectionIndexProvider = StateProvider<int>((ref) => 0);
 final _confirmProvider = StateProvider<bool>((ref) => false);
@@ -681,6 +681,15 @@ class _InstallViewState extends State<InstallView> {
         ? logLines.sublist(logLines.length - maxVisibleLines)
         : logLines;
 
+    // Show only the last lines that fit on screen, truncated to terminal width
+    // so they don't wrap and push the footer off-screen.
+    // Reserved: title + spinner row + step label + spacing = ~4 lines
+    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
+    final tail = logLines.length > maxVisibleLines
+        ? logLines.sublist(logLines.length - maxVisibleLines)
+        : logLines;
+    final visibleLines = tail.map(truncateLine).toList();
+
     return Container(
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -701,12 +710,7 @@ class _InstallViewState extends State<InstallView> {
               style: const TextStyle(color: Color.fromRGB(110, 220, 110)),
             ),
           const SizedBox(height: 1),
-          ...visibleLines.map(
-            (line) => Text(
-              line,
-              style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
-            ),
-          ),
+          Expanded(child: ScrollableLog(lines: logLines)),
         ],
       ),
     );
@@ -852,6 +856,21 @@ class _InstallViewState extends State<InstallView> {
               final visible = logLines.length > maxLines
                   ? logLines.sublist(logLines.length - maxLines)
                   : logLines;
+              return visible.map(
+                (line) => Text(
+                  line,
+                  style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
+                ),
+              );
+            })(),
+            // Show last lines of log
+            ...(() {
+              // Reserved: title + spacing + "Press Esc..." = ~4 lines
+              final maxLines = maxVisibleLogLines(viewHeaderLines: 4);
+              final tail = logLines.length > maxLines
+                  ? logLines.sublist(logLines.length - maxLines)
+                  : logLines;
+              final visible = tail.map(truncateLine).toList();
               return visible.map(
                 (line) => Text(
                   line,

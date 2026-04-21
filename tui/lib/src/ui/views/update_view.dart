@@ -4,9 +4,9 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
-import '_log_height.dart';
 
 enum _UpdateMode { selectMode, running, done }
 
@@ -263,6 +263,13 @@ class _UpdateViewState extends State<UpdateView> {
         ? outputLines.sublist(outputLines.length - maxVisibleLines)
         : outputLines;
 
+    // Reserved: spinner + spacing = ~2 lines
+    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 2);
+    final tail = outputLines.length > maxVisibleLines
+        ? outputLines.sublist(outputLines.length - maxVisibleLines)
+        : outputLines;
+    final visibleLines = tail.map(truncateLine).toList();
+
     return Container(
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -270,12 +277,7 @@ class _UpdateViewState extends State<UpdateView> {
         children: [
           Spinner(label: 'Updating...'),
           const SizedBox(height: 1),
-          ...visibleLines.map(
-            (line) => Text(
-              line,
-              style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
-            ),
-          ),
+          Expanded(child: ScrollableLog(lines: outputLines)),
         ],
       ),
     );
@@ -291,6 +293,13 @@ class _UpdateViewState extends State<UpdateView> {
     final visibleLines = outputLines.length > maxVisibleLines
         ? outputLines.sublist(outputLines.length - maxVisibleLines)
         : outputLines;
+
+    // Reserved: title + spacing + "Press Enter..." = ~4 lines
+    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
+    final tail = outputLines.length > maxVisibleLines
+        ? outputLines.sublist(outputLines.length - maxVisibleLines)
+        : outputLines;
+    final visibleLines = tail.map(truncateLine).toList();
 
     return Focusable(
       focused: true,
@@ -327,12 +336,7 @@ class _UpdateViewState extends State<UpdateView> {
               ),
             ),
             const SizedBox(height: 1),
-            ...visibleLines.map(
-              (line) => Text(
-                line,
-                style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
-              ),
-            ),
+            Expanded(child: ScrollableLog(lines: outputLines)),
             const SizedBox(height: 1),
             const Text('Press Enter or Esc to return to dashboard.'),
           ],
