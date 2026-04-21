@@ -62,6 +62,7 @@ class HelpPopup extends StatelessComponent {
                 ),
               ),
               _HelpItem(keyLabel: 'c', desc: 'Configure services'),
+              _HelpItem(keyLabel: 'u', desc: 'Update system'),
               _HelpItem(keyLabel: '?', desc: 'Show/hide this help'),
               _HelpItem(keyLabel: 'q', desc: 'Quit'),
               const Divider(),

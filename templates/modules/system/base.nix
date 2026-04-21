@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  nixblitz,
   ...
 }: let
   cfg = config.features.system.base;
@@ -24,6 +25,7 @@ in {
       tree
       jq
       nushell
+      nixblitz.packages.${pkgs.system}.nixblitz-unwrapped
     ];
 
     users.defaultUserShell = pkgs.nushell;

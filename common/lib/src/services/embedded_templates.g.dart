@@ -17,6 +17,9 @@ const String _flake = r'''
       url = "github:fort-nix/nix-bitcoin";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nixblitz = {
+      url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+    };
   };
 
   outputs = {
@@ -24,6 +27,7 @@ const String _flake = r'''
     nixpkgs,
     disko,
     nix-bitcoin,
+    nixblitz,
   }: let
     inherit (nixpkgs) lib;
 
@@ -53,6 +57,7 @@ const String _flake = r'''
 
     nixosConfigurations.nixblitz = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
+      specialArgs = {inherit nixblitz;};
       modules = [
         ./hosts/default.nix
         self.nixosModules.default
@@ -382,6 +387,7 @@ const String _modulesSystemBase = r'''
   config,
   lib,
   pkgs,
+  nixblitz,
   ...
 }: let
   cfg = config.features.system.base;
@@ -404,6 +410,7 @@ in {
       tree
       jq
       nushell
+      nixblitz.packages.${pkgs.system}.nixblitz-unwrapped
     ];
 
     users.defaultUserShell = pkgs.nushell;

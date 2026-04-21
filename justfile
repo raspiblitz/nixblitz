@@ -92,12 +92,12 @@ vm-run:
     -device virtio-blk-pci,drive=virtio0)
 
 # Deploy unwrapped nixblitz binary to VM for quick testing (no disko)
-vm-deploy password="nixblitz":
+vm-deploy:
   #!/usr/bin/env nu
   let unwrapped = (nix build .#nixblitz-unwrapped --print-out-paths | str trim)
   print $"Deploying ($unwrapped)/bin/nixblitz to VM..."
-  sshpass -p {{password}} ssh -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no nixos@localhost -p 10022 'rm -f /tmp/nixblitz; rm -rf ~/nixblitz; rm -f ~/nixblitz.log'
-  sshpass -p {{password}} scp -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -P 10022 $"($unwrapped)/bin/nixblitz" nixos@localhost:/tmp/nixblitz
+  ssh -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no nixos@localhost -p 10022 'rm -f /tmp/nixblitz; rm -rf ~/nixblitz; rm -f ~/nixblitz.log'
+  scp -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -P 10022 $"($unwrapped)/bin/nixblitz" nixos@localhost:/tmp/nixblitz
   print "Deployed. Run on VM: /tmp/nixblitz"
   print "For full install test (with disko), run on the VM instead:"
   print "  nix run git+https://forge.f44.fyi/f44/nixblitz_ng"

@@ -9,6 +9,7 @@ import 'views/apply_view.dart';
 import 'views/configure_view.dart';
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
+import 'views/update_view.dart';
 import 'widgets/help_popup.dart';
 import '../providers/ui_state_provider.dart';
 
@@ -128,6 +129,11 @@ class _Shell extends StatelessComponent {
                       AppView.configure;
                   return true;
                 }
+                if (event.logicalKey == LogicalKey.keyU) {
+                  context.read(currentViewProvider.notifier).state =
+                      AppView.update;
+                  return true;
+                }
                 if (event.logicalKey == LogicalKey.keyQ) {
                   _shutdownWithTerminalRestore();
                   return true;
@@ -179,6 +185,7 @@ class _Shell extends StatelessComponent {
                     AppView.dashboard => const DashboardView(),
                     AppView.configure => const ConfigureView(),
                     AppView.apply => const ApplyView(),
+                AppView.update => const UpdateView(),
                   },
                 ),
                 const Divider(),
@@ -190,10 +197,11 @@ class _Shell extends StatelessComponent {
                         '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
                       AppView.setup => 'Setting up...  [?]: Help',
                       AppView.dashboard =>
-                        '[c]: Configure  [?]: Help  [q]: Quit',
+                        '[c]: Configure  [u]: Update  [?]: Help  [q]: Quit',
                       AppView.configure =>
                         '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
                       AppView.apply => '[Esc]: Back (when done)  [?]: Help',
+                    AppView.update => '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
                     },
                     style: const TextStyle(
                       color: Color.fromRGB(247, 147, 26),

@@ -11,6 +11,9 @@
       url = "github:fort-nix/nix-bitcoin";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nixblitz = {
+      url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+    };
   };
 
   outputs = {
@@ -18,6 +21,7 @@
     nixpkgs,
     disko,
     nix-bitcoin,
+    nixblitz,
   }: let
     inherit (nixpkgs) lib;
 
@@ -47,6 +51,7 @@
 
     nixosConfigurations.nixblitz = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
+      specialArgs = {inherit nixblitz;};
       modules = [
         ./hosts/default.nix
         self.nixosModules.default
