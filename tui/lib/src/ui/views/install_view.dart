@@ -8,6 +8,7 @@ import 'package:common/common.dart';
 import '../widgets/confirm_prompt.dart';
 import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
+import '_log_height.dart';
 
 final _diskSelectionIndexProvider = StateProvider<int>((ref) => 0);
 final _confirmProvider = StateProvider<bool>((ref) => false);
@@ -673,8 +674,9 @@ class _InstallViewState extends State<InstallView> {
     final logLines = context.watch(installLogProvider);
     final stepLabel = context.watch(installCurrentStepLabelProvider);
 
-    // Show only the last lines that fit on screen (approx)
-    const maxVisibleLines = 30;
+    // Show only the last lines that fit on screen.
+    // Reserved: title + spinner row + step label + spacing = ~4 lines
+    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
     final visibleLines = logLines.length > maxVisibleLines
         ? logLines.sublist(logLines.length - maxVisibleLines)
         : logLines;
@@ -845,7 +847,8 @@ class _InstallViewState extends State<InstallView> {
             const SizedBox(height: 1),
             // Show last lines of log
             ...(() {
-              const maxLines = 25;
+              // Reserved: title + spacing + "Press Esc..." = ~4 lines
+              final maxLines = maxVisibleLogLines(viewHeaderLines: 4);
               final visible = logLines.length > maxLines
                   ? logLines.sublist(logLines.length - maxLines)
                   : logLines;

@@ -5,6 +5,7 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
+import '_log_height.dart';
 
 enum _UpdateMode { selectMode, running, done }
 
@@ -164,7 +165,8 @@ class _UpdateViewState extends State<UpdateView> {
   Component _buildRunning() {
     final outputLines = context.watch(_updateOutputProvider);
 
-    const maxVisibleLines = 25;
+    // Reserved: spinner + spacing = ~2 lines
+    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 2);
     final visibleLines = outputLines.length > maxVisibleLines
         ? outputLines.sublist(outputLines.length - maxVisibleLines)
         : outputLines;
@@ -192,7 +194,8 @@ class _UpdateViewState extends State<UpdateView> {
     final outputLines = context.watch(_updateOutputProvider);
     final success = exitCode == 0;
 
-    const maxVisibleLines = 20;
+    // Reserved: title + spacing + "Press Enter..." = ~4 lines
+    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
     final visibleLines = outputLines.length > maxVisibleLines
         ? outputLines.sublist(outputLines.length - maxVisibleLines)
         : outputLines;
