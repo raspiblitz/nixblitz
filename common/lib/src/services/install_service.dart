@@ -127,6 +127,14 @@ class InstallService {
 
     LogService.info('Copying config from $sourceDir to $targetConfigDir');
 
+    // Check if mount point exists and is mounted
+    final mountCheck = await Process.run('mountpoint', ['-q', mountPoint]);
+    if (mountCheck.exitCode != 0) {
+      LogService.warn('$mountPoint is not mounted, attempting to mount');
+      // disko-install may have unmounted — try to remount
+      await Process.run('sudo', ['mount', '/dev/disk/by-partlabel/disk-main-root', mountPoint]);
+    }
+
     // Create target directory
     var result = await Process.run('sudo', ['mkdir', '-p', targetConfigDir]);
     if (result.exitCode != 0) {
@@ -134,13 +142,20 @@ class InstallService {
       return false;
     }
 
-    // Copy config directory
+    // Copy config directory (try rsync, fall back to cp)
     result = await Process.run('sudo', [
       'rsync', '-av', '--delete', '$sourceDir/', '$targetConfigDir/',
     ]);
     if (result.exitCode != 0) {
-      LogService.error('Failed to rsync config: ${result.stderr}');
-      return false;
+      LogService.warn('rsync failed (${result.exitCode}): ${result.stderr}');
+      LogService.info('Falling back to cp -r');
+      result = await Process.run('sudo', [
+        'cp', '-r', '$sourceDir/.', '$targetConfigDir/',
+      ]);
+      if (result.exitCode != 0) {
+        LogService.error('cp also failed (${result.exitCode}): ${result.stderr}');
+        return false;
+      }
     }
 
     // Copy install log
