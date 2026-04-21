@@ -61,8 +61,8 @@ vm-boot:
   }
 
   if not ('nixblitz-disk.qcow2' | path exists) {
-    print "Creating 64G disk image 'nixblitz-disk.qcow2'..."
-    qemu-img create -f qcow2 nixblitz-disk.qcow2 64G
+    print "Creating 150G disk image 'nixblitz-disk.qcow2'..."
+    qemu-img create -f qcow2 nixblitz-disk.qcow2 150G
   }
 
   print "Booting NixOS installer VM..."
