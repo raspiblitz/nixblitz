@@ -674,22 +674,6 @@ class _InstallViewState extends State<InstallView> {
     final logLines = context.watch(installLogProvider);
     final stepLabel = context.watch(installCurrentStepLabelProvider);
 
-    // Show only the last lines that fit on screen.
-    // Reserved: title + spinner row + step label + spacing = ~4 lines
-    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
-    final visibleLines = logLines.length > maxVisibleLines
-        ? logLines.sublist(logLines.length - maxVisibleLines)
-        : logLines;
-
-    // Show only the last lines that fit on screen, truncated to terminal width
-    // so they don't wrap and push the footer off-screen.
-    // Reserved: title + spinner row + step label + spacing = ~4 lines
-    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
-    final tail = logLines.length > maxVisibleLines
-        ? logLines.sublist(logLines.length - maxVisibleLines)
-        : logLines;
-    final visibleLines = tail.map(truncateLine).toList();
-
     return Container(
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -849,35 +833,7 @@ class _InstallViewState extends State<InstallView> {
               ),
             ),
             const SizedBox(height: 1),
-            // Show last lines of log
-            ...(() {
-              // Reserved: title + spacing + "Press Esc..." = ~4 lines
-              final maxLines = maxVisibleLogLines(viewHeaderLines: 4);
-              final visible = logLines.length > maxLines
-                  ? logLines.sublist(logLines.length - maxLines)
-                  : logLines;
-              return visible.map(
-                (line) => Text(
-                  line,
-                  style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
-                ),
-              );
-            })(),
-            // Show last lines of log
-            ...(() {
-              // Reserved: title + spacing + "Press Esc..." = ~4 lines
-              final maxLines = maxVisibleLogLines(viewHeaderLines: 4);
-              final tail = logLines.length > maxLines
-                  ? logLines.sublist(logLines.length - maxLines)
-                  : logLines;
-              final visible = tail.map(truncateLine).toList();
-              return visible.map(
-                (line) => Text(
-                  line,
-                  style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
-                ),
-              );
-            })(),
+            Expanded(child: ScrollableLog(lines: logLines)),
             const SizedBox(height: 1),
             const Text('Press Esc to go back and try again.'),
           ],

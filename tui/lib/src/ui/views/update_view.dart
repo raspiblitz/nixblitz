@@ -257,19 +257,6 @@ class _UpdateViewState extends State<UpdateView> {
   Component _buildRunning() {
     final outputLines = context.watch(_updateOutputProvider);
 
-    // Reserved: spinner + spacing = ~2 lines
-    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 2);
-    final visibleLines = outputLines.length > maxVisibleLines
-        ? outputLines.sublist(outputLines.length - maxVisibleLines)
-        : outputLines;
-
-    // Reserved: spinner + spacing = ~2 lines
-    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 2);
-    final tail = outputLines.length > maxVisibleLines
-        ? outputLines.sublist(outputLines.length - maxVisibleLines)
-        : outputLines;
-    final visibleLines = tail.map(truncateLine).toList();
-
     return Container(
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -287,19 +274,6 @@ class _UpdateViewState extends State<UpdateView> {
     final exitCode = context.watch(_updateExitCodeProvider);
     final outputLines = context.watch(_updateOutputProvider);
     final success = exitCode == 0;
-
-    // Reserved: title + spacing + "Press Enter..." = ~4 lines
-    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
-    final visibleLines = outputLines.length > maxVisibleLines
-        ? outputLines.sublist(outputLines.length - maxVisibleLines)
-        : outputLines;
-
-    // Reserved: title + spacing + "Press Enter..." = ~4 lines
-    final maxVisibleLines = maxVisibleLogLines(viewHeaderLines: 4);
-    final tail = outputLines.length > maxVisibleLines
-        ? outputLines.sublist(outputLines.length - maxVisibleLines)
-        : outputLines;
-    final visibleLines = tail.map(truncateLine).toList();
 
     return Focusable(
       focused: true,

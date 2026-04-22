@@ -63,23 +63,20 @@ class NixBlitzApp extends StatelessComponent {
     if (isLiveIso) {
       initialView = AppView.install;
     } else {
-      if (!configExists) {
-        initialView = AppView.install;
-      } else {
-        try {
-          final content = File(configPath).readAsStringSync();
-          final json = jsonDecode(content) as Map<String, dynamic>;
-          initialView = json['initialized'] == true
-              ? AppView.dashboard
-              : AppView.setup;
-        } catch (e, st) {
-          LogService.error(
-            'Failed to read config.json for mode detection',
-            e,
-            st,
-          );
-          initialView = AppView.dashboard;
-        }
+      // configExists is guaranteed true here (refusal above handles the else)
+      try {
+        final content = File(configPath).readAsStringSync();
+        final json = jsonDecode(content) as Map<String, dynamic>;
+        initialView = json['initialized'] == true
+            ? AppView.dashboard
+            : AppView.setup;
+      } catch (e, st) {
+        LogService.error(
+          'Failed to read config.json for mode detection',
+          e,
+          st,
+        );
+        initialView = AppView.dashboard;
       }
     }
 
@@ -207,7 +204,8 @@ class _Shell extends StatelessComponent {
                       AppView.configure =>
                         '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
                       AppView.apply => '[Esc]: Back (when done)  [?]: Help',
-                    AppView.update => '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
+                      AppView.update =>
+                        '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
                     },
                     style: const TextStyle(
                       color: Color.fromRGB(247, 147, 26),

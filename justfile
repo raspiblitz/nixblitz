@@ -30,9 +30,13 @@ analyze:
 format:
   dart format .
 
-# Run the TUI in dev mode
+# Run the TUI
 run:
   cd tui; dart run bin/nixblitz.dart
+
+# Run the dev TUI (separate entry point with widget/view demos)
+run-dev:
+  cd tui; dart run bin/nixblitz_dev.dart
 
 # Generate Nix lock files from pubspec.lock
 gen-locks: gen-workspace-lock gen-workspace-graph
