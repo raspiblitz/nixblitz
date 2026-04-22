@@ -59,6 +59,24 @@ Password B (RPC) and Password C (Lightning) scenarios.
 
 **Status:** Implement alongside Password B/C work.
 
+## Early swap for install on low-RAM devices
+
+The live NixOS ISO stages nix store builds in a tmpfs backed by RAM.
+When installing a large config (bitcoind + LND + nix-bitcoin), the
+tmpfs can fill up on devices with ≤8GB RAM, causing "No space left
+on device" before disko-install finishes.
+
+Possible fixes:
+- After disko partitions the disk but before the large build starts,
+  mkswap a small partition and `swapon` it so the tmpfs can overflow
+- Or: add a "zram" swap device sized from available RAM
+- Or: ship a custom installer ISO that does this automatically on boot
+
+Affects Pi4 8GB, Pi5 8GB, and any x86 node with ≤8GB RAM.
+
+**Status:** Not urgent (VM workaround: bump -m 16384). Implement when
+we target real hardware with less RAM.
+
 ## Semver-style config versioning
 
 Currently we use a single integer for schema version (`version: 1`). If the

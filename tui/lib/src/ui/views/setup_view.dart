@@ -1,12 +1,21 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/password_input.dart';
+import '../widgets/scrollable_log.dart';
+import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 
-enum SetupStep { setPassword, waitBitcoind, initLightning, summary }
+enum SetupStep {
+  setPassword,
+  buildServices,
+  waitBitcoind,
+  initLightning,
+  summary,
+}
 
 final _setupStepProvider = StateProvider<SetupStep>(
   (ref) => SetupStep.setPassword,
@@ -20,6 +29,7 @@ class SetupView extends StatelessComponent {
     final step = context.watch(_setupStepProvider);
     return switch (step) {
       SetupStep.setPassword => _SetPasswordStep(),
+      SetupStep.buildServices => const _BuildServicesStep(),
       SetupStep.waitBitcoind => _WaitBitcoindStep(),
       SetupStep.initLightning => _InitLightningStep(),
       SetupStep.summary => _SummaryStep(),
@@ -48,8 +58,204 @@ class _SetPasswordStep extends StatelessComponent {
           LogService.info('Password set successfully');
         }
         context.read(_setupStepProvider.notifier).state =
-            SetupStep.waitBitcoind;
+            SetupStep.buildServices;
       },
+    );
+  }
+}
+
+/// Bootstraps the service stack on first boot.
+///
+/// The initial install ships a minimal NixOS (`initialized: false` gates all
+/// service features off) so the build fits in the live ISO's tmpfs. Here, on
+/// the real disk, we flip `initialized` to true and run `nixos-rebuild switch`
+/// to bring up bitcoind/LND/CLN/blitz-api/blitz-web.
+class _BuildServicesStep extends StatefulComponent {
+  const _BuildServicesStep();
+
+  @override
+  State<_BuildServicesStep> createState() => _BuildServicesStepState();
+}
+
+class _BuildServicesStepState extends State<_BuildServicesStep> {
+  StreamSubscription<String>? _outputSub;
+  final List<String> _output = [];
+  bool _started = false;
+  int? _exitCode;
+
+  @override
+  void dispose() {
+    _outputSub?.cancel();
+    super.dispose();
+  }
+
+  void _append(String line) {
+    setState(() {
+      _output.add(line);
+    });
+  }
+
+  void _start() {
+    if (_started) return;
+    _started = true;
+
+    try {
+      final baseDirPath = context.read(baseDirProvider);
+      final configAsync = context.read(configProvider);
+      final config = configAsync.value;
+      if (config == null) {
+        _append('Error: config not loaded');
+        setState(() {
+          _exitCode = 1;
+        });
+        return;
+      }
+
+      _append('> Enabling services (initialized=true)');
+      final updated = config.copyWith(initialized: true);
+      final configService = context.read(configServiceProvider);
+      configService.writeConfigSync(updated);
+      LogService.info('BuildServices: wrote initialized=true');
+
+      _append('> git add + commit');
+      final gitAdd = Process.runSync(
+        'git',
+        ['add', 'config.json'],
+        workingDirectory: baseDirPath,
+      );
+      if (gitAdd.exitCode != 0) {
+        _append('git add failed: ${gitAdd.stderr}');
+      }
+      final gitCommit = Process.runSync(
+        'git',
+        ['commit', '-m', 'Enable services (first boot)'],
+        workingDirectory: baseDirPath,
+      );
+      _append('git commit exit=${gitCommit.exitCode}');
+
+      context.read(configProvider.notifier).updateConfig(updated);
+
+      _append('');
+      _append('> sudo nixos-rebuild switch --flake $baseDirPath');
+      _append('');
+
+      final systemService = context.read(systemServiceProvider);
+      final (:output, :exitCode) = systemService.rebuild(baseDirPath);
+
+      _outputSub = output.listen(
+        (line) {
+          LogService.info('[build-services] $line');
+          setState(() {
+            _output.add(line);
+          });
+        },
+        onError: (e, st) {
+          LogService.error('BuildServices output stream error', e, st);
+        },
+      );
+
+      exitCode
+          .then((code) {
+            LogService.info('BuildServices: rebuild exited with code $code');
+            setState(() {
+              _exitCode = code;
+            });
+            if (code == 0) {
+              Future.microtask(() {
+                context.read(_setupStepProvider.notifier).state =
+                    SetupStep.waitBitcoind;
+              });
+            }
+          })
+          .catchError((e, st) {
+            LogService.error('BuildServices rebuild failed', e, st);
+            setState(() {
+              _exitCode = 1;
+            });
+          });
+    } catch (e, st) {
+      LogService.error('BuildServices start failed', e, st);
+      _append('Error: $e');
+      setState(() {
+        _exitCode = 1;
+      });
+    }
+  }
+
+  @override
+  Component build(BuildContext context) {
+    if (!_started) {
+      Future.microtask(_start);
+    }
+
+    final isRunning = _exitCode == null;
+
+    if (isRunning) {
+      return Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Building services',
+              style: const TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Spinner(label: 'Running nixos-rebuild. This may take several minutes.'),
+            const SizedBox(height: 1),
+            Expanded(child: ScrollableLog(lines: _output)),
+          ],
+        ),
+      );
+    }
+
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.enter) {
+            _outputSub?.cancel();
+            _outputSub = null;
+            setState(() {
+              _output.clear();
+              _exitCode = null;
+              _started = false;
+            });
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.escape) {
+            context.read(currentViewProvider.notifier).state =
+                AppView.dashboard;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('BuildServices failure key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Service build failed',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Expanded(child: ScrollableLog(lines: _output)),
+            const SizedBox(height: 1),
+            const Text('Press Enter to retry, Esc to go to dashboard.'),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -184,34 +390,6 @@ class _SummaryStep extends StatelessComponent {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
-            final configAsync = context.read(configProvider);
-            final config = configAsync.value;
-            if (config != null) {
-              final updated = config.copyWith(initialized: true);
-              final baseDirPath = context.read(baseDirProvider);
-
-              // Write config synchronously
-              final configService = context.read(configServiceProvider);
-              configService.writeConfigSync(updated);
-              LogService.info('Setup: marked initialized');
-
-              // Git commit synchronously
-              final gitResult = Process.runSync(
-                'git',
-                ['add', 'config.json'],
-                workingDirectory: baseDirPath,
-              );
-              if (gitResult.exitCode == 0) {
-                Process.runSync(
-                  'git',
-                  ['commit', '-m', 'Setup complete: mark initialized'],
-                  workingDirectory: baseDirPath,
-                );
-              }
-              LogService.info('Setup: config committed');
-
-              context.read(configProvider.notifier).updateConfig(updated);
-            }
             context.read(currentViewProvider.notifier).state =
                 AppView.dashboard;
             return true;
