@@ -83,9 +83,33 @@ class _InstallViewState extends State<InstallView> {
       context.read(installStepProvider.notifier).state = InstallStep.installing;
       context.read(installCurrentStepLabelProvider.notifier).state = 'Starting...';
       context.read(installLogProvider.notifier).state = [
+        '> nix flake update nixblitz (refresh remote cache)',
+      ];
+
+      // Nix caches git+https inputs aggressively. Force-refresh the nixblitz
+      // input so disko-install pins the *current* remote tip in flake.lock,
+      // not a stale cached revision.
+      final updateResult = Process.runSync(
+        'nix',
+        ['flake', 'update', 'nixblitz'],
+        workingDirectory: baseDirPath,
+      );
+      final updateOutput = [
+        ...((updateResult.stderr as String).trim().split('\n')),
+        ...((updateResult.stdout as String).trim().split('\n')),
+      ].where((l) => l.isNotEmpty).toList();
+      context.read(installLogProvider.notifier).state = [
+        ...context.read(installLogProvider),
+        ...updateOutput,
+        if (updateResult.exitCode != 0)
+          'nix flake update exit=${updateResult.exitCode} (continuing anyway)',
+        '',
         '> disko-install --flake $baseDirPath#nixblitz --disk main ${disk.path}',
         '',
       ];
+      LogService.info(
+        'nix flake update nixblitz: exit=${updateResult.exitCode}',
+      );
 
       _startElapsedTimer();
 
