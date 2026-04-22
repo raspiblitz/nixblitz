@@ -38,54 +38,37 @@ class SystemService {
     String flakePath,
     String inputName,
   ) {
-    final controller = StreamController<String>();
-    final exitCodeFuture = () async {
-      // Step 1: update the flake input
-      controller.add('> nix flake update $inputName');
-      controller.add('');
-      final update = await Process.start(
-        'nix', ['flake', 'update', inputName],
-        workingDirectory: flakePath,
-      );
-      update.stdout.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      update.stderr.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      final updateCode = await update.exitCode;
-      if (updateCode != 0) {
-        controller.add('\nFlake update failed (exit code $updateCode).');
-        await controller.close();
-        return updateCode;
-      }
-
-      // Step 2: git commit the updated lock
-      controller.add('');
-      controller.add('> git commit flake.lock');
-      await Process.run('git', ['add', 'flake.lock'], workingDirectory: flakePath);
-      await Process.run('git', ['commit', '-m', 'Update $inputName'], workingDirectory: flakePath);
-
-      // Step 3: rebuild
-      controller.add('');
-      controller.add('> sudo nixos-rebuild switch --flake $flakePath');
-      controller.add('');
-      final rebuild = await Process.start(
-        'sudo', ['nixos-rebuild', 'switch', '--flake', flakePath],
-      );
-      rebuild.stdout.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      rebuild.stderr.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      final rebuildCode = await rebuild.exitCode;
-      await controller.close();
-      return rebuildCode;
-    }();
-    return (output: controller.stream, exitCode: exitCodeFuture);
+    return _updateAndRebuild(
+      flakePath: flakePath,
+      updateArgs: ['flake', 'update', inputName],
+      updateLabel: '> nix flake update $inputName',
+      commitMessage: 'Update $inputName',
+    );
   }
 
   /// Update all flake inputs and rebuild.
   ({Stream<String> output, Future<int> exitCode}) updateAll(String flakePath) {
+    return _updateAndRebuild(
+      flakePath: flakePath,
+      updateArgs: ['flake', 'update'],
+      updateLabel: '> nix flake update',
+      commitMessage: 'Update all flake inputs',
+    );
+  }
+
+  ({Stream<String> output, Future<int> exitCode}) _updateAndRebuild({
+    required String flakePath,
+    required List<String> updateArgs,
+    required String updateLabel,
+    required String commitMessage,
+  }) {
     final controller = StreamController<String>();
     final exitCodeFuture = () async {
-      controller.add('> nix flake update');
+      // Step 1: run `nix flake update [input]`
+      controller.add(updateLabel);
       controller.add('');
       final update = await Process.start(
-        'nix', ['flake', 'update'],
+        'nix', updateArgs,
         workingDirectory: flakePath,
       );
       update.stdout.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
@@ -97,11 +80,27 @@ class SystemService {
         return updateCode;
       }
 
+      // Step 2: only commit + rebuild if flake.lock actually changed.
+      // `nix flake update` rewrites the file even when nothing moved,
+      // so we use git as the source of truth.
+      final diff = await Process.run(
+        'git', ['diff', '--quiet', '--exit-code', 'flake.lock'],
+        workingDirectory: flakePath,
+      );
+      final lockChanged = diff.exitCode != 0;
+      if (!lockChanged) {
+        controller.add('');
+        controller.add('No inputs changed — system already up to date.');
+        await controller.close();
+        return 0;
+      }
+
       controller.add('');
       controller.add('> git commit flake.lock');
       await Process.run('git', ['add', 'flake.lock'], workingDirectory: flakePath);
-      await Process.run('git', ['commit', '-m', 'Update all flake inputs'], workingDirectory: flakePath);
+      await Process.run('git', ['commit', '-m', commitMessage], workingDirectory: flakePath);
 
+      // Step 3: rebuild
       controller.add('');
       controller.add('> sudo nixos-rebuild switch --flake $flakePath');
       controller.add('');
