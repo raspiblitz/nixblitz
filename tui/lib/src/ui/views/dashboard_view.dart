@@ -10,11 +10,17 @@ class DashboardView extends StatelessComponent {
   Component build(BuildContext context) {
     final configAsync = context.watch(configProvider);
     final statusAsync = context.watch(serviceStatusProvider);
+    final pendingAsync = context.watch(pendingChangesProvider);
 
     return configAsync.when(
       loading: () => const Center(child: Text('Loading config...')),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (config) {
+        final pendingCount = pendingAsync.maybeWhen(
+          data: (lines) => lines.length,
+          orElse: () => 0,
+        );
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -37,6 +43,16 @@ class DashboardView extends StatelessComponent {
                 ],
               ),
             ),
+            if (pendingCount > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Text(
+                  '! $pendingCount pending '
+                  '${pendingCount == 1 ? "change" : "changes"} '
+                  '— press [a] to review',
+                  style: const TextStyle(color: Color.fromRGB(247, 147, 26)),
+                ),
+              ),
             const SizedBox(height: 1),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 2),

@@ -132,6 +132,11 @@ class _Shell extends StatelessComponent {
                       AppView.configure;
                   return true;
                 }
+                if (event.logicalKey == LogicalKey.keyA) {
+                  context.read(currentViewProvider.notifier).state =
+                      AppView.apply;
+                  return true;
+                }
                 if (event.logicalKey == LogicalKey.keyU) {
                   context.read(currentViewProvider.notifier).state =
                       AppView.update;
@@ -209,10 +214,11 @@ class _Shell extends StatelessComponent {
                         '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
                       AppView.setup => 'Setting up...  [?]: Help',
                       AppView.dashboard =>
-                        '[c]: Configure  [u]: Update  [?]: Help  [q]: Quit',
+                        '[c]: Configure  [a]: Apply  [u]: Update  [?]: Help  [q]: Quit',
                       AppView.configure =>
                         '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
-                      AppView.apply => '[Esc]: Back (when done)  [?]: Help',
+                      AppView.apply =>
+                        '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
                       AppView.update =>
                         '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
                     },

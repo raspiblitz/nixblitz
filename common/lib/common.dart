@@ -6,6 +6,7 @@ export 'src/services/config_service.dart';
 export 'src/services/git_service.dart';
 export 'src/services/system_service.dart';
 export 'src/providers/config_provider.dart';
+export 'src/providers/git_provider.dart';
 export 'src/providers/service_status_provider.dart';
 export 'src/providers/install_provider.dart';
 export 'src/services/embedded_templates.dart';

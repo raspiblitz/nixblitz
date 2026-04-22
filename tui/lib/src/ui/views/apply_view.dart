@@ -3,10 +3,23 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/scrollable_log.dart';
+import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 
-final _rebuildOutputProvider = StateProvider<List<String>>((ref) => []);
-final _rebuildRunningProvider = StateProvider<bool>((ref) => false);
+/// Review pending config/template changes, then commit + rebuild as one step,
+/// or discard them. Reachable from the dashboard via `[a]`. The git working
+/// tree is the staging area — `ConfigureView` writes straight to `config.json`
+/// without committing, and this view is where those dirty files turn into a
+/// commit + a live system change.
+enum _ApplyMode { review, running, done }
+
+final _applyModeProvider = StateProvider<_ApplyMode>(
+  (ref) => _ApplyMode.review,
+);
+final _applyDiffProvider = StateProvider<String?>((ref) => null);
+final _applyOutputProvider = StateProvider<List<String>>((ref) => []);
+final _applyExitCodeProvider = StateProvider<int?>((ref) => null);
 
 class ApplyView extends StatefulComponent {
   const ApplyView({super.key});
@@ -17,56 +30,8 @@ class ApplyView extends StatefulComponent {
 
 class _ApplyViewState extends State<ApplyView> {
   StreamSubscription<String>? _outputSub;
-
-  @override
-  void initState() {
-    super.initState();
-    _startRebuild();
-  }
-
-  void _startRebuild() {
-    try {
-      final configAsync = context.read(configProvider);
-      final config = configAsync.value;
-      if (config == null) return;
-
-      final baseDirPath = context.read(baseDirProvider);
-      final systemService = context.read(systemServiceProvider);
-
-      context.read(_rebuildRunningProvider.notifier).state = true;
-      context.read(_rebuildOutputProvider.notifier).state = [
-        '> sudo nixos-rebuild switch --flake $baseDirPath',
-        '',
-      ];
-
-      final (:output, :exitCode) = systemService.rebuild(baseDirPath);
-
-      _outputSub = output.listen((line) {
-        final current = context.read(_rebuildOutputProvider);
-        context.read(_rebuildOutputProvider.notifier).state = [
-          ...current,
-          line,
-        ];
-      });
-
-      exitCode.then((code) {
-        final current = context.read(_rebuildOutputProvider);
-        final msg = code == 0
-            ? '\nRebuild successful. Press Esc to return.'
-            : '\nRebuild failed (exit code $code). Press Esc to return.';
-        context.read(_rebuildOutputProvider.notifier).state = [...current, msg];
-        context.read(_rebuildRunningProvider.notifier).state = false;
-      });
-    } catch (e, st) {
-      LogService.error('Failed to start rebuild', e, st);
-      context.read(_rebuildRunningProvider.notifier).state = false;
-      final current = context.read(_rebuildOutputProvider);
-      context.read(_rebuildOutputProvider.notifier).state = [
-        ...current,
-        '\nFailed to start rebuild. Check logs and try again.',
-      ];
-    }
-  }
+  bool _diffLoading = false;
+  bool _started = false;
 
   @override
   void dispose() {
@@ -74,55 +39,261 @@ class _ApplyViewState extends State<ApplyView> {
     super.dispose();
   }
 
+  void _loadDiff() {
+    if (_diffLoading) return;
+    _diffLoading = true;
+    final git = context.read(gitServiceProvider);
+    git.diff().then((text) {
+      context.read(_applyDiffProvider.notifier).state = text;
+    }).catchError((e, st) {
+      LogService.error('Failed to load diff', e, st);
+      context.read(_applyDiffProvider.notifier).state =
+          'Failed to load diff: $e';
+    });
+  }
+
+  void _reset() {
+    _outputSub?.cancel();
+    _outputSub = null;
+    _started = false;
+    _diffLoading = false;
+    context.read(_applyModeProvider.notifier).state = _ApplyMode.review;
+    context.read(_applyDiffProvider.notifier).state = null;
+    context.read(_applyOutputProvider.notifier).state = [];
+    context.read(_applyExitCodeProvider.notifier).state = null;
+  }
+
+  void _leave() {
+    _reset();
+    // Refresh the dashboard banner on return.
+    context.invalidate(pendingChangesProvider);
+    context.read(currentViewProvider.notifier).state = AppView.dashboard;
+  }
+
+  void _append(String line) {
+    final current = context.read(_applyOutputProvider);
+    context.read(_applyOutputProvider.notifier).state = [...current, line];
+  }
+
+  void _startApply() {
+    if (_started) return;
+    _started = true;
+
+    try {
+      final baseDirPath = context.read(baseDirProvider);
+      final git = context.read(gitServiceProvider);
+      final systemService = context.read(systemServiceProvider);
+
+      context.read(_applyModeProvider.notifier).state = _ApplyMode.running;
+      context.read(_applyOutputProvider.notifier).state = [];
+      context.read(_applyExitCodeProvider.notifier).state = null;
+
+      _append('> git add -A && git commit -m "Apply settings"');
+      git.commitAll('Apply settings').then((committed) {
+        _append(
+          committed ? 'Committed.' : 'Nothing staged (no changes to commit).',
+        );
+        _append('');
+        _append('> sudo nixos-rebuild switch --flake $baseDirPath');
+        _append('');
+
+        final (:output, :exitCode) = systemService.rebuild(baseDirPath);
+        _outputSub = output.listen(
+          (line) {
+            LogService.info('[apply] $line');
+            _append(line);
+          },
+          onError: (e, st) {
+            LogService.error('Apply output stream error', e, st);
+          },
+        );
+        exitCode
+            .then((code) {
+              LogService.info('apply: rebuild exited with code $code');
+              context.read(_applyExitCodeProvider.notifier).state = code;
+              context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+              _started = false;
+            })
+            .catchError((e, st) {
+              LogService.error('Apply rebuild failed', e, st);
+              context.read(_applyExitCodeProvider.notifier).state = 1;
+              context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+              _started = false;
+            });
+      }).catchError((e, st) {
+        LogService.error('Apply commit failed', e, st);
+        _append('Commit failed: $e');
+        context.read(_applyExitCodeProvider.notifier).state = 1;
+        context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+        _started = false;
+      });
+    } catch (e, st) {
+      LogService.error('Apply start failed', e, st);
+      _append('Error: $e');
+      context.read(_applyExitCodeProvider.notifier).state = 1;
+      context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+      _started = false;
+    }
+  }
+
+  void _discard() {
+    try {
+      final git = context.read(gitServiceProvider);
+      git.discardAll().then((ok) {
+        if (!ok) {
+          LogService.warn('git checkout -- . failed during discard');
+        }
+        // Reload config from disk so the in-memory notifier matches.
+        context.read(configProvider.notifier).reload();
+        _leave();
+      }).catchError((e, st) {
+        LogService.error('Discard failed', e, st);
+        _leave();
+      });
+    } catch (e, st) {
+      LogService.error('Discard threw', e, st);
+      _leave();
+    }
+  }
+
   @override
   Component build(BuildContext context) {
-    final outputLines = context.watch(_rebuildOutputProvider);
-    final running = context.watch(_rebuildRunningProvider);
+    final mode = context.watch(_applyModeProvider);
+    return switch (mode) {
+      _ApplyMode.review => _buildReview(),
+      _ApplyMode.running => _buildRunning(),
+      _ApplyMode.done => _buildDone(),
+    };
+  }
+
+  Component _buildReview() {
+    final diff = context.watch(_applyDiffProvider);
+
+    if (diff == null) {
+      Future.microtask(_loadDiff);
+    }
+
+    final lines = (diff ?? '').split('\n');
+    final hasChanges = diff != null && diff.trim().isNotEmpty;
 
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         try {
-          if (event.logicalKey == LogicalKey.escape && !running) {
-            context.read(currentViewProvider.notifier).state =
-                AppView.dashboard;
+          if (event.logicalKey == LogicalKey.escape) {
+            _leave();
+            return true;
+          }
+          if (!hasChanges) return false;
+          if (event.logicalKey == LogicalKey.keyA) {
+            _startApply();
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyD) {
+            _discard();
             return true;
           }
           return false;
         } catch (e, st) {
-          LogService.error('Apply view key handler failed', e, st);
+          LogService.error('Apply review key handler failed', e, st);
           return true;
         }
       },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Text(
-              running ? 'Applying configuration...' : 'Rebuild complete',
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pending Changes',
               style: const TextStyle(
                 color: Color.fromRGB(247, 147, 26),
                 fontWeight: FontWeight.bold,
               ),
             ),
+            const SizedBox(height: 1),
+            if (diff == null)
+              const Text('Loading diff...')
+            else if (!hasChanges)
+              const Text('No pending changes — press [Esc] to return.')
+            else
+              Expanded(child: ScrollableLog(lines: lines)),
+            if (hasChanges) ...[
+              const SizedBox(height: 1),
+              const Text(
+                '[a] Apply  [d] Discard  [Esc] Back',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Component _buildRunning() {
+    final outputLines = context.watch(_applyOutputProvider);
+
+    return Container(
+      padding: const EdgeInsets.all(2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Spinner(label: 'Applying changes'),
+          const Text(
+            'Committing and rebuilding. This may take several minutes.',
+            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
           ),
           const SizedBox(height: 1),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: ListView.builder(
-                itemCount: outputLines.length,
-                itemBuilder: (context, index) {
-                  return Text(
-                    outputLines[index],
-                    style: const TextStyle(color: Color.fromRGB(180, 180, 200)),
-                  );
-                },
+          Expanded(child: ScrollableLog(lines: outputLines)),
+        ],
+      ),
+    );
+  }
+
+  Component _buildDone() {
+    final outputLines = context.watch(_applyOutputProvider);
+    final exitCode = context.watch(_applyExitCodeProvider);
+    final success = exitCode == 0;
+
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.enter ||
+              event.logicalKey == LogicalKey.escape) {
+            _leave();
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('Apply done key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              success ? 'Apply Complete' : 'Apply Failed',
+              style: TextStyle(
+                color: success
+                    ? const Color.fromRGB(110, 220, 110)
+                    : const Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 1),
+            Expanded(child: ScrollableLog(lines: outputLines)),
+            const SizedBox(height: 1),
+            const Text(
+              'Press Enter or Esc to return to dashboard.',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+          ],
+        ),
       ),
     );
   }
