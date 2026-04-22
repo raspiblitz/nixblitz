@@ -27,3 +27,4 @@ result-*
 examples_redesign/
 
 .devenv/
+.claude/
