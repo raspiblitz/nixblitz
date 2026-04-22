@@ -239,6 +239,13 @@ in {
   features.apps.blitz-api.enable = initialized && cfg.blitz_api.enabled;
   features.apps.blitz-web.enable = initialized && cfg.blitz_web.enabled;
 
+  # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
+  # are up. Needs at least one service enabled — nix-bitcoin.operator adds
+  # the user to groups that only exist when the relevant service runs.
+  features.system.operator.enable =
+    initialized
+    && (cfg.bitcoind.enabled || cfg.lnd.enabled || cfg.cln.enabled);
+
   users.users.admin = {
     isNormalUser = true;
     extraGroups = ["wheel"];
@@ -465,6 +472,35 @@ in {
 }
 ''';
 
+const String _modulesSystemOperator = r'''
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
+  cfg = config.features.system.operator;
+in {
+  options.features.system.operator = {
+    enable =
+      lib.mkEnableOption
+      "operator user access to service CLIs (bitcoin-cli, lncli, lightning-cli)";
+    name = lib.mkOption {
+      type = lib.types.str;
+      default = "admin";
+      description = "Existing user to grant operator access.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    nix-bitcoin.operator = {
+      enable = true;
+      name = cfg.name;
+    };
+  };
+}
+''';
+
 Map<String, String> _getAllTemplates() {
   return {
     'flake.nix': _flake,
@@ -480,5 +516,6 @@ Map<String, String> _getAllTemplates() {
     'modules/apps/lnd.nix': _modulesAppsLnd,
     'modules/system/base.nix': _modulesSystemBase,
     'modules/system/disko-vm.nix': _modulesSystemDiskoVm,
+    'modules/system/operator.nix': _modulesSystemOperator,
   };
 }

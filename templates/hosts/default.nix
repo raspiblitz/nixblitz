@@ -38,6 +38,13 @@ in {
   features.apps.blitz-api.enable = initialized && cfg.blitz_api.enabled;
   features.apps.blitz-web.enable = initialized && cfg.blitz_web.enabled;
 
+  # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
+  # are up. Needs at least one service enabled — nix-bitcoin.operator adds
+  # the user to groups that only exist when the relevant service runs.
+  features.system.operator.enable =
+    initialized
+    && (cfg.bitcoind.enabled || cfg.lnd.enabled || cfg.cln.enabled);
+
   users.users.admin = {
     isNormalUser = true;
     extraGroups = ["wheel"];
