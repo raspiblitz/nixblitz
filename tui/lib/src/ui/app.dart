@@ -181,15 +181,24 @@ class _Shell extends StatelessComponent {
                   ),
                 ),
                 const SizedBox(height: 1),
+                // Wrap the view swap in a stable SizedBox.expand so the
+                // flex parent data applied by Expanded stays anchored to
+                // one render object across view (and internal step)
+                // changes. Without this, views that swap their root
+                // widget type between steps (install, setup, update…)
+                // lose the flex data and crash when they contain an
+                // inner Expanded(ScrollableLog).
                 Expanded(
-                  child: switch (context.watch(currentViewProvider)) {
-                    AppView.install => const InstallView(),
-                    AppView.setup => const SetupView(),
-                    AppView.dashboard => const DashboardView(),
-                    AppView.configure => const ConfigureView(),
-                    AppView.apply => const ApplyView(),
-                AppView.update => const UpdateView(),
-                  },
+                  child: SizedBox.expand(
+                    child: switch (context.watch(currentViewProvider)) {
+                      AppView.install => const InstallView(),
+                      AppView.setup => const SetupView(),
+                      AppView.dashboard => const DashboardView(),
+                      AppView.configure => const ConfigureView(),
+                      AppView.apply => const ApplyView(),
+                      AppView.update => const UpdateView(),
+                    },
+                  ),
                 ),
                 const Divider(),
                 Container(

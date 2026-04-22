@@ -35,7 +35,13 @@ class _ScrollableLogState extends State<ScrollableLog> {
     final result = <String>[];
     for (final line in comp.lines) {
       if (line.contains('\n')) {
-        result.addAll(line.split('\n'));
+        // Strip a single trailing newline before splitting so "abc\n"
+        // becomes ["abc"] instead of ["abc", ""]. Intentional blank lines
+        // inside the chunk (e.g., "abc\n\ndef") are preserved.
+        final trimmed = line.endsWith('\n')
+            ? line.substring(0, line.length - 1)
+            : line;
+        result.addAll(trimmed.split('\n'));
       } else {
         result.add(line);
       }

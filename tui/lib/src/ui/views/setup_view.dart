@@ -21,25 +21,127 @@ final _setupStepProvider = StateProvider<SetupStep>(
   (ref) => SetupStep.setPassword,
 );
 
-class SetupView extends StatelessComponent {
+final _buildServicesLogProvider = StateProvider<List<String>>((ref) => []);
+final _buildServicesExitCodeProvider = StateProvider<int?>((ref) => null);
+
+class SetupView extends StatefulComponent {
   const SetupView({super.key});
+
+  @override
+  State<SetupView> createState() => _SetupViewState();
+}
+
+class _SetupViewState extends State<SetupView> {
+  StreamSubscription<String>? _buildServicesSub;
+  bool _buildServicesStarted = false;
+
+  @override
+  void dispose() {
+    _buildServicesSub?.cancel();
+    super.dispose();
+  }
+
+  void _startBuildServices() {
+    if (_buildServicesStarted) return;
+    _buildServicesStarted = true;
+
+    try {
+      final baseDirPath = context.read(baseDirProvider);
+      final configAsync = context.read(configProvider);
+      final config = configAsync.value;
+      if (config == null) {
+        _appendBuildLog('Error: config not loaded');
+        context.read(_buildServicesExitCodeProvider.notifier).state = 1;
+        return;
+      }
+
+      _appendBuildLog('> Enabling services (initialized=true)');
+      final updated = config.copyWith(initialized: true);
+      final configService = context.read(configServiceProvider);
+      configService.writeConfigSync(updated);
+      LogService.info('BuildServices: wrote initialized=true');
+
+      _appendBuildLog('> git add + commit');
+      final gitAdd = Process.runSync(
+        'git',
+        ['add', 'config.json'],
+        workingDirectory: baseDirPath,
+      );
+      if (gitAdd.exitCode != 0) {
+        _appendBuildLog('git add failed: ${gitAdd.stderr}');
+      }
+      final gitCommit = Process.runSync(
+        'git',
+        ['commit', '-m', 'Enable services (first boot)'],
+        workingDirectory: baseDirPath,
+      );
+      _appendBuildLog('git commit exit=${gitCommit.exitCode}');
+
+      context.read(configProvider.notifier).updateConfig(updated);
+
+      _appendBuildLog('');
+      _appendBuildLog('> sudo nixos-rebuild switch --flake $baseDirPath');
+      _appendBuildLog('');
+
+      final systemService = context.read(systemServiceProvider);
+      final (:output, :exitCode) = systemService.rebuild(baseDirPath);
+
+      _buildServicesSub = output.listen(
+        (line) {
+          LogService.info('[build-services] $line');
+          _appendBuildLog(line);
+        },
+        onError: (e, st) {
+          LogService.error('BuildServices output stream error', e, st);
+        },
+      );
+
+      exitCode
+          .then((code) {
+            LogService.info('BuildServices: rebuild exited with code $code');
+            context.read(_buildServicesExitCodeProvider.notifier).state = code;
+            if (code == 0) {
+              context.read(_setupStepProvider.notifier).state =
+                  SetupStep.waitBitcoind;
+            }
+          })
+          .catchError((e, st) {
+            LogService.error('BuildServices rebuild failed', e, st);
+            context.read(_buildServicesExitCodeProvider.notifier).state = 1;
+          });
+    } catch (e, st) {
+      LogService.error('BuildServices start failed', e, st);
+      _appendBuildLog('Error: $e');
+      context.read(_buildServicesExitCodeProvider.notifier).state = 1;
+    }
+  }
+
+  void _appendBuildLog(String line) {
+    final current = context.read(_buildServicesLogProvider);
+    context.read(_buildServicesLogProvider.notifier).state = [...current, line];
+  }
+
+  void _retryBuildServices() {
+    _buildServicesSub?.cancel();
+    _buildServicesSub = null;
+    _buildServicesStarted = false;
+    context.read(_buildServicesLogProvider.notifier).state = [];
+    context.read(_buildServicesExitCodeProvider.notifier).state = null;
+  }
 
   @override
   Component build(BuildContext context) {
     final step = context.watch(_setupStepProvider);
     return switch (step) {
-      SetupStep.setPassword => _SetPasswordStep(),
-      SetupStep.buildServices => const _BuildServicesStep(),
-      SetupStep.waitBitcoind => _WaitBitcoindStep(),
-      SetupStep.initLightning => _InitLightningStep(),
-      SetupStep.summary => _SummaryStep(),
+      SetupStep.setPassword => _buildSetPassword(),
+      SetupStep.buildServices => _buildBuildServices(),
+      SetupStep.waitBitcoind => _buildWaitBitcoind(),
+      SetupStep.initLightning => _buildInitLightning(),
+      SetupStep.summary => _buildSummary(),
     };
   }
-}
 
-class _SetPasswordStep extends StatelessComponent {
-  @override
-  Component build(BuildContext context) {
+  Component _buildSetPassword() {
     return PasswordInput(
       title: 'First Boot Setup',
       subtitle: 'Set a password for the admin user. Used for SSH access.',
@@ -62,133 +164,27 @@ class _SetPasswordStep extends StatelessComponent {
       },
     );
   }
-}
 
-/// Bootstraps the service stack on first boot.
-///
-/// The initial install ships a minimal NixOS (`initialized: false` gates all
-/// service features off) so the build fits in the live ISO's tmpfs. Here, on
-/// the real disk, we flip `initialized` to true and run `nixos-rebuild switch`
-/// to bring up bitcoind/LND/CLN/blitz-api/blitz-web.
-class _BuildServicesStep extends StatefulComponent {
-  const _BuildServicesStep();
+  /// Bootstraps the service stack on first boot.
+  ///
+  /// The initial install ships a minimal NixOS (`initialized: false` gates all
+  /// service features off) so the build fits in the live ISO's tmpfs. Here, on
+  /// the real disk, we flip `initialized` to true and run `nixos-rebuild switch`
+  /// to bring up bitcoind/LND/CLN/blitz-api/blitz-web.
+  Component _buildBuildServices() {
+    final configAsync = context.watch(configProvider);
+    final logLines = context.watch(_buildServicesLogProvider);
+    final exitCode = context.watch(_buildServicesExitCodeProvider);
 
-  @override
-  State<_BuildServicesStep> createState() => _BuildServicesStepState();
-}
-
-class _BuildServicesStepState extends State<_BuildServicesStep> {
-  StreamSubscription<String>? _outputSub;
-  final List<String> _output = [];
-  bool _started = false;
-  int? _exitCode;
-
-  @override
-  void dispose() {
-    _outputSub?.cancel();
-    super.dispose();
-  }
-
-  void _append(String line) {
-    setState(() {
-      _output.add(line);
-    });
-  }
-
-  void _start() {
-    if (_started) return;
-    _started = true;
-
-    try {
-      final baseDirPath = context.read(baseDirProvider);
-      final configAsync = context.read(configProvider);
-      final config = configAsync.value;
-      if (config == null) {
-        _append('Error: config not loaded');
-        setState(() {
-          _exitCode = 1;
-        });
-        return;
-      }
-
-      _append('> Enabling services (initialized=true)');
-      final updated = config.copyWith(initialized: true);
-      final configService = context.read(configServiceProvider);
-      configService.writeConfigSync(updated);
-      LogService.info('BuildServices: wrote initialized=true');
-
-      _append('> git add + commit');
-      final gitAdd = Process.runSync(
-        'git',
-        ['add', 'config.json'],
-        workingDirectory: baseDirPath,
-      );
-      if (gitAdd.exitCode != 0) {
-        _append('git add failed: ${gitAdd.stderr}');
-      }
-      final gitCommit = Process.runSync(
-        'git',
-        ['commit', '-m', 'Enable services (first boot)'],
-        workingDirectory: baseDirPath,
-      );
-      _append('git commit exit=${gitCommit.exitCode}');
-
-      context.read(configProvider.notifier).updateConfig(updated);
-
-      _append('');
-      _append('> sudo nixos-rebuild switch --flake $baseDirPath');
-      _append('');
-
-      final systemService = context.read(systemServiceProvider);
-      final (:output, :exitCode) = systemService.rebuild(baseDirPath);
-
-      _outputSub = output.listen(
-        (line) {
-          LogService.info('[build-services] $line');
-          setState(() {
-            _output.add(line);
-          });
-        },
-        onError: (e, st) {
-          LogService.error('BuildServices output stream error', e, st);
-        },
-      );
-
-      exitCode
-          .then((code) {
-            LogService.info('BuildServices: rebuild exited with code $code');
-            setState(() {
-              _exitCode = code;
-            });
-            if (code == 0) {
-              Future.microtask(() {
-                context.read(_setupStepProvider.notifier).state =
-                    SetupStep.waitBitcoind;
-              });
-            }
-          })
-          .catchError((e, st) {
-            LogService.error('BuildServices rebuild failed', e, st);
-            setState(() {
-              _exitCode = 1;
-            });
-          });
-    } catch (e, st) {
-      LogService.error('BuildServices start failed', e, st);
-      _append('Error: $e');
-      setState(() {
-        _exitCode = 1;
-      });
-    }
-  }
-
-  @override
-  Component build(BuildContext context) {
-    if (!_started) {
-      Future.microtask(_start);
+    // Wait for the config to load before kicking off the rebuild. Without
+    // this, the first render after the password step sees configAsync.value
+    // still null (ProviderScope is still initializing it) and we'd bail out
+    // into the failure state.
+    if (!_buildServicesStarted && configAsync.value != null) {
+      Future.microtask(_startBuildServices);
     }
 
-    final isRunning = _exitCode == null;
+    final isRunning = exitCode == null;
 
     if (isRunning) {
       return Container(
@@ -196,17 +192,17 @@ class _BuildServicesStepState extends State<_BuildServicesStep> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Building services',
-              style: const TextStyle(
-                color: Color.fromRGB(247, 147, 26),
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Spinner(label: 'Building services'),
+              ],
+            ),
+            const Text(
+              'Running nixos-rebuild. This may take several minutes.',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
             const SizedBox(height: 1),
-            Spinner(label: 'Running nixos-rebuild. This may take several minutes.'),
-            const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: _output)),
+            Expanded(child: ScrollableLog(lines: logLines)),
           ],
         ),
       );
@@ -217,13 +213,7 @@ class _BuildServicesStepState extends State<_BuildServicesStep> {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
-            _outputSub?.cancel();
-            _outputSub = null;
-            setState(() {
-              _output.clear();
-              _exitCode = null;
-              _started = false;
-            });
+            _retryBuildServices();
             return true;
           }
           if (event.logicalKey == LogicalKey.escape) {
@@ -250,7 +240,7 @@ class _BuildServicesStepState extends State<_BuildServicesStep> {
               ),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: _output)),
+            Expanded(child: ScrollableLog(lines: logLines)),
             const SizedBox(height: 1),
             const Text('Press Enter to retry, Esc to go to dashboard.'),
           ],
@@ -258,11 +248,8 @@ class _BuildServicesStepState extends State<_BuildServicesStep> {
       ),
     );
   }
-}
 
-class _WaitBitcoindStep extends StatelessComponent {
-  @override
-  Component build(BuildContext context) {
+  Component _buildWaitBitcoind() {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
 
@@ -320,11 +307,8 @@ class _WaitBitcoindStep extends StatelessComponent {
       ),
     );
   }
-}
 
-class _InitLightningStep extends StatelessComponent {
-  @override
-  Component build(BuildContext context) {
+  Component _buildInitLightning() {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
     final hasLightning =
@@ -380,11 +364,8 @@ class _InitLightningStep extends StatelessComponent {
       ),
     );
   }
-}
 
-class _SummaryStep extends StatelessComponent {
-  @override
-  Component build(BuildContext context) {
+  Component _buildSummary() {
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
