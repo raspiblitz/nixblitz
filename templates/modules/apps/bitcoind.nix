@@ -9,7 +9,10 @@ in {
   options.features.apps.bitcoind = {
     enable = lib.mkEnableOption "Bitcoin daemon";
     network = lib.mkOption {
-      type = lib.types.enum ["mainnet" "testnet" "signet"];
+      # testnet / signet are parked until nix-bitcoin grows section-aware
+      # config generation (top-level rpcbind/rpcport are rejected by
+      # Bitcoin Core on non-main networks). See IDEAS.md.
+      type = lib.types.enum ["mainnet" "regtest"];
       default = "mainnet";
       description = "Bitcoin network to connect to.";
     };
@@ -31,11 +34,6 @@ in {
       dataDir = "/mnt/data/bitcoind";
       regtest = cfg.network == "regtest";
       prune = if cfg.pruned then cfg.pruneSizeGb * 1000 else 0;
-      extraConfig = ''
-        server=1
-        ${lib.optionalString (cfg.network == "testnet") "testnet=1"}
-        ${lib.optionalString (cfg.network == "signet") "signet=1"}
-      '';
     };
   };
 }

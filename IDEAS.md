@@ -2,6 +2,27 @@
 
 Parking lot for ideas we've discussed but don't want to implement right now.
 
+## Bitcoin testnet / signet support
+
+Currently only `mainnet` and `regtest` are offered. `testnet`/`signet`
+require section-aware `bitcoin.conf` generation — nix-bitcoin's
+`modules/bitcoind.nix` writes `rpcbind`/`rpcport` at the top level of
+the conf, and Bitcoin Core rejects those at top level when running on
+any non-main chain (they must live inside the matching `[test]` /
+`[signet]` section).
+
+**Path forward:**
+- Fork nix-bitcoin to `forge.f44.fyi/f44/nix-bitcoin` and patch
+  `modules/bitcoind.nix` so it emits a section header matching the
+  active chain (generalize the existing `regtest=1\n[regtest]` block)
+- Or: ditch nix-bitcoin's bitcoind module in favor of NixOS's built-in
+  `services.bitcoind.<name>` and reimplement the RPC wiring ourselves
+- Update the network picker in `install_view.dart` + `configure_view.dart`
+  once support lands
+
+**Status:** Park until we decide whether we want a long-lived nix-bitcoin
+fork. Mainnet + regtest cover the common cases for now.
+
 ## Convert existing NixOS to NixBlitz
 
 **Scenario:** User is already running a NixOS system (not a live ISO, not a

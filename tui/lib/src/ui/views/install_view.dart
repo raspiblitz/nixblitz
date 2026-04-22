@@ -15,7 +15,7 @@ final _confirmProvider = StateProvider<bool>((ref) => false);
 final _confirmSelectionProvider = StateProvider<int>((ref) => 1); // 0=install, 1=go back (default safe)
 final _configOptionIndexProvider = StateProvider<int>((ref) => 0);
 // Initial config choices
-const _networks = ['mainnet', 'testnet', 'signet'];
+const _networks = ['mainnet', 'regtest'];
 
 enum _LightningChoice { none, lnd, cln }
 

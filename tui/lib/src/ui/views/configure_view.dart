@@ -227,7 +227,7 @@ class ConfigureView extends StatelessComponent {
               ),
             );
           case 1:
-            const networks = ['mainnet', 'testnet', 'signet'];
+            const networks = ['mainnet', 'regtest'];
             final next =
                 (networks.indexOf(config.bitcoind.network) + 1) %
                 networks.length;
@@ -329,7 +329,7 @@ class ConfigureView extends StatelessComponent {
           SelectOptionEditor(
             label: 'network',
             value: config.bitcoind.network,
-            options: const ['mainnet', 'testnet', 'signet'],
+            options: const ['mainnet', 'regtest'],
             focused: selectedIndex == 1,
           ),
           BoolOptionEditor(

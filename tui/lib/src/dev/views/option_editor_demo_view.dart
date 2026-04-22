@@ -44,7 +44,7 @@ class OptionEditorDemoView extends StatelessComponent {
             const SelectOptionEditor(
               label: 'network',
               value: 'mainnet',
-              options: ['mainnet', 'testnet', 'signet'],
+              options: ['mainnet', 'regtest'],
               focused: true,
             ),
             const SelectOptionEditor(
