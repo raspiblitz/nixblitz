@@ -2,6 +2,23 @@
 
 Parking lot for ideas we've discussed but don't want to implement right now.
 
+## Richer diff in the "config too new" screen
+
+Today the `ConfigTooNewView` just dumps the raw `config.json` text so the user
+can see what's there before continuing. A richer version would structurally
+diff the on-disk JSON against what the TUI would write back after a round-trip
+through `NixblitzConfig.fromJson` + `toJson`, highlighting specifically which
+fields this TUI doesn't understand and would drop. Two paths:
+
+- Parse both JSONs, walk the trees recursively, emit a per-field summary:
+  "`blitz_api.newFeature` (unknown — will be dropped on save)".
+- Write both blobs to temp files and run `git diff --no-index`, reuse the
+  existing `ScrollableLog` renderer.
+
+**Status:** Park. The raw dump is enough for MVP and adding structure needs
+unknown-field tracking in the model first (right now fromJson silently
+discards unknowns — see nixblitz_config.dart).
+
 ## Bitcoin testnet / signet support
 
 Currently only `mainnet` and `regtest` are offered. `testnet`/`signet`

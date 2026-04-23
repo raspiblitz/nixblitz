@@ -6,6 +6,7 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import 'views/dashboard_view.dart';
 import 'views/apply_view.dart';
+import 'views/config_too_new_view.dart';
 import 'views/configure_view.dart';
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
@@ -23,6 +24,33 @@ bool _isLiveIso() {
   } catch (e) {
     LogService.warn('Could not detect live ISO: $e');
     return false;
+  }
+}
+
+/// Run when the on-disk config is older than this TUI expects: rewrite
+/// embedded templates, migrate config.json to [currentConfigVersion], leave
+/// the working tree dirty so the user reviews + applies via `[a]`.
+void _autoUpgrade(String baseDir) {
+  try {
+    final scaffold = ScaffoldService(targetDir: baseDir);
+    scaffold.refreshTemplatesSync();
+
+    // Read + re-write config so migrations run and the `version` field
+    // bumps. Synchronous path — ConfigService has both async and sync
+    // variants; we want sync here to block before the UI renders.
+    final configService = ConfigService(baseDir: baseDir);
+    final json = jsonDecode(
+      File('$baseDir/config.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    final config = NixblitzConfig.fromJson(json);
+    configService.writeConfigSync(config);
+
+    LogService.info(
+      'Auto-upgrade complete: templates refreshed, config migrated to '
+      'v$currentConfigVersion. Working tree left dirty for user review.',
+    );
+  } catch (e, st) {
+    LogService.error('Auto-upgrade failed', e, st);
   }
 }
 
@@ -67,9 +95,28 @@ class NixBlitzApp extends StatelessComponent {
       try {
         final content = File(configPath).readAsStringSync();
         final json = jsonDecode(content) as Map<String, dynamic>;
-        initialView = json['initialized'] == true
-            ? AppView.dashboard
-            : AppView.setup;
+        final diskVersion = (json['version'] as int?) ?? 1;
+        final initialized = json['initialized'] == true;
+
+        if (diskVersion > currentConfigVersion) {
+          // Newer than we understand. Let the user choose whether to
+          // continue (fields we don't know may be dropped on save) or
+          // quit and upgrade the TUI.
+          LogService.warn(
+            'Config version $diskVersion > this TUI ($currentConfigVersion); '
+            'offering continue/quit.',
+          );
+          initialView = AppView.configTooNew;
+        } else {
+          if (diskVersion < currentConfigVersion) {
+            // Older NixBlitz on disk. Run migrations + refresh templates
+            // so the modules match this binary. Leaves the working tree
+            // dirty — the dashboard's pending-changes banner surfaces the
+            // diff and the user applies when ready.
+            _autoUpgrade(baseDir);
+          }
+          initialView = initialized ? AppView.dashboard : AppView.setup;
+        }
       } catch (e, st) {
         LogService.error(
           'Failed to read config.json for mode detection',
@@ -202,6 +249,7 @@ class _Shell extends StatelessComponent {
                       AppView.configure => const ConfigureView(),
                       AppView.apply => const ApplyView(),
                       AppView.update => const UpdateView(),
+                      AppView.configTooNew => const ConfigTooNewView(),
                     },
                   ),
                 ),
@@ -219,6 +267,8 @@ class _Shell extends StatelessComponent {
                         '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
                       AppView.apply =>
                         '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
+                      AppView.configTooNew =>
+                        '[c]: Continue anyway  [q]: Quit',
                       AppView.update =>
                         '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
                     },

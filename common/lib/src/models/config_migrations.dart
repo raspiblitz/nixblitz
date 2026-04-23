@@ -25,7 +25,12 @@ library;
 
 /// Current schema version. Increment when a migration is added.
 /// Start at 1; bump by 1 each time [migrations] gains a new entry.
-const int currentConfigVersion = 1;
+///
+/// Treat this as a NixBlitz-wide version, not just the config schema —
+/// bump it whenever the embedded `.nix` templates change in a way that
+/// makes on-disk copies incompatible. The TUI checks this at startup
+/// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
+const int currentConfigVersion = 2;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -57,11 +62,21 @@ class ConfigTooNewException implements Exception {
 /// Map of source version → migration function.
 /// Each migration transforms the JSON from version N to N+1.
 final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations = {
-  // Example for when we need v1 → v2:
-  // 1: (json) {
-  //   // Rename or restructure fields here
-  //   return json;
-  // },
+  // v1 → v2: bitcoind network enum narrowed from
+  // ["mainnet", "testnet", "signet"] to ["mainnet", "regtest"] after
+  // nix-bitcoin's module turned out not to support section-aware config
+  // generation needed for testnet/signet. Fall back to mainnet so the
+  // rebuild doesn't choke on an invalid enum value.
+  1: (json) {
+    final bitcoind = json['bitcoind'];
+    if (bitcoind is Map<String, dynamic>) {
+      final network = bitcoind['network'];
+      if (network == 'testnet' || network == 'signet') {
+        bitcoind['network'] = 'mainnet';
+      }
+    }
+    return json;
+  },
 };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

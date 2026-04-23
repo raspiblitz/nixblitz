@@ -28,4 +28,22 @@ class ScaffoldService {
 
     LogService.info('Scaffold complete: ${templates.length} files written');
   }
+
+  /// Rewrite all embedded templates into the target directory, overwriting
+  /// existing files. Intended for template refresh after a TUI upgrade or
+  /// from the Update view's "Refresh Nix templates" action. Synchronous —
+  /// safe to call from TUI startup without awaiting. Returns the number of
+  /// files written.
+  int refreshTemplatesSync() {
+    final templates = EmbeddedTemplates.getAll();
+    for (final entry in templates.entries) {
+      final file = File('$targetDir/${entry.key}');
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(entry.value);
+    }
+    LogService.info(
+      'refreshTemplates: wrote ${templates.length} files to $targetDir',
+    );
+    return templates.length;
+  }
 }

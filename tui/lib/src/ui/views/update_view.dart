@@ -54,13 +54,9 @@ class _UpdateViewState extends State<UpdateView> {
       }
 
       append('> Refreshing Nix templates from embedded sources');
-      final templates = EmbeddedTemplates.getAll();
-      for (final entry in templates.entries) {
-        final file = File('$baseDirPath/${entry.key}');
-        file.parent.createSync(recursive: true);
-        file.writeAsStringSync(entry.value);
-      }
-      append('Wrote ${templates.length} template files');
+      final written = ScaffoldService(targetDir: baseDirPath)
+          .refreshTemplatesSync();
+      append('Wrote $written template files');
 
       // Commit via git so nix can see the changes
       append('');
