@@ -34,6 +34,9 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
   bool _cancelRequested = false;
 
   void _append(String line) {
+    // Also write to ~/nixblitz.log so output is copy-pastable outside
+    // the TUI.
+    LogService.info('[gen-blocks] $line');
     final current = context.read(_gbOutputProvider);
     context.read(_gbOutputProvider.notifier).state = [...current, line];
   }
@@ -64,9 +67,36 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
         return;
       }
 
-      _append('> bitcoin-cli -regtest getnewaddress');
+      // Bitcoin Core 0.21+ ships with no default wallet — ensure one
+      // is loaded before any wallet-scoped RPC (getnewaddress etc.)
+      // works.
+      _append('> bitcoin-cli -regtest listwallets');
+      final listRes = await Process.run('bitcoin-cli', [
+        '-regtest',
+        'listwallets',
+      ]);
+      if (listRes.exitCode == 0 &&
+          !(listRes.stdout as String).contains('"nixblitz-debug"')) {
+        _append('> bitcoin-cli -regtest loadwallet nixblitz-debug');
+        final loadRes = await Process.run('bitcoin-cli', [
+          '-regtest',
+          'loadwallet',
+          'nixblitz-debug',
+        ]);
+        if (loadRes.exitCode != 0) {
+          _append('> bitcoin-cli -regtest createwallet nixblitz-debug');
+          await Process.run('bitcoin-cli', [
+            '-regtest',
+            'createwallet',
+            'nixblitz-debug',
+          ]);
+        }
+      }
+
+      _append('> bitcoin-cli -regtest -rpcwallet=nixblitz-debug getnewaddress');
       final addrRes = await Process.run('bitcoin-cli', [
         '-regtest',
+        '-rpcwallet=nixblitz-debug',
         'getnewaddress',
       ]);
       if (addrRes.exitCode != 0) {

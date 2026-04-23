@@ -6,6 +6,7 @@ import 'debug/generate_blocks.dart';
 import 'debug/service_health.dart';
 import 'debug/show_password.dart';
 import 'debug/tail_log.dart';
+import 'debug/test_ln.dart';
 import '../../providers/ui_state_provider.dart';
 
 /// Debug-only utilities for exercising the stack on a running VM:
@@ -21,6 +22,10 @@ enum DebugAction {
   showPassword,
   tailLog,
   generateBlocks,
+  testLnStatus,
+  testLnFund,
+  testLnChannel,
+  testLnPay,
 }
 
 final _debugActionProvider = StateProvider<DebugAction>(
@@ -45,6 +50,18 @@ class DebugView extends StatelessComponent {
       DebugAction.generateBlocks => GenerateBlocksView(
         onExit: () => _backToMenu(context),
       ),
+      DebugAction.testLnStatus => TestLnStatusView(
+        onExit: () => _backToMenu(context),
+      ),
+      DebugAction.testLnFund => TestLnFundView(
+        onExit: () => _backToMenu(context),
+      ),
+      DebugAction.testLnChannel => TestLnChannelView(
+        onExit: () => _backToMenu(context),
+      ),
+      DebugAction.testLnPay => TestLnPayView(
+        onExit: () => _backToMenu(context),
+      ),
     };
   }
 
@@ -64,6 +81,8 @@ class _DebugMenu extends StatelessComponent {
     final config = configAsync.value;
     final regtest = config?.bitcoind.network == "regtest";
     final blitzApi = config?.blitzApi.enabled ?? false;
+    final lndEnabled = config?.lnd.enabled ?? false;
+    final testLnAvailable = regtest && lndEnabled;
 
     final entries = <_MenuEntry>[
       const _MenuEntry(
@@ -88,6 +107,28 @@ class _DebugMenu extends StatelessComponent {
           'Generate regtest blocks',
           'Mine N blocks with optional initial delay + interval.',
         ),
+      if (testLnAvailable) ...[
+        const _MenuEntry(
+          DebugAction.testLnStatus,
+          'Test LN: status',
+          'Side-by-side getinfo + wallet balance for primary and test LND.',
+        ),
+        const _MenuEntry(
+          DebugAction.testLnFund,
+          'Test LN: fund wallets',
+          'Mine coinbase if needed, send 1 BTC to each LN, mine 6 to confirm.',
+        ),
+        const _MenuEntry(
+          DebugAction.testLnChannel,
+          'Test LN: open channel (primary → test)',
+          'Connect + openchannel 1,000,000 sat + mine 6 confirmations.',
+        ),
+        const _MenuEntry(
+          DebugAction.testLnPay,
+          'Test LN: pay self-invoice',
+          'Test addinvoice 1000 sat → primary payinvoice.',
+        ),
+      ],
     ];
 
     final selection = context

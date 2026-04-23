@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 11;
+const int currentConfigVersion = 12;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -114,6 +114,10 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
   // Existing test-lnd installs need to wipe /var/lib/lnd-test so the
   // wallet is recreated in the right place.
   10: (json) => json,
+  // v11 → v12: no schema change; bitcoind on regtest now sets
+  // fallbackfee=0.0002 so sendtoaddress doesn't refuse for lack of
+  // fee estimation data on a fresh chain.
+  11: (json) => json,
 };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

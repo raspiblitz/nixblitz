@@ -34,6 +34,16 @@ in {
       dataDir = "/mnt/data/bitcoind";
       regtest = cfg.network == "regtest";
       prune = if cfg.pruned then cfg.pruneSizeGb * 1000 else 0;
+      # nix-bitcoin writes `[regtest]` and the regtest-scoped options
+      # before our extraConfig, so anything here lands inside the
+      # regtest section.
+      extraConfig = lib.optionalString (cfg.network == "regtest") ''
+        # Regtest has no real tx activity for bitcoind to infer fee
+        # rates from; without a fallback, sendtoaddress / fundrawtx
+        # refuse with "Fee estimation failed. Fallbackfee is disabled."
+        # 0.0002 BTC/kvB ≈ 20 sat/vB, plenty for test flows.
+        fallbackfee=0.0002
+      '';
     };
   };
 }
