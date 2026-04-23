@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:common/common.dart';
+import 'package:tui/src/build_info.dart';
 import 'package:tui/src/ui/app.dart';
 
-const String version = '0.1.0';
 const int buildNumber = 9;
 
 void main(List<String> arguments) async {
@@ -21,7 +21,7 @@ void main(List<String> arguments) async {
     final results = parser.parse(arguments);
 
     if (results['version'] as bool) {
-      print('nixblitz version: $version');
+      print('nixblitz $buildVersionString');
       exit(0);
     }
 
@@ -31,7 +31,7 @@ void main(List<String> arguments) async {
 
     // Initialize logging
     LogService.init(homeDir);
-    LogService.info('build #$buildNumber');
+    LogService.info('nixblitz $buildVersionString (build #$buildNumber)');
     LogService.info('startup binary: $startupBinary');
 
     // Hook into nocterm's error reporting (catches layout errors, paint errors, etc.)

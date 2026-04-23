@@ -13,6 +13,7 @@ import 'views/setup_view.dart';
 import 'views/update_view.dart';
 import 'shutdown.dart';
 import 'widgets/help_popup.dart';
+import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
 
 final _helpVisibleProvider = StateProvider<bool>((ref) => false);
@@ -210,10 +211,10 @@ class _Shell extends StatelessComponent {
                       bottom: BorderSide(color: Color.fromRGB(80, 80, 100)),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
+                      const Text(
                         'NIXBLITZ',
                         style: TextStyle(
                           color: Color.fromRGB(247, 147, 26),
@@ -221,8 +222,10 @@ class _Shell extends StatelessComponent {
                         ),
                       ),
                       Text(
-                        'v0.1.0',
-                        style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+                        buildVersionString,
+                        style: const TextStyle(
+                          color: Color.fromRGB(150, 150, 180),
+                        ),
                       ),
                     ],
                   ),

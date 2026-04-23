@@ -3,10 +3,18 @@
   buildDartApplication,
   nixFilter,
   version,
+  gitHash ? "local",
 }:
 buildDartApplication {
   pname = "nixblitz";
   inherit version;
+
+  # Bake version + git hash into the compiled binary via
+  # `const String.fromEnvironment('…')`. See tui/lib/src/build_info.dart.
+  dartCompileFlags = [
+    "--define=BUILD_VERSION=${version}"
+    "--define=BUILD_GIT_HASH=${gitHash}"
+  ];
 
   src = nixFilter {
     root = ./..;

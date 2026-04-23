@@ -26,10 +26,14 @@
         pkgs = nixpkgs.legacyPackages.${system};
         pkgsUnstable = nixpkgs-unstable.legacyPackages.${system};
         version = "0.1.0";
+        # Short git hash of the source tree at build time, tagged with
+        # "-dirty" when the worktree has uncommitted changes. Surfaces
+        # in the TUI header and `nixblitz --version` output.
+        gitHash = self.shortRev or self.dirtyShortRev or "unknown";
 
         nixblitzUnwrapped = pkgsUnstable.callPackage ./nix/tui_pkg.nix {
           nixFilter = nix-filter.lib;
-          inherit version;
+          inherit version gitHash;
         };
 
         # Wrap nixblitz with disko and git on PATH so `nix run` just works
