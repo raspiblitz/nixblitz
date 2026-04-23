@@ -3,6 +3,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../shutdown.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
@@ -20,6 +21,7 @@ final _applyModeProvider = StateProvider<_ApplyMode>(
 final _applyDiffProvider = StateProvider<String?>((ref) => null);
 final _applyOutputProvider = StateProvider<List<String>>((ref) => []);
 final _applyExitCodeProvider = StateProvider<int?>((ref) => null);
+final _applyBinaryUpdatedProvider = StateProvider<bool>((ref) => false);
 
 class ApplyView extends StatefulComponent {
   const ApplyView({super.key});
@@ -61,6 +63,7 @@ class _ApplyViewState extends State<ApplyView> {
     context.read(_applyDiffProvider.notifier).state = null;
     context.read(_applyOutputProvider.notifier).state = [];
     context.read(_applyExitCodeProvider.notifier).state = null;
+    context.read(_applyBinaryUpdatedProvider.notifier).state = false;
   }
 
   void _leave() {
@@ -108,8 +111,14 @@ class _ApplyViewState extends State<ApplyView> {
           },
         );
         exitCode
-            .then((code) {
+            .then((code) async {
               LogService.info('apply: rebuild exited with code $code');
+              if (code == 0) {
+                final startup = context.read(startupBinaryProvider);
+                final updated = await systemService.hasNewerBinary(startup);
+                context.read(_applyBinaryUpdatedProvider.notifier).state =
+                    updated;
+              }
               context.read(_applyExitCodeProvider.notifier).state = code;
               context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
               _started = false;
@@ -254,12 +263,17 @@ class _ApplyViewState extends State<ApplyView> {
   Component _buildDone() {
     final outputLines = context.watch(_applyOutputProvider);
     final exitCode = context.watch(_applyExitCodeProvider);
+    final binaryUpdated = context.watch(_applyBinaryUpdatedProvider);
     final success = exitCode == 0;
 
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         try {
+          if (binaryUpdated && event.logicalKey == LogicalKey.keyR) {
+            shutdownWithTerminalRestore(restartExitCode);
+            return true;
+          }
           if (event.logicalKey == LogicalKey.enter ||
               event.logicalKey == LogicalKey.escape) {
             _leave();
@@ -288,9 +302,16 @@ class _ApplyViewState extends State<ApplyView> {
             const SizedBox(height: 1),
             Expanded(child: ScrollableLog(lines: outputLines)),
             const SizedBox(height: 1),
-            const Text(
-              'Press Enter or Esc to return to dashboard.',
-              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            if (binaryUpdated)
+              const Text(
+                'A new nixblitz binary is available.',
+                style: TextStyle(color: Color.fromRGB(220, 180, 100)),
+              ),
+            Text(
+              binaryUpdated
+                  ? '[r] Restart with new binary   [Enter/Esc] Dashboard'
+                  : 'Press Enter or Esc to return to dashboard.',
+              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],
         ),

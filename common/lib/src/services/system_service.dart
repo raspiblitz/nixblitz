@@ -2,6 +2,17 @@ import 'dart:async';
 import 'dart:io';
 import 'package:common/src/models/service_status.dart';
 
+/// Exit code that the shell wrapper at `bin/nixblitz` interprets as
+/// "restart me with the fresh binary in PATH". Hard-coded in
+/// `nix/tui_pkg.nix`'s postInstall wrapper — keep the two in sync.
+const int restartExitCode = 42;
+
+/// Symlink NixOS keeps pointing at the currently-active generation's
+/// copy of the TUI binary. Used to detect that a rebuild has landed a
+/// new nixblitz-bin in the store.
+const String _currentSystemBin =
+    '/run/current-system/sw/bin/nixblitz-bin';
+
 class SystemService {
   Future<ServiceStatus> getServiceStatus(String serviceName) async {
     final result = await Process.run('systemctl', [
@@ -114,6 +125,23 @@ class SystemService {
       return rebuildCode;
     }();
     return (output: controller.stream, exitCode: exitCodeFuture);
+  }
+
+  /// True if the binary currently targeted by the NixOS "current generation"
+  /// symlink differs from [startupPath] (captured at TUI launch). Used to
+  /// surface a `[r] Restart` option after a rebuild replaces nixblitz-bin.
+  ///
+  /// Returns false on non-NixOS systems or when the symlink can't be read
+  /// (e.g. the live ISO before install).
+  Future<bool> hasNewerBinary(String startupPath) async {
+    try {
+      final result = await Process.run('readlink', ['-f', _currentSystemBin]);
+      if (result.exitCode != 0) return false;
+      final currentPath = (result.stdout as String).trim();
+      return currentPath.isNotEmpty && currentPath != startupPath;
+    } catch (_) {
+      return false;
+    }
   }
 
   ({Stream<String> output, Future<int> exitCode}) rebuild(String flakePath) {

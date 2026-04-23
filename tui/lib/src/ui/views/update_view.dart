@@ -4,6 +4,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../shutdown.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
@@ -14,6 +15,7 @@ final _updateModeProvider = StateProvider<_UpdateMode>((ref) => _UpdateMode.sele
 final _updateSelectionProvider = StateProvider<int>((ref) => 0);
 final _updateOutputProvider = StateProvider<List<String>>((ref) => []);
 final _updateExitCodeProvider = StateProvider<int?>((ref) => null);
+final _updateBinaryUpdatedProvider = StateProvider<bool>((ref) => false);
 
 class UpdateView extends StatefulComponent {
   const UpdateView({super.key});
@@ -93,8 +95,13 @@ class _UpdateViewState extends State<UpdateView> {
         },
       );
 
-      exitCode.then((code) {
+      exitCode.then((code) async {
         LogService.info('rebuild exited with code $code');
+        if (code == 0) {
+          final startup = context.read(startupBinaryProvider);
+          final updated = await systemService.hasNewerBinary(startup);
+          context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
+        }
         context.read(_updateExitCodeProvider.notifier).state = code;
         context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
         _started = false;
@@ -138,8 +145,13 @@ class _UpdateViewState extends State<UpdateView> {
         },
       );
 
-      exitCode.then((code) {
+      exitCode.then((code) async {
         LogService.info('update exited with code $code');
+        if (code == 0) {
+          final startup = context.read(startupBinaryProvider);
+          final updated = await systemService.hasNewerBinary(startup);
+          context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
+        }
         context.read(_updateExitCodeProvider.notifier).state = code;
         context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
         _started = false;
@@ -269,12 +281,17 @@ class _UpdateViewState extends State<UpdateView> {
   Component _buildDone() {
     final exitCode = context.watch(_updateExitCodeProvider);
     final outputLines = context.watch(_updateOutputProvider);
+    final binaryUpdated = context.watch(_updateBinaryUpdatedProvider);
     final success = exitCode == 0;
 
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         try {
+          if (binaryUpdated && event.logicalKey == LogicalKey.keyR) {
+            shutdownWithTerminalRestore(restartExitCode);
+            return true;
+          }
           if (event.logicalKey == LogicalKey.escape ||
               event.logicalKey == LogicalKey.enter) {
             // Reset state for next time
@@ -282,6 +299,7 @@ class _UpdateViewState extends State<UpdateView> {
             context.read(_updateSelectionProvider.notifier).state = 0;
             context.read(_updateOutputProvider.notifier).state = [];
             context.read(_updateExitCodeProvider.notifier).state = null;
+            context.read(_updateBinaryUpdatedProvider.notifier).state = false;
             context.read(currentViewProvider.notifier).state = AppView.dashboard;
             return true;
           }
@@ -308,7 +326,17 @@ class _UpdateViewState extends State<UpdateView> {
             const SizedBox(height: 1),
             Expanded(child: ScrollableLog(lines: outputLines)),
             const SizedBox(height: 1),
-            const Text('Press Enter or Esc to return to dashboard.'),
+            if (binaryUpdated)
+              const Text(
+                'A new nixblitz binary is available.',
+                style: TextStyle(color: Color.fromRGB(220, 180, 100)),
+              ),
+            Text(
+              binaryUpdated
+                  ? '[r] Restart with new binary   [Enter/Esc] Dashboard'
+                  : 'Press Enter or Esc to return to dashboard.',
+              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
           ],
         ),
       ),

@@ -6,7 +6,7 @@ import 'package:common/common.dart';
 import 'package:tui/src/ui/app.dart';
 
 const String version = '0.1.0';
-const int buildNumber = 8;
+const int buildNumber = 9;
 
 void main(List<String> arguments) async {
   final parser = ArgParser()
@@ -27,10 +27,12 @@ void main(List<String> arguments) async {
 
     final homeDir = Platform.environment['HOME'] ?? '/root';
     final baseDir = '$homeDir/nixblitz';
+    final startupBinary = Platform.resolvedExecutable;
 
     // Initialize logging
     LogService.init(homeDir);
     LogService.info('build #$buildNumber');
+    LogService.info('startup binary: $startupBinary');
 
     // Hook into nocterm's error reporting (catches layout errors, paint errors, etc.)
     NoctermError.onError = (details) {
@@ -44,7 +46,7 @@ void main(List<String> arguments) async {
     // Catch uncaught async errors and log them
     runZonedGuarded(
       () {
-        runApp(NixBlitzApp(baseDir: baseDir));
+        runApp(NixBlitzApp(baseDir: baseDir, startupBinary: startupBinary));
       },
       (error, stackTrace) {
         LogService.error('Uncaught error', error, stackTrace);

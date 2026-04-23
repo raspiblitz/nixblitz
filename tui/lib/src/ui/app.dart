@@ -11,6 +11,7 @@ import 'views/configure_view.dart';
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
 import 'views/update_view.dart';
+import 'shutdown.dart';
 import 'widgets/help_popup.dart';
 import '../providers/ui_state_provider.dart';
 
@@ -54,22 +55,15 @@ void _autoUpgrade(String baseDir) {
   }
 }
 
-void _shutdownWithTerminalRestore([int exitCode = 0]) {
-  try {
-    if (stdin.hasTerminal) {
-      stdin.lineMode = true;
-      stdin.echoMode = true;
-    }
-  } catch (e) {
-    LogService.warn('Failed to restore terminal mode before shutdown: $e');
-  }
-  shutdownApp(exitCode);
-}
-
 class NixBlitzApp extends StatelessComponent {
   final String baseDir;
+  final String startupBinary;
 
-  const NixBlitzApp({super.key, required this.baseDir});
+  const NixBlitzApp({
+    super.key,
+    required this.baseDir,
+    required this.startupBinary,
+  });
 
   @override
   Component build(BuildContext context) {
@@ -130,6 +124,7 @@ class NixBlitzApp extends StatelessComponent {
     return ProviderScope(
       overrides: [
         baseDirProvider.overrideWithValue(baseDir),
+        startupBinaryProvider.overrideWithValue(startupBinary),
         currentViewProvider.overrideWith((ref) => initialView),
       ],
       child: NoctermApp(
@@ -165,7 +160,7 @@ class _Shell extends StatelessComponent {
           onKeyEvent: (event) {
             try {
               if (event.matches(LogicalKey.keyC, ctrl: true)) {
-                _shutdownWithTerminalRestore();
+                shutdownWithTerminalRestore();
                 return true;
               }
               if (event.logicalKey == LogicalKey.question) {
@@ -190,7 +185,7 @@ class _Shell extends StatelessComponent {
                   return true;
                 }
                 if (event.logicalKey == LogicalKey.keyQ) {
-                  _shutdownWithTerminalRestore();
+                  shutdownWithTerminalRestore();
                   return true;
                 }
               }
@@ -319,7 +314,7 @@ class _RefusalScreen extends StatelessComponent {
         home: Focusable(
           focused: true,
           onKeyEvent: (event) {
-            _shutdownWithTerminalRestore(1);
+            shutdownWithTerminalRestore(1);
             return true;
           },
           child: Container(
