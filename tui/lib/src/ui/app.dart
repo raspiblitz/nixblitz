@@ -8,6 +8,7 @@ import 'views/dashboard_view.dart';
 import 'views/apply_view.dart';
 import 'views/config_too_new_view.dart';
 import 'views/configure_view.dart';
+import 'views/debug_view.dart';
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
 import 'views/update_view.dart';
@@ -37,11 +38,12 @@ String _footerHint(AppView view, {required bool hasPending}) {
     AppView.install => '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
     AppView.setup => 'Setting up...  [?]: Help',
     AppView.dashboard => hasPending
-        ? '[c]: Configure  [a]: Apply  [u]: Update  [?]: Help  [q]: Quit'
-        : '[c]: Configure  [u]: Update  [?]: Help  [q]: Quit',
+        ? '[c]: Configure  [a]: Apply  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit'
+        : '[c]: Configure  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit',
     AppView.configure =>
       '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
     AppView.apply => '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
+    AppView.debug => '[↑/↓]: Navigate  [Enter]: Run  [Esc]: Back  [?]: Help',
     AppView.configTooNew => '[c]: Continue anyway  [q]: Quit',
     AppView.update =>
       '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
@@ -204,6 +206,11 @@ class _Shell extends StatelessComponent {
                       AppView.update;
                   return true;
                 }
+                if (event.matches(LogicalKey.keyD, shift: true)) {
+                  context.read(currentViewProvider.notifier).state =
+                      AppView.debug;
+                  return true;
+                }
                 if (event.logicalKey == LogicalKey.keyQ) {
                   shutdownWithTerminalRestore();
                   return true;
@@ -266,6 +273,7 @@ class _Shell extends StatelessComponent {
                       AppView.configure => const ConfigureView(),
                       AppView.apply => const ApplyView(),
                       AppView.update => const UpdateView(),
+                      AppView.debug => const DebugView(),
                       AppView.configTooNew => const ConfigTooNewView(),
                     },
                   ),
