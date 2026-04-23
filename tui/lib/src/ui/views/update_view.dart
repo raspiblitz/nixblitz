@@ -300,6 +300,9 @@ class _UpdateViewState extends State<UpdateView> {
             context.read(_updateOutputProvider.notifier).state = [];
             context.read(_updateExitCodeProvider.notifier).state = null;
             context.read(_updateBinaryUpdatedProvider.notifier).state = false;
+            // The update flow (flake update / template refresh) commits
+            // and leaves the tree clean again. Force the banner to re-check.
+            context.invalidate(pendingChangesProvider);
             context.read(currentViewProvider.notifier).state = AppView.dashboard;
             return true;
           }

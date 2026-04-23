@@ -7,8 +7,14 @@ final gitServiceProvider = Provider<GitService>((ref) {
 });
 
 /// Lines from `git status --porcelain`. Empty when the working tree is clean.
-/// Invalidate this provider after any apply/discard to force a re-check.
+///
+/// Re-runs automatically whenever [configProvider] changes (every
+/// ConfigNotifier.updateConfig call publishes a new state after writing
+/// config.json to disk). For changes that bypass the config notifier —
+/// template refreshes, `nix flake update` commits, apply commits, discard
+/// `git checkout` — the caller must invalidate this provider explicitly.
 final pendingChangesProvider = FutureProvider<List<String>>((ref) async {
+  ref.watch(configProvider);
   final git = ref.watch(gitServiceProvider);
   return git.status();
 });
