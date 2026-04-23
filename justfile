@@ -73,7 +73,7 @@ vm-boot:
   print "  SSH: ssh -p 10022 nixos@localhost"
   print "  Disk: nixblitz-disk.qcow2 (virtio)"
   (qemu-system-x86_64 -enable-kvm -m 8192 -smp 4
-    -netdev user,id=mynet0,hostfwd=tcp::10022-:22
+    -netdev user,id=mynet0,hostfwd=tcp::10022-:22,hostfwd=tcp::18080-:80
     -device virtio-net-pci,netdev=mynet0
     -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
     -device virtio-blk-pci,drive=virtio0
@@ -90,7 +90,7 @@ vm-run:
   print "Booting installed NixOS VM..."
   print "  SSH: ssh -p 10022 admin@localhost"
   (qemu-system-x86_64 -enable-kvm -m 8192 -smp 4
-    -netdev user,id=mynet0,hostfwd=tcp::10022-:22
+    -netdev user,id=mynet0,hostfwd=tcp::10022-:22,hostfwd=tcp::18080-:80
     -device virtio-net-pci,netdev=mynet0
     -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
     -device virtio-blk-pci,drive=virtio0)

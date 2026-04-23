@@ -14,6 +14,15 @@
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
     };
+    blitz-api = {
+      url = "github:fusion44/blitz_api";
+    };
+    blitz-web = {
+      # Tracks the branch with the nix packaging in place (pending PR
+      # back to raspiblitz/raspiblitz-web). Once merged upstream this
+      # can point at github:raspiblitz/raspiblitz-web directly.
+      url = "github:fusion44/raspiblitz-web";
+    };
   };
 
   outputs = {
@@ -22,6 +31,8 @@
     disko,
     nix-bitcoin,
     nixblitz,
+    blitz-api,
+    blitz-web,
   }: let
     inherit (nixpkgs) lib;
 
@@ -46,6 +57,8 @@
         ++ [
           disko.nixosModules.default
           nix-bitcoin.nixosModules.default
+          blitz-api.nixosModules.default
+          blitz-web.nixosModules.default
         ];
     };
 

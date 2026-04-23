@@ -87,9 +87,10 @@ void main() {
     });
 
     test('should throw ConfigTooNewException when min_compatible_version is higher', () {
+      final tooNewMin = currentConfigVersion + 2;
       final json = {
-        'version': 5,
-        'min_compatible_version': 3,
+        'version': tooNewMin + 2,
+        'min_compatible_version': tooNewMin,
         'initialized': false,
         'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
         'bitcoind': {
@@ -103,7 +104,6 @@ void main() {
         'blitz_api': {'enabled': false},
         'blitz_web': {'enabled': false},
       };
-      // currentConfigVersion is 1, so min_compatible_version of 3 should reject
       expect(
         () => NixblitzConfig.fromJson(json),
         throwsA(isA<ConfigTooNewException>()),
@@ -111,12 +111,12 @@ void main() {
     });
 
     test('should preserve configMinCompatibleVersion from file on write-back', () {
-      // Newer TUI wrote a config with min_compatible_version equal to
-      // currentConfigVersion (1 for now). An older TUI at the same version
-      // reads it, modifies it, writes it back — min should survive.
+      // Newer TUI wrote a config with its own min_compatible_version. An
+      // older TUI at the same version reads it, modifies it, writes it
+      // back — the min should survive the round-trip unchanged.
       final json = {
-        'version': 2,
-        'min_compatible_version': 1,
+        'version': currentConfigVersion,
+        'min_compatible_version': minCompatibleVersion,
         'initialized': true,
         'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
         'bitcoind': {
@@ -131,10 +131,10 @@ void main() {
         'blitz_web': {'enabled': false},
       };
       final config = NixblitzConfig.fromJson(json);
-      expect(config.configMinCompatibleVersion, 1);
+      expect(config.configMinCompatibleVersion, minCompatibleVersion);
       final written = config.toJson();
-      expect(written['min_compatible_version'], 1);
-      expect(written['version'], 2); // preserved too
+      expect(written['min_compatible_version'], minCompatibleVersion);
+      expect(written['version'], currentConfigVersion);
     });
 
     test('should write current minCompatibleVersion for fresh configs', () {

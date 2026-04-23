@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 2;
+const int currentConfigVersion = 6;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -77,6 +77,22 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
     }
     return json;
   },
+  // v2 → v3: no schema change; template contents bumped (blitz-api
+  // and blitz-web modules wired to upstream flakes, hosts/default.nix
+  // gates blitz-api on lnd). Existing TUIs need to refresh on-disk
+  // templates; the migration runner bumps the version field so the
+  // startup auto-refresh picks it up.
+  2: (json) => json,
+  // v3 → v4: no schema change; templates' blitz-web flake input now
+  // points at fusion44/raspiblitz-web fork and the module targets
+  // services.raspiblitz-web (upstream renamed). Template-only bump.
+  3: (json) => json,
+  // v4 → v5: no schema change; features.apps.blitz-api now enables a
+  // local redis instance (upstream blitz-api needs one on :6379).
+  4: (json) => json,
+  // v5 → v6: no schema change; blitz-api now passes rootPath = "/api"
+  // so the ASGI app knows its external mount point.
+  5: (json) => json,
 };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

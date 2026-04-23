@@ -20,6 +20,15 @@ const String _flake = r'''
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
     };
+    blitz-api = {
+      url = "github:fusion44/blitz_api";
+    };
+    blitz-web = {
+      # Tracks the branch with the nix packaging in place (pending PR
+      # back to raspiblitz/raspiblitz-web). Once merged upstream this
+      # can point at github:raspiblitz/raspiblitz-web directly.
+      url = "github:fusion44/raspiblitz-web";
+    };
   };
 
   outputs = {
@@ -28,6 +37,8 @@ const String _flake = r'''
     disko,
     nix-bitcoin,
     nixblitz,
+    blitz-api,
+    blitz-web,
   }: let
     inherit (nixpkgs) lib;
 
@@ -52,6 +63,8 @@ const String _flake = r'''
         ++ [
           disko.nixosModules.default
           nix-bitcoin.nixosModules.default
+          blitz-api.nixosModules.default
+          blitz-web.nixosModules.default
         ];
     };
 
@@ -309,14 +322,69 @@ const String _modulesAppsBlitzApi = r'''
   ...
 }: let
   cfg = config.features.apps.blitz-api;
+  lndEnabled = config.features.apps.lnd.enable;
+  clnEnabled = config.features.apps.cln.enable;
 in {
   options.features.apps.blitz-api = {
-    enable = lib.mkEnableOption "Blitz API";
+    enable = lib.mkEnableOption "Blitz API (FastAPI backend)";
+    hostName = lib.mkOption {
+      type = lib.types.str;
+      default = "localhost";
+      description = ''
+        Nginx virtual host name. Points the frontend at this value via
+        the reverse proxy. Share this with `features.apps.blitz-web` so
+        both land on the same vhost.
+      '';
+    };
+    openFirewall = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Open port 80 on the nginx virtual host.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
-    # TODO: configure blitz-api service
-    # This depends on the blitz-api package being available in nixpkgs or as a flake input
+    # bitcoind is still a hard requirement — the API can't start without
+    # it. LN is optional: lnd / clightning / none are all valid.
+    assertions = [
+      {
+        assertion = config.features.apps.bitcoind.enable;
+        message = "features.apps.blitz-api requires features.apps.bitcoind.enable";
+      }
+    ];
+
+    # blitz-api requires a Redis instance on localhost:6379 for the
+    # celery task queue + fastapi plugin (BAPI_REDIS_URL defaults to
+    # redis://localhost:6379/0 when not overridden). The empty-named
+    # NixOS redis server runs on exactly that address/port with a
+    # 127.0.0.1 bind by default.
+    services.redis.servers."".enable = true;
+
+    services.blitz-api = {
+      enable = true;
+      generateDotEnvFile = true;
+      network = config.features.apps.bitcoind.network;
+
+      # Tell the ASGI app it's mounted under /api so its redirects and
+      # OpenAPI schema generate URLs with the right prefix. Matches the
+      # nginx location below — nginx strips /api before proxying, but
+      # the API still needs to know where it lives externally.
+      rootPath = "/api";
+
+      ln.connectionType =
+        if lndEnabled
+        then "lnd_grpc"
+        else if clnEnabled
+        then "cln_jrpc"
+        else "none";
+
+      nginx = {
+        enable = true;
+        hostName = cfg.hostName;
+        location = "/api";
+        openFirewall = cfg.openFirewall;
+      };
+    };
   };
 }
 ''';
@@ -331,12 +399,36 @@ const String _modulesAppsBlitzWeb = r'''
   cfg = config.features.apps.blitz-web;
 in {
   options.features.apps.blitz-web = {
-    enable = lib.mkEnableOption "Blitz Web UI";
+    enable = lib.mkEnableOption "Blitz Web UI (mobile-first frontend)";
+    hostName = lib.mkOption {
+      type = lib.types.str;
+      default = "localhost";
+      description = ''
+        Nginx virtual host name. Share this with `features.apps.blitz-api`
+        so the SPA and its backend API land on the same vhost — the
+        frontend is built with BACKEND_SERVER fixed to http://127.0.0.1.
+      '';
+    };
+    openFirewall = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Open port 80 on the nginx virtual host.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
-    # TODO: configure blitz-web service
-    # This depends on the blitz-web package being available in nixpkgs or as a flake input
+    # Upstream renamed the attribute to `services.raspiblitz-web`; our
+    # user-facing `features.apps.blitz-web` option keeps the shorter name
+    # for symmetry with blitz-api.
+    services.raspiblitz-web = {
+      enable = true;
+      nginx = {
+        enable = true;
+        hostName = cfg.hostName;
+        location = "/";
+        openFirewall = cfg.openFirewall;
+      };
+    };
   };
 }
 ''';
