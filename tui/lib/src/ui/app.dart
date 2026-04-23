@@ -29,6 +29,25 @@ bool _isLiveIso() {
   }
 }
 
+/// Footer text for the current view. Dashboard omits `[a]: Apply` when
+/// the working tree is clean — there's nothing to apply, so advertising
+/// the shortcut is noise.
+String _footerHint(AppView view, {required bool hasPending}) {
+  return switch (view) {
+    AppView.install => '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
+    AppView.setup => 'Setting up...  [?]: Help',
+    AppView.dashboard => hasPending
+        ? '[c]: Configure  [a]: Apply  [u]: Update  [?]: Help  [q]: Quit'
+        : '[c]: Configure  [u]: Update  [?]: Help  [q]: Quit',
+    AppView.configure =>
+      '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
+    AppView.apply => '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
+    AppView.configTooNew => '[c]: Continue anyway  [q]: Quit',
+    AppView.update =>
+      '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
+  };
+}
+
 /// Run when the on-disk config is older than this TUI expects: rewrite
 /// embedded templates, migrate config.json to [currentConfigVersion], leave
 /// the working tree dirty so the user reviews + applies via `[a]`.
@@ -255,21 +274,13 @@ class _Shell extends StatelessComponent {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Text(
-                    switch (context.watch(currentViewProvider)) {
-                      AppView.install =>
-                        '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
-                      AppView.setup => 'Setting up...  [?]: Help',
-                      AppView.dashboard =>
-                        '[c]: Configure  [a]: Apply  [u]: Update  [?]: Help  [q]: Quit',
-                      AppView.configure =>
-                        '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
-                      AppView.apply =>
-                        '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
-                      AppView.configTooNew =>
-                        '[c]: Continue anyway  [q]: Quit',
-                      AppView.update =>
-                        '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
-                    },
+                    _footerHint(
+                      context.watch(currentViewProvider),
+                      hasPending: context.watch(pendingChangesProvider).maybeWhen(
+                        data: (lines) => lines.isNotEmpty,
+                        orElse: () => false,
+                      ),
+                    ),
                     style: const TextStyle(
                       color: Color.fromRGB(247, 147, 26),
                       fontWeight: FontWeight.bold,
