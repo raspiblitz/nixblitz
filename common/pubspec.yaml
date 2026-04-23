@@ -11,6 +11,7 @@ resolution: workspace
 dependencies:
   riverpod: ^3.2.1
   path: ^1.9.1
+  http: ^1.2.2
 
 dev_dependencies:
   lints: ^6.1.0

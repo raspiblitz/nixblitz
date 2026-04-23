@@ -43,7 +43,8 @@
     "collection": [],
     "common": [
       "riverpod",
-      "path"
+      "path",
+      "http"
     ],
     "convert": [
       "typed_data"
@@ -90,6 +91,12 @@
       "stream_transform",
       "vm_service",
       "watcher"
+    ],
+    "http": [
+      "async",
+      "http_parser",
+      "meta",
+      "web"
     ],
     "http_multi_server": [
       "async"
@@ -344,7 +351,8 @@
       ],
       "main": [
         "riverpod",
-        "path"
+        "path",
+        "http"
       ]
     },
     "tui": {

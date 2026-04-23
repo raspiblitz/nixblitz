@@ -2,6 +2,66 @@
 
 Parking lot for ideas we've discussed but don't want to implement right now.
 
+## Dashboard without blitz-api (`CliDashboardSource`)
+
+Today the dashboard tiles are fed from blitz-api's SSE stream via
+`ApiDashboardSource`. `dashboardDataSourceProvider` falls back to
+`NullDashboardSource` when blitz-api is disabled, which just shows
+"unavailable" in every tile. A `CliDashboardSource` implementation
+would make the dashboard useful on bitcoin-only or minimalist nodes.
+
+### What's needed
+
+Implement `CliDashboardSource implements DashboardDataSource` in
+`common/lib/src/services/dashboard/`:
+
+- **Bitcoin snapshot** — poll every ~5 s:
+  - `bitcoin-cli getblockchaininfo` → `blocks`, `headers`,
+    `verificationprogress`, `chain`, `size_on_disk`, `pruned`
+  - `bitcoin-cli getnetworkinfo` → `connections` (peers)
+  - `bitcoin-cli getmempoolinfo` → `size` (tx count), `bytes`
+- **Lightning snapshot** — poll every ~5 s, branch on which is enabled:
+  - LND: `lncli getinfo` + `walletbalance` + `channelbalance`
+  - CLN: `lightning-cli getinfo` + `listfunds` (aggregate onchain sats
+    + sum of channel local balances)
+- **Hardware snapshot** — poll every ~5 s:
+  - `/proc/loadavg` or `/proc/stat` delta for cpu%
+  - `/proc/meminfo` (`MemTotal`, `MemAvailable`) for memory
+  - `df -B1 /mnt/data` for disk
+  - `/proc/uptime` for boot time
+- **System snapshot** — reuse the existing systemctl poll we already
+  have in `ApiDashboardSource._pollServices`; extract it to a shared
+  helper so both sources can use it.
+
+The abstraction is already in place; tiles consume typed snapshots
+regardless of source. Polling cadence can be per-stream — Bitcoin +
+LN every 5 s, Hardware every 2-5 s, services every 10 s.
+
+### Gotchas to watch
+
+- `lncli` / `lightning-cli` need the right user + macaroon/socket
+  permissions. `features.system.operator` already puts `bitcoin-cli`
+  and `lncli` on admin's `PATH` with auth pre-wired via group
+  membership. Confirm CLN's socket access works the same way.
+- `bitcoin-cli getmempoolinfo` can be slow on a loaded mainnet node —
+  don't block the CPU poll behind it. Run fetches in parallel via
+  `Future.wait`.
+- Selection: change `dashboardDataSourceProvider` to return
+  `CliDashboardSource` instead of `NullDashboardSource` when
+  `blitzApi.enabled == false`. Consider exposing a manual override
+  so the user can force CLI mode even when the API is running, for
+  debugging.
+
+### Acceptance
+
+Dashboard on a node with `features.apps.blitz_api.enabled = false`
+still shows all four tiles populating with live data, same shape as
+the SSE-powered path. Tile code should need zero changes.
+
+**Status:** Park until we have a real use case (constrained-hardware
+install, nix-bitcoin-only deployment, or the "turn the API off as a
+security posture" crowd asks for it).
+
 ## Richer diff in the "config too new" screen
 
 Today the `ConfigTooNewView` just dumps the raw `config.json` text so the user
