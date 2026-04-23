@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 6;
+const int currentConfigVersion = 11;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -93,6 +93,27 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
   // v5 → v6: no schema change; blitz-api now passes rootPath = "/api"
   // so the ASGI app knows its external mount point.
   5: (json) => json,
+  // v6 → v7: no schema change; new test-lnd feature module (auto-enabled
+  // on regtest) ships a secondary LND instance + lncli-test wrapper.
+  6: (json) => json,
+  // v7 → v8: no schema change; test-lnd now creates its wallet
+  // headlessly via lndinit (LND doesn't self-bootstrap from a password
+  // file alone).
+  7: (json) => json,
+  // v8 → v9: no schema change; test-lnd preStart gained shell tracing
+  // + explicit log lines so first-boot wallet init failures surface
+  // in the journal instead of vanishing.
+  8: (json) => json,
+  // v9 → v10: no schema change; test-lnd preStart now uses a
+  // .wallet-initialized marker (instead of wallet.db existence) to
+  // decide whether to run lndinit. A half-init from a previous
+  // broken attempt can no longer trick us into skipping the real init.
+  9: (json) => json,
+  // v10 → v11: no schema change; test-lnd's networkDir dropped the
+  // bogus `data/` prefix — LND's chain/ lives directly under dataDir.
+  // Existing test-lnd installs need to wipe /var/lib/lnd-test so the
+  // wallet is recreated in the right place.
+  10: (json) => json,
 };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

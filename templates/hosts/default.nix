@@ -45,6 +45,14 @@ in {
     initialized
     && (cfg.bitcoind.enabled || cfg.lnd.enabled || cfg.cln.enabled);
 
+  # Test-LND: secondary regtest-only LND instance for opening channels
+  # against the primary node and dry-running payments via `lncli-test`.
+  # Auto-enabled whenever bitcoind is on regtest; off on any real network.
+  features.system.testLnd.enable =
+    initialized
+    && cfg.bitcoind.enabled
+    && cfg.bitcoind.network == "regtest";
+
   users.users.admin = {
     isNormalUser = true;
     extraGroups = ["wheel"];
