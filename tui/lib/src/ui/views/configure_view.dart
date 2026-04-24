@@ -6,10 +6,17 @@ import 'package:common/common.dart';
 import '../widgets/option_editor.dart';
 import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
+import 'plugin_config_view.dart';
 
 final _selectedOptionProvider = StateProvider<int>((ref) => 0);
 final _changingPasswordProvider = StateProvider<bool>((ref) => false);
 final _statusMessageProvider = StateProvider<String>((ref) => '');
+
+/// When non-null, the Configure view delegates to [PluginConfigView]
+/// for the plugin with this `dirName`. `null` means the main tabbed
+/// view is showing.
+final _editingPluginDirNameProvider =
+    StateProvider<String?>((ref) => null);
 
 class ConfigureView extends StatelessComponent {
   const ConfigureView({super.key});
@@ -52,11 +59,32 @@ class ConfigureView extends StatelessComponent {
     final serviceIndex = context.watch(selectedServiceIndexProvider);
     final selectedOption = context.watch(_selectedOptionProvider);
     final statusMessage = context.watch(_statusMessageProvider);
+    final editingPluginDir = context.watch(_editingPluginDirNameProvider);
 
     return configAsync.when(
       loading: () => const Center(child: Text('Loading...')),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (config) {
+        // Plugin form takes over the whole view when the user has
+        // drilled into one — bypasses the tab grid key handling.
+        if (editingPluginDir != null) {
+          final entry = config.plugins
+              .where((p) => p.dirName == editingPluginDir &&
+                  p.uninstalledAt == null)
+              .firstOrNull;
+          if (entry == null) {
+            // Stale selection (plugin removed in a race). Drop it.
+            context.read(_editingPluginDirNameProvider.notifier).state = null;
+          } else {
+            return PluginConfigView(
+              entry: entry,
+              onDismiss: () => context
+                  .read(_editingPluginDirNameProvider.notifier)
+                  .state = null,
+            );
+          }
+        }
+
         final services = [
           'system',
           'bitcoind',
@@ -64,9 +92,14 @@ class ConfigureView extends StatelessComponent {
           'cln',
           'blitz-api',
           'blitz-web',
+          'plugins',
         ];
         final currentService = services[serviceIndex];
-        final options = _buildOptions(config, currentService, selectedOption);
+        final options = _buildOptions(
+          config,
+          currentService,
+          selectedOption,
+        );
 
         return Focusable(
           focused: true,
@@ -116,6 +149,20 @@ class ConfigureView extends StatelessComponent {
                 // Password change is a special action, not a config toggle
                 if (currentService == 'system' && selectedOption == 3) {
                   context.read(_changingPasswordProvider.notifier).state = true;
+                  return true;
+                }
+                // Plugins tab: Enter drills into the selected plugin's
+                // per-plugin config form.
+                if (currentService == 'plugins') {
+                  final active = config.plugins
+                      .where((p) => p.uninstalledAt == null)
+                      .toList();
+                  if (selectedOption < active.length) {
+                    context
+                            .read(_editingPluginDirNameProvider.notifier)
+                            .state =
+                        active[selectedOption].dirName;
+                  }
                   return true;
                 }
                 final updated = _toggleOption(
@@ -381,6 +428,33 @@ class ConfigureView extends StatelessComponent {
             focused: selectedIndex == 0,
           ),
         ];
+      case 'plugins':
+        final active = config.plugins
+            .where((p) => p.uninstalledAt == null)
+            .toList();
+        if (active.isEmpty) {
+          return const [
+            Text(
+              '(no plugins installed — use `nixblitz plugin add <url>`)',
+              style: TextStyle(color: Color.fromRGB(150, 150, 170)),
+            ),
+          ];
+        }
+        return List.generate(active.length, (i) {
+          final p = active[i];
+          final focused = selectedIndex == i;
+          final prefix = focused ? '> ' : '  ';
+          final color = focused
+              ? const Color.fromRGB(247, 147, 26)
+              : const Color.fromRGB(200, 200, 200);
+          final pin = p.pinnedRev.length >= 7
+              ? p.pinnedRev.substring(0, 7)
+              : p.pinnedRev;
+          return Text(
+            '$prefix${p.dirName}  [$pin] — ${p.id}',
+            style: TextStyle(color: color),
+          );
+        });
       default:
         return [const Text('Unknown service')];
     }

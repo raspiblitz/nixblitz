@@ -50,16 +50,43 @@
         else [];
     in
       lib.concatLists (lib.mapAttrsToList processEntry entries);
+
+    # User-installed plugins (see docs/decisions/plugins.md D14).
+    # Each plugin dir has its own plugin.nix (NixOS module) + config.json
+    # (user-editable settings edited via the TUI Configure view).
+    # We wrap each plugin's import with a _module.args.pluginCfg
+    # injection so plugin.nix receives its own config.json as a module
+    # argument — plugins don't `builtins.readFile` their config
+    # themselves, and the module system can't (today) prevent them
+    # reading anything in `config`, so this is convention, not
+    # enforcement.
+    pluginModules = let
+      pluginDirs = builtins.attrNames (builtins.readDir ./plugins);
+      isPluginDir = name: let
+        entries = builtins.readDir ./plugins;
+        isDir = (entries.${name} or null) == "directory";
+      in
+        isDir && builtins.pathExists (./plugins + "/${name}/plugin.nix");
+      mkPluginModule = name: let
+        pluginPath = ./plugins + "/${name}/plugin.nix";
+        configPath = ./plugins + "/${name}/config.json";
+        cfg =
+          if builtins.pathExists configPath
+          then builtins.fromJSON (builtins.readFile configPath)
+          else {};
+      in {
+        _module.args.pluginCfg = cfg;
+        imports = [pluginPath];
+      };
+    in
+      map mkPluginModule (builtins.filter isPluginDir pluginDirs);
   in {
     nixosModules.default = {
       imports =
         (findModules ./modules)
-        # User-installed plugins (see docs/decisions/plugins.md). The
-        # directory is absent until the first `nixblitz plugin add`, so
-        # guard readDir with pathExists.
         ++ (
           if builtins.pathExists ./plugins
-          then findModules ./plugins
+          then pluginModules
           else []
         )
         ++ [

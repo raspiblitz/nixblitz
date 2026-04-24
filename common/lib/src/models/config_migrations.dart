@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 13;
+const int currentConfigVersion = 14;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -124,6 +124,12 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
   // nix modules, and without that change plugins added via
   // `nixblitz plugin add` wouldn't be imported by the generated flake.
   12: (json) => json,
+  // v13 → v14: no schema change; template-refresh only. flake.nix
+  // now wraps each plugin module with `_module.args.pluginCfg =
+  // fromJSON(readFile plugins/<dir>/config.json)` so plugin.nix
+  // can declare `pluginCfg` as a module arg and read its own config
+  // without `builtins.readFile` (see plugins.md D14).
+  13: (json) => json,
 };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

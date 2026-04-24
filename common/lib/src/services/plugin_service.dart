@@ -236,6 +236,23 @@ class PluginService {
     return config.plugins.where((p) => p.uninstalledAt == null).toList();
   }
 
+  /// Load an installed plugin's manifest from disk. Used by the
+  /// Configure view to know which form fields to render. Throws
+  /// [StateError] if the plugin dir / manifest.json is missing and
+  /// [FormatException] / [PluginTooNewException] on parse failures.
+  PluginManifest readManifest(String dirName) {
+    final f = File('$pluginsDir/$dirName/manifest.json');
+    if (!f.existsSync()) {
+      throw StateError(
+        'manifest.json not found for plugin `$dirName`. '
+        'Is it installed?',
+      );
+    }
+    return PluginManifest.fromJson(
+      jsonDecode(f.readAsStringSync()) as Map<String, dynamic>,
+    );
+  }
+
   // ── private ──────────────────────────────────────────────────
 
   Future<void> _gitClone(String url, String branch, String target) async {

