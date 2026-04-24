@@ -60,12 +60,18 @@ const String _flake = r'''
     # User-installed plugins (see docs/decisions/plugins.md D14).
     # Each plugin dir has its own plugin.nix (NixOS module) + config.json
     # (user-editable settings edited via the TUI Configure view).
-    # We wrap each plugin's import with a _module.args.pluginCfg
-    # injection so plugin.nix receives its own config.json as a module
-    # argument — plugins don't `builtins.readFile` their config
-    # themselves, and the module system can't (today) prevent them
-    # reading anything in `config`, so this is convention, not
-    # enforcement.
+    #
+    # Plugin ABI: plugin.nix is a TWO-STAGE function:
+    #   { pluginCfg ? {} }: { config, lib, pkgs, ... }: { … }
+    # The outer stage receives the plugin's own config.json; the
+    # inner is a standard NixOS module function. We deliver
+    # pluginCfg via closure on the outer stage, NOT as a named arg
+    # on the inner — because NixOS's module system routes every
+    # named module-function arg through `_module.args.<name>`, and
+    # that namespace is global: two plugins both declaring
+    # `pluginCfg` as a module arg would collide with
+    #   `_module.args.pluginCfg' is defined multiple times`.
+    # Two-stage isolates each plugin's cfg inside its own closure.
     pluginModules = let
       pluginDirs = builtins.attrNames (builtins.readDir ./plugins);
       isPluginDir = name: let
@@ -80,10 +86,12 @@ const String _flake = r'''
           if builtins.pathExists configPath
           then builtins.fromJSON (builtins.readFile configPath)
           else {};
-      in {
-        _module.args.pluginCfg = cfg;
-        imports = [pluginPath];
-      };
+      in
+        # `import pluginPath` returns the outer function; calling it
+        # with {pluginCfg = cfg} returns the inner module function
+        # (no pluginCfg in that signature), which the module system
+        # treats as a normal NixOS module.
+        (import pluginPath) {pluginCfg = cfg;};
     in
       map mkPluginModule (builtins.filter isPluginDir pluginDirs);
   in {
