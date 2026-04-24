@@ -24,6 +24,7 @@ void main(List<String> arguments) async {
           'add',
           ArgParser()
             ..addOption('branch', defaultsTo: 'main')
+            ..addOption('subdir')
             ..addFlag('yes', abbr: 'y', negatable: false)
             ..addFlag('insecure', negatable: false),
         )

@@ -41,12 +41,14 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
   final rest = args.rest;
   if (rest.isEmpty) {
     stderr.writeln(
-      'Usage: nixblitz plugin add <url> [--branch <name>] [-y] [--insecure]',
+      'Usage: nixblitz plugin add <url> '
+      '[--branch <name>] [--subdir <path>] [-y] [--insecure]',
     );
     return 2;
   }
   final url = rest.first;
   final branch = args['branch'] as String;
+  final subdir = args['subdir'] as String?;
   final yes = args['yes'] as bool;
   final insecure = args['insecure'] as bool;
 
@@ -57,6 +59,7 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
   if (!yes) {
     stdout.writeln('About to install plugin from: $url');
     stdout.writeln('Branch: $branch');
+    if (subdir != null) stdout.writeln('Subdir: $subdir');
     if (insecure) stdout.writeln('  (via --insecure)');
     stdout.write('Proceed? [y/N]: ');
     final line = stdin.readLineSync() ?? '';
@@ -71,6 +74,7 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
     url,
     branch: branch,
     allowInsecure: insecure,
+    subdir: subdir,
   );
   stdout.writeln('installed ${entry.id}');
   stdout.writeln('  pin:   ${_shortRev(entry.pinnedRev)}');

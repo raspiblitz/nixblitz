@@ -41,8 +41,13 @@ class PluginService {
     String rawUrl, {
     String branch = 'main',
     bool allowInsecure = false,
+    String? subdir,
   }) async {
-    final parsed = PluginUrl.parse(rawUrl, allowInsecure: allowInsecure);
+    final parsed = PluginUrl.parse(
+      rawUrl,
+      allowInsecure: allowInsecure,
+      subdir: subdir,
+    );
 
     final config = configService.configExists()
         ? await configService.readConfig()
@@ -72,6 +77,34 @@ class PluginService {
       final pluginSourceDir = parsed.subdir == null
           ? tmpDir.path
           : '${tmpDir.path}/${parsed.subdir}';
+
+      // If there's no manifest where we expected one, the repo is
+      // likely a multi-plugin bundle — scan for candidates and list
+      // them so the user can re-run with --subdir.
+      if (!File('$pluginSourceDir/manifest.json').existsSync()) {
+        if (parsed.subdir == null) {
+          final candidates = _listPluginSubdirs(tmpDir.path);
+          if (candidates.isEmpty) {
+            throw StateError(
+              'No plugin found in this repo: no manifest.json at the root '
+              'and no immediate subdirectory contains one. '
+              'Is this a NixBlitz plugin repo?',
+            );
+          }
+          throw StateError(
+            'Repo has no plugin at its root but contains '
+            '${candidates.length} plugin${candidates.length == 1 ? '' : 's'} '
+            'in subdirectories:\n'
+            '${candidates.map((s) => '  - $s').join('\n')}\n'
+            'Pick one with `--subdir <name>`.',
+          );
+        } else {
+          throw StateError(
+            'manifest.json not found at subdir `${parsed.subdir}` in the '
+            'cloned repo.',
+          );
+        }
+      }
 
       final manifest = _readManifest(pluginSourceDir);
       _requirePluginNix(pluginSourceDir);
@@ -219,10 +252,70 @@ class PluginService {
       environment: const {'GIT_TERMINAL_PROMPT': '0'},
     ).timeout(_cloneTimeout);
     if (r.exitCode != 0) {
+      final stderr = (r.stderr as String).trim();
+      final hint = _suggestLocalSubdir(url);
       throw StateError(
-        'git clone failed (exit ${r.exitCode}): ${(r.stderr as String).trim()}',
+        'git clone failed (exit ${r.exitCode}): $stderr'
+        '${hint == null ? '' : '\n\n$hint'}',
       );
     }
+  }
+
+  /// If [url] points at a local path that lives *inside* a git repo
+  /// (rather than being the repo root itself), build a friendly hint
+  /// showing the correct form. The common case: user runs
+  /// `plugin add /path/to/repo/plugin-a --insecure`, which fails
+  /// because /path/to/repo/plugin-a has no .git/. We walk up to
+  /// /path/to/repo, find .git/, and suggest
+  /// `/path/to/repo --subdir plugin-a`.
+  String? _suggestLocalSubdir(String url) {
+    String? fsPath;
+    if (url.startsWith('file://')) {
+      fsPath = url.substring('file://'.length);
+    } else if (url.startsWith('/')) {
+      fsPath = url;
+    }
+    if (fsPath == null) return null;
+    // Strip any ?dir= we appended when subdir was set via flag.
+    final q = fsPath.indexOf('?');
+    if (q >= 0) fsPath = fsPath.substring(0, q);
+
+    final segments = fsPath.split(Platform.pathSeparator);
+    for (var i = segments.length - 1; i > 0; i--) {
+      final candidate = segments.sublist(0, i).join(Platform.pathSeparator);
+      if (candidate.isEmpty) continue;
+      // `.git` is usually a directory but can be a file (worktrees, submodules).
+      if (Directory('$candidate/.git').existsSync() ||
+          File('$candidate/.git').existsSync()) {
+        final subdir = segments.sublist(i).join('/');
+        return 'hint: `$fsPath` sits inside the git repo at `$candidate`. '
+            'Try: `plugin add $candidate --subdir $subdir --insecure`';
+      }
+    }
+    return null;
+  }
+
+  /// List immediate subdirectory names of [repoDir] that look like
+  /// NixBlitz plugins (contain both manifest.json and plugin.nix).
+  /// Used to build a helpful "pick one with --subdir" error when a
+  /// user points at a multi-plugin repo without specifying which
+  /// plugin they want. Sorted for stable output.
+  List<String> _listPluginSubdirs(String repoDir) {
+    final result = <String>[];
+    for (final entity in Directory(repoDir).listSync(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final name = entity.path.split(Platform.pathSeparator).last;
+      if (name.startsWith('.')) continue;
+      final hasManifest =
+          File('${entity.path}/manifest.json').existsSync();
+      final hasPluginNix =
+          File('${entity.path}/plugin.nix').existsSync();
+      if (hasManifest && hasPluginNix) {
+        result.add(name);
+      }
+    }
+    result.sort();
+    return result;
   }
 
   /// `git add -N` (intent-to-add) on everything under [path]. Makes
@@ -338,9 +431,34 @@ class PluginUrl {
     required this.insecure,
   });
 
-  static PluginUrl parse(String raw, {bool allowInsecure = false}) {
+  static PluginUrl parse(
+    String raw, {
+    bool allowInsecure = false,
+    String? subdir,
+  }) {
+    final base = _parseBase(raw, allowInsecure: allowInsecure);
+    if (subdir == null || subdir.isEmpty) return base;
+    final normalized = subdir.replaceAll(RegExp(r'^/+|/+$'), '');
+    if (normalized.isEmpty) return base;
+    if (base.subdir != null) {
+      if (base.subdir == normalized) return base;
+      throw FormatException(
+        'URL `$raw` already specifies subdir `${base.subdir}`; '
+        'cannot combine with --subdir=$normalized.',
+      );
+    }
+    return base._withSubdir(normalized);
+  }
+
+  static PluginUrl _parseBase(String raw, {required bool allowInsecure}) {
     if (raw.startsWith('github:')) {
       return _parseGithub(raw);
+    }
+    if (raw.startsWith('forgejo:')) {
+      return _parseHostedGit(raw, 'forgejo:');
+    }
+    if (raw.startsWith('gitea:')) {
+      return _parseHostedGit(raw, 'gitea:');
     }
     if (raw.startsWith('https://')) {
       return PluginUrl(canonical: raw, cloneUrl: raw, insecure: false);
@@ -384,7 +502,8 @@ class PluginUrl {
     }
     throw FormatException(
       'Unsupported URL in `$raw`. '
-      'Accepted: github:owner/repo, https://host/repo, or a bare '
+      'Accepted: github:owner/repo, forgejo:host/owner/repo, '
+      'gitea:host/owner/repo, https://host/repo, or a bare '
       'absolute path (/home/you/...). '
       'file://, http://, ssh:// require --insecure.',
     );
@@ -413,14 +532,81 @@ class PluginUrl {
     );
   }
 
+  /// Shared parser for self-hosted shortcut schemes (forgejo:, gitea:)
+  /// where the host must be specified because the instance isn't
+  /// implicit. Shape: `<scheme>host/owner/repo[/subdir]`.
+  static PluginUrl _parseHostedGit(String raw, String schemePrefix) {
+    final path = raw.substring(schemePrefix.length);
+    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
+    if (segments.length < 3) {
+      throw FormatException(
+        'Invalid $schemePrefix URL `$raw`. '
+        'Expected `${schemePrefix}host/owner/repo[/subdir]`.',
+      );
+    }
+    final host = segments[0];
+    final owner = segments[1];
+    final repo = segments[2];
+    final subdirParts = segments.sublist(3);
+    final subdir = subdirParts.isEmpty ? null : subdirParts.join('/');
+    final canonical = subdir == null
+        ? '$schemePrefix$host/$owner/$repo'
+        : '$schemePrefix$host/$owner/$repo/$subdir';
+    return PluginUrl(
+      canonical: canonical,
+      cloneUrl: 'https://$host/$owner/$repo',
+      subdir: subdir,
+      insecure: false,
+    );
+  }
+
+  /// Return a copy with the subdir set. Updates [canonical] using
+  /// the scheme's native convention — path-form for `github:`
+  /// (matches Nix flake URI syntax), `?dir=<subdir>` query-form
+  /// otherwise. Precondition: this PluginUrl has no subdir set.
+  PluginUrl _withSubdir(String sub) {
+    final newCanonical = canonical.startsWith('github:')
+        ? '$canonical/$sub'
+        : '$canonical?dir=$sub';
+    return PluginUrl(
+      canonical: newCanonical,
+      cloneUrl: cloneUrl,
+      subdir: sub,
+      insecure: insecure,
+    );
+  }
+
   /// Directory name for this plugin under `~/nixblitz/plugins/`.
   /// Not guaranteed unique — [PluginService] resolves collisions by
   /// appending a numeric suffix.
   String deriveDirName() {
-    if (canonical.startsWith('github:')) {
-      return canonical.substring('github:'.length).replaceAll('/', '-');
+    final base = _deriveRepoBaseName();
+    if (subdir == null || subdir!.isEmpty) return base;
+    return '$base-${subdir!.replaceAll("/", "-")}';
+  }
+
+  String _deriveRepoBaseName() {
+    // Shortcut schemes: pull owner/repo out of the canonical path,
+    // skipping the scheme and (for self-hosted) the host segment.
+    for (final entry in const {
+      'github:': 0, // owner at index 0 after scheme
+      'forgejo:': 1, // host owns index 0, owner at index 1
+      'gitea:': 1,
+    }.entries) {
+      final scheme = entry.key;
+      final ownerIdx = entry.value;
+      if (!canonical.startsWith(scheme)) continue;
+      final rest = canonical.substring(scheme.length);
+      final stripped = rest.contains('?')
+          ? rest.substring(0, rest.indexOf('?'))
+          : rest;
+      final segs = stripped.split('/').where((s) => s.isNotEmpty).toList();
+      if (segs.length >= ownerIdx + 2) {
+        return '${segs[ownerIdx]}-${segs[ownerIdx + 1]}';
+      }
+      return segs.join('-');
     }
-    final uri = Uri.tryParse(canonical);
+    final uri = Uri.tryParse(cloneUrl);
     if (uri != null && uri.pathSegments.isNotEmpty) {
       var last = uri.pathSegments.last;
       if (last.endsWith('.git')) {

@@ -171,6 +171,178 @@ void main() {
       );
     });
 
+    test('clone failure on a subdir inside a repo suggests --subdir',
+        () async {
+      // Build an outer repo containing a plugin subdir. Pointing
+      // directly at the subdir fails because it has no .git/; the
+      // fix is to point at the parent with --subdir.
+      final outer = Directory.systemTemp.createTempSync(
+        'nixblitz_outer_',
+      );
+      try {
+        await _seedPluginRepo(outer.path);
+        Directory('${outer.path}/tailscale').createSync();
+        File('${outer.path}/tailscale/plugin.nix').writeAsStringSync('{}\n');
+        File('${outer.path}/tailscale/manifest.json').writeAsStringSync(
+          jsonEncode({
+            'manifest': {
+              'schema_version': 1,
+              'min_tui_version': 1,
+              'name': 'ts',
+            },
+          }),
+        );
+
+        await expectLater(
+          () => svc.install(
+            '${outer.path}/tailscale',
+            allowInsecure: true,
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('sits inside the git repo'),
+                contains(outer.path),
+                contains('--subdir tailscale'),
+              ),
+            ),
+          ),
+        );
+      } finally {
+        outer.deleteSync(recursive: true);
+      }
+    });
+
+    test('multi-plugin repo without --subdir lists available plugins',
+        () async {
+      final multi = Directory.systemTemp.createTempSync(
+        'nixblitz_multi_list_',
+      );
+      try {
+        // Two valid plugins + one non-plugin subdir (should be skipped).
+        for (final name in ['tailscale', 'btcpay']) {
+          Directory('${multi.path}/$name').createSync(recursive: true);
+          File('${multi.path}/$name/plugin.nix').writeAsStringSync('{}\n');
+          File('${multi.path}/$name/manifest.json').writeAsStringSync(
+            jsonEncode({
+              'manifest': {
+                'schema_version': 1,
+                'min_tui_version': 1,
+                'name': name,
+              },
+            }),
+          );
+        }
+        Directory('${multi.path}/docs').createSync();
+        File('${multi.path}/docs/notes.md').writeAsStringSync('# docs\n');
+        File('${multi.path}/README.md').writeAsStringSync('# multi\n');
+
+        final env = {
+          'GIT_AUTHOR_NAME': 't',
+          'GIT_AUTHOR_EMAIL': 't@t',
+          'GIT_COMMITTER_NAME': 't',
+          'GIT_COMMITTER_EMAIL': 't@t',
+        };
+        for (final args in [
+          ['init', '-b', 'main'],
+          ['add', '-A'],
+          ['commit', '-m', 'initial'],
+        ]) {
+          final r = await Process.run(
+            'git',
+            args,
+            workingDirectory: multi.path,
+            environment: env,
+          );
+          expect(r.exitCode, 0, reason: r.stderr.toString());
+        }
+
+        await expectLater(
+          () => svc.install(
+            'file://${multi.path}',
+            allowInsecure: true,
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('btcpay'),
+                contains('tailscale'),
+                contains('--subdir'),
+                isNot(contains('docs')),
+              ),
+            ),
+          ),
+        );
+      } finally {
+        multi.deleteSync(recursive: true);
+      }
+    });
+
+    test('install with --subdir from a multi-plugin repo', () async {
+      // Build a multi-plugin repo: root has no manifest, but
+      // `tailscale/` does. `install(... subdir: 'tailscale')` must
+      // look for the manifest inside the subdir.
+      final multi = Directory.systemTemp.createTempSync(
+        'nixblitz_multi_',
+      );
+      try {
+        Directory('${multi.path}/tailscale').createSync(recursive: true);
+        File('${multi.path}/tailscale/plugin.nix')
+            .writeAsStringSync('{ services.tailscale.enable = true; }\n');
+        File('${multi.path}/tailscale/manifest.json').writeAsStringSync(
+          jsonEncode({
+            'manifest': {
+              'schema_version': 1,
+              'min_tui_version': 1,
+              'name': 'tailscale',
+            },
+          }),
+        );
+        File('${multi.path}/README.md').writeAsStringSync('# multi\n');
+        final env = {
+          'GIT_AUTHOR_NAME': 't',
+          'GIT_AUTHOR_EMAIL': 't@t',
+          'GIT_COMMITTER_NAME': 't',
+          'GIT_COMMITTER_EMAIL': 't@t',
+        };
+        for (final args in [
+          ['init', '-b', 'main'],
+          ['add', '-A'],
+          ['commit', '-m', 'initial'],
+        ]) {
+          final r = await Process.run(
+            'git',
+            args,
+            workingDirectory: multi.path,
+            environment: env,
+          );
+          expect(r.exitCode, 0, reason: r.stderr.toString());
+        }
+
+        final entry = await svc.install(
+          'file://${multi.path}',
+          allowInsecure: true,
+          subdir: 'tailscale',
+        );
+        expect(entry.id, contains('dir=tailscale'));
+        expect(entry.dirName, endsWith('-tailscale'));
+
+        final pluginDir = Directory(
+          '${home.path}/plugins/${entry.dirName}',
+        );
+        expect(
+          File('${pluginDir.path}/plugin.nix').existsSync(),
+          isTrue,
+        );
+      } finally {
+        multi.deleteSync(recursive: true);
+      }
+    });
+
     test('refuses to install a repo containing a symlink', () async {
       // Plant a symlink in the source repo pointing at /etc/passwd
       // and commit it. A naive copy would dereference, landing
@@ -374,6 +546,83 @@ void main() {
     test('deriveDirName joins github subdir', () {
       final p = PluginUrl.parse('github:a/b/c');
       expect(p.deriveDirName(), 'a-b-c');
+    });
+
+    test('parses forgejo: with host/owner/repo', () {
+      final p = PluginUrl.parse(
+        'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins',
+      );
+      expect(
+        p.canonical,
+        'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins',
+      );
+      expect(
+        p.cloneUrl,
+        'https://forge.f44.fyi/f44/nixblitz_official_plugins',
+      );
+      expect(p.subdir, isNull);
+      expect(p.deriveDirName(), 'f44-nixblitz_official_plugins');
+    });
+
+    test('parses forgejo: with subdir', () {
+      final p = PluginUrl.parse(
+        'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/tailscale',
+      );
+      expect(p.subdir, 'tailscale');
+      expect(p.deriveDirName(), 'f44-nixblitz_official_plugins-tailscale');
+    });
+
+    test('parses gitea: with host/owner/repo/subdir', () {
+      final p = PluginUrl.parse('gitea:git.example.com/org/plugins/foo');
+      expect(p.cloneUrl, 'https://git.example.com/org/plugins');
+      expect(p.subdir, 'foo');
+    });
+
+    test('rejects forgejo: missing host', () {
+      expect(
+        () => PluginUrl.parse('forgejo:f44/nixblitz_official_plugins'),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('applies --subdir on file:// URL', () {
+      final p = PluginUrl.parse(
+        'file:///tmp/plugins',
+        allowInsecure: true,
+        subdir: 'tailscale',
+      );
+      expect(p.canonical, 'file:///tmp/plugins?dir=tailscale');
+      expect(p.cloneUrl, 'file:///tmp/plugins');
+      expect(p.subdir, 'tailscale');
+      expect(p.deriveDirName(), 'plugins-tailscale');
+    });
+
+    test('applies --subdir on github: URL without embedded subdir', () {
+      final p = PluginUrl.parse(
+        'github:fusion44/nixblitz_official_plugins',
+        subdir: 'tailscale',
+      );
+      expect(
+        p.canonical,
+        'github:fusion44/nixblitz_official_plugins/tailscale',
+      );
+      expect(p.subdir, 'tailscale');
+    });
+
+    test('conflicting URL subdir + --subdir is an error', () {
+      expect(
+        () => PluginUrl.parse(
+          'github:a/b/c',
+          subdir: 'd',
+        ),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('--subdir matching URL subdir is a no-op', () {
+      final p = PluginUrl.parse('github:a/b/c', subdir: 'c');
+      expect(p.canonical, 'github:a/b/c');
+      expect(p.subdir, 'c');
     });
   });
 }
