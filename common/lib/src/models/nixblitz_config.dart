@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:common/src/models/config_migrations.dart';
+import 'package:common/src/models/plugin/plugin_entry.dart';
 
 class SystemConfig {
   final String hostname;
@@ -221,6 +222,7 @@ class NixblitzConfig {
   final ClnConfig cln;
   final BlitzApiConfig blitzApi;
   final BlitzWebConfig blitzWeb;
+  final List<PluginEntry> plugins;
   final Map<String, dynamic> _extra;
 
   const NixblitzConfig({
@@ -233,6 +235,7 @@ class NixblitzConfig {
     required this.cln,
     required this.blitzApi,
     required this.blitzWeb,
+    this.plugins = const [],
     Map<String, dynamic> extra = const {},
   }) : _extra = extra;
 
@@ -256,6 +259,7 @@ class NixblitzConfig {
     'cln',
     'blitz_api',
     'blitz_web',
+    'plugins',
   };
 
   /// Parse a config from JSON. Runs migrations if the version is older than
@@ -310,6 +314,10 @@ class NixblitzConfig {
       blitzWeb: migrated['blitz_web'] != null
           ? BlitzWebConfig.fromJson(migrated['blitz_web'] as Map<String, dynamic>)
           : BlitzWebConfig.defaults(),
+      plugins: (migrated['plugins'] as List<dynamic>?)
+              ?.map((e) => PluginEntry.fromJson(e as Map<String, dynamic>))
+              .toList(growable: false) ??
+          const [],
       extra: extra,
     );
   }
@@ -324,6 +332,7 @@ class NixblitzConfig {
     'cln': cln.toJson(),
     'blitz_api': blitzApi.toJson(),
     'blitz_web': blitzWeb.toJson(),
+    'plugins': plugins.map((p) => p.toJson()).toList(),
     ..._extra,
   };
 
@@ -378,6 +387,7 @@ class NixblitzConfig {
     ClnConfig? cln,
     BlitzApiConfig? blitzApi,
     BlitzWebConfig? blitzWeb,
+    List<PluginEntry>? plugins,
     Map<String, dynamic>? extra,
   }) => NixblitzConfig(
     version: version ?? this.version,
@@ -390,6 +400,7 @@ class NixblitzConfig {
     cln: cln ?? this.cln,
     blitzApi: blitzApi ?? this.blitzApi,
     blitzWeb: blitzWeb ?? this.blitzWeb,
+    plugins: plugins ?? this.plugins,
     extra: extra ?? _extra,
   );
 }

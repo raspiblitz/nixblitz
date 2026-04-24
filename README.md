@@ -14,13 +14,13 @@ All configuration is stored in a single `config.json` file, tracked by git for a
 
 ## Supported Services
 
-| Service | Description |
-|---------|-------------|
-| bitcoind | Bitcoin Core daemon (mainnet/testnet/signet, pruned or full) |
-| LND | Lightning Network Daemon |
-| CLN | Core Lightning |
-| Blitz API | RaspiBlitz API |
-| Blitz Web | RaspiBlitz Web UI |
+| Service   | Description                                                  |
+| --------- | ------------------------------------------------------------ |
+| bitcoind  | Bitcoin Core daemon (mainnet/testnet/signet, pruned or full) |
+| LND       | Lightning Network Daemon                                     |
+| CLN       | Core Lightning                                               |
+| Blitz API | RaspiBlitz API                                               |
+| Blitz Web | RaspiBlitz Web UI                                            |
 
 ## Supported Platforms
 

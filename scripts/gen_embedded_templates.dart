@@ -15,10 +15,17 @@ void main() {
     exit(1);
   }
 
-  // Find all files, sort for deterministic output
+  // Find all files, sort for deterministic output. `example-plugins/`
+  // is dogfood for the plugin-system CLI and is deliberately not
+  // scaffolded into `~/nixblitz/` — users install plugins explicitly
+  // via `nixblitz plugin add`.
   final files = templateDir
       .listSync(recursive: true)
       .whereType<File>()
+      .where((f) {
+        final rel = f.path.replaceFirst('templates/', '');
+        return !rel.startsWith('example-plugins/');
+      })
       .toList()
     ..sort((a, b) => a.path.compareTo(b.path));
 

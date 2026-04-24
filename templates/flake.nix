@@ -54,6 +54,14 @@
     nixosModules.default = {
       imports =
         (findModules ./modules)
+        # User-installed plugins (see docs/decisions/plugins.md). The
+        # directory is absent until the first `nixblitz plugin add`, so
+        # guard readDir with pathExists.
+        ++ (
+          if builtins.pathExists ./plugins
+          then findModules ./plugins
+          else []
+        )
         ++ [
           disko.nixosModules.default
           nix-bitcoin.nixosModules.default
