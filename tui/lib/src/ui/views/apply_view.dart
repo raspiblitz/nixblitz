@@ -4,6 +4,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../shutdown.dart';
+import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
@@ -299,7 +300,7 @@ class _ApplyViewState extends State<ApplyView> {
     final outputLines = context.watch(_applyOutputProvider);
     final exitCode = context.watch(_applyExitCodeProvider);
     final binaryUpdated = context.watch(_applyBinaryUpdatedProvider);
-    final success = exitCode == 0;
+    final result = RebuildResult.classify(outputLines, exitCode ?? 1);
 
     return Focusable(
       focused: true,
@@ -325,16 +326,10 @@ class _ApplyViewState extends State<ApplyView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              success ? 'Apply Complete' : 'Apply Failed',
-              style: TextStyle(
-                color: success
-                    ? const Color.fromRGB(110, 220, 110)
-                    : const Color.fromRGB(255, 80, 80),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            rebuildHeadline(result, 'Apply'),
             const SizedBox(height: 1),
+            if (result.outcome == RebuildOutcome.partial)
+              rebuildFailedUnitsBanner(result.failedUnits),
             Expanded(child: ScrollableLog(lines: outputLines)),
             const SizedBox(height: 1),
             if (binaryUpdated)

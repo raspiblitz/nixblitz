@@ -4,6 +4,7 @@ export 'src/models/nixblitz_config.dart';
 export 'src/models/plugin/plugin_entry.dart';
 export 'src/models/plugin/plugin_manifest.dart';
 export 'src/models/plugin/plugin_permissions.dart';
+export 'src/models/rebuild_outcome.dart';
 export 'src/models/service_status.dart';
 export 'src/services/config_service.dart';
 export 'src/services/git_service.dart';

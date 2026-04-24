@@ -5,6 +5,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../shutdown.dart';
+import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
@@ -282,7 +283,7 @@ class _UpdateViewState extends State<UpdateView> {
     final exitCode = context.watch(_updateExitCodeProvider);
     final outputLines = context.watch(_updateOutputProvider);
     final binaryUpdated = context.watch(_updateBinaryUpdatedProvider);
-    final success = exitCode == 0;
+    final result = RebuildResult.classify(outputLines, exitCode ?? 1);
 
     return Focusable(
       focused: true,
@@ -317,16 +318,10 @@ class _UpdateViewState extends State<UpdateView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              success ? 'Update Complete!' : 'Update Failed',
-              style: TextStyle(
-                color: success
-                    ? const Color.fromRGB(110, 220, 110)
-                    : const Color.fromRGB(255, 80, 80),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            rebuildHeadline(result, 'Update'),
             const SizedBox(height: 1),
+            if (result.outcome == RebuildOutcome.partial)
+              rebuildFailedUnitsBanner(result.failedUnits),
             Expanded(child: ScrollableLog(lines: outputLines)),
             const SizedBox(height: 1),
             if (binaryUpdated)
@@ -346,3 +341,4 @@ class _UpdateViewState extends State<UpdateView> {
     );
   }
 }
+
