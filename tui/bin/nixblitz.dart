@@ -32,6 +32,12 @@ void main(List<String> arguments) async {
         ..addCommand(
           'list',
           ArgParser()..addFlag('all', negatable: false),
+        )
+        ..addCommand(
+          'refresh',
+          ArgParser()
+            ..addFlag('all', negatable: false)
+            ..addFlag('insecure', negatable: false),
         ),
     );
 

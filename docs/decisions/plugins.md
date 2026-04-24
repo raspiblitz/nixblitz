@@ -574,6 +574,52 @@ rebuild."
 
 ---
 
-_Last updated: 2026-04-22. Update the top of the relevant decision
+## Operator notes
+
+### Plugins with UI-persisted settings
+
+Some third-party applications (LNBits is the canonical example)
+persist configuration into their own state — a SQLite DB, YAML
+file, etc. — and treat environment variables as *initial* defaults
+only. Once a value is written to the app's own store, changing the
+env var (via the TUI Configure form → Apply → rebuild) has no
+runtime effect: the app reads its own store on startup and ignores
+the fresh env.
+
+Concretely for LNBits: `LND_REST_MACAROON` is read from env on
+first start, saved to `/var/lib/lnbits/data/database.sqlite3`, and
+every subsequent start reads the DB value. A plugin-config change
+that rewrites the env var won't take effect until the DB is wiped.
+
+This is a category of plugin the plugin system cannot transparently
+manage. Guidance, in increasing order of cost:
+
+1. **Plugin author: leave UI-persisted fields out of the manifest
+   `config` block.** Expose them as "configure via the app UI" in
+   the plugin README instead, so users don't expect the TUI form
+   to be authoritative.
+2. **Plugin author: use app-specific "force env" flags** when they
+   exist (LNBits does not, as of v1.5.4). A plugin.nix that flips
+   such a flag brings the app back under Nix's authority.
+3. **Operator: nuke the app's persisted state.** Only works before
+   the user has real data. For LNBits:
+   ```
+   sudo systemctl stop lnbits
+   sudo rm /var/lib/lnbits/data/database.sqlite3
+   sudo systemctl start lnbits
+   ```
+   Loses anything the user put in the UI; the app re-initializes
+   from the fresh env vars.
+
+The plugin manifest has no way to *declare* that a field is
+UI-persisted today. If this turns out to be common enough that
+authors want to flag it, we'll add a field-level
+`persisted_by: "app"` annotation to the DSL so the TUI can print a
+"edit via `<app>` UI" hint instead of exposing the field as a
+regular editor.
+
+---
+
+_Last updated: 2026-04-24. Update the top of the relevant decision
 entry when rescoping; don't rewrite — future readers need the
 trail._

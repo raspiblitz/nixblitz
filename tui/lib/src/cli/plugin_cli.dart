@@ -27,6 +27,8 @@ Future<int> runPluginCli(ArgResults pluginArgs, String baseDir) async {
         return await _runRemove(svc, sub);
       case 'list':
         return await _runList(svc, sub);
+      case 'refresh':
+        return await _runRefresh(svc, sub);
       default:
         stderr.writeln('unknown verb: ${sub.name}');
         return 2;
@@ -119,6 +121,52 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
       '$tombMark',
     );
   }
+  return 0;
+}
+
+Future<int> _runRefresh(PluginService svc, ArgResults args) async {
+  final all = args['all'] as bool;
+  final insecure = args['insecure'] as bool;
+  final rest = args.rest;
+
+  if (all) {
+    if (rest.isNotEmpty) {
+      stderr.writeln(
+        'Either pass --all OR a plugin id, not both.',
+      );
+      return 2;
+    }
+    final refreshed = await svc.refreshAll(allowInsecure: insecure);
+    if (refreshed.isEmpty) {
+      stdout.writeln('(no plugins to refresh)');
+      return 0;
+    }
+    for (final p in refreshed) {
+      stdout.writeln('refreshed ${p.id}  pin=${_shortRev(p.pinnedRev)}');
+    }
+    stdout.writeln();
+    stdout.writeln(
+      'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+    );
+    return 0;
+  }
+
+  if (rest.isEmpty) {
+    stderr.writeln(
+      'Usage: nixblitz plugin refresh <id> [--insecure]\n'
+      '       nixblitz plugin refresh --all [--insecure]',
+    );
+    return 2;
+  }
+  final id = rest.first;
+  final entry = await svc.refresh(id, allowInsecure: insecure);
+  stdout.writeln('refreshed ${entry.id}');
+  stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
+  stdout.writeln('  branch: ${entry.branch}');
+  stdout.writeln();
+  stdout.writeln(
+    'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+  );
   return 0;
 }
 

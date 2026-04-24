@@ -227,6 +227,138 @@ class PluginService {
     LogService.info('PluginService: removed $id (tombstoned)');
   }
 
+  /// Re-fetch a plugin from its stored URL, updating the pinned
+  /// rev + file contents while preserving the user's per-plugin
+  /// `config.json`. Used as a less-destructive alternative to the
+  /// `plugin remove && plugin add` dance the user has to do today
+  /// whenever the upstream plugin source moves.
+  ///
+  /// The plugin's `dirName`, `branch`, and main-config entry index
+  /// all stay the same; only `pinnedRev` and `lastUpdatedAt` are
+  /// updated. Leaves the working tree dirty — next Apply commits
+  /// the refreshed files alongside any other staged changes.
+  Future<PluginEntry> refresh(
+    String id, {
+    bool allowInsecure = false,
+  }) async {
+    final config = await configService.readConfig();
+    final idx = config.plugins.indexWhere(
+      (p) => p.id == id && p.uninstalledAt == null,
+    );
+    if (idx < 0) {
+      throw StateError('Plugin not installed: $id');
+    }
+    final existing = config.plugins[idx];
+    final parsed = PluginUrl.parse(
+      existing.url,
+      allowInsecure: allowInsecure,
+    );
+
+    final targetDir = Directory('$pluginsDir/${existing.dirName}');
+    if (!targetDir.existsSync()) {
+      throw StateError(
+        'Plugin dir missing at ${targetDir.path}; main config says '
+        'it\'s installed but the files are gone. Try `plugin remove` '
+        'followed by `plugin add` to recover.',
+      );
+    }
+
+    // Preserve the user's config.json bytes verbatim. Even if a
+    // manifest update removes a field, the stale value stays in the
+    // file; the running plugin.nix just ignores what it doesn't read.
+    final existingCfgFile = File('${targetDir.path}/config.json');
+    final preservedCfg = existingCfgFile.existsSync()
+        ? existingCfgFile.readAsStringSync()
+        : '{}\n';
+
+    final tmpDir = await Directory.systemTemp.createTemp(
+      'nixblitz-plugin-refresh-',
+    );
+    try {
+      await _gitClone(parsed.cloneUrl, existing.branch, tmpDir.path);
+      final pinnedRev = await _gitRevParseHead(tmpDir.path);
+      _rejectSymlinks(tmpDir.path);
+
+      final pluginSourceDir = parsed.subdir == null
+          ? tmpDir.path
+          : '${tmpDir.path}/${parsed.subdir}';
+
+      if (!File('$pluginSourceDir/manifest.json').existsSync()) {
+        throw StateError(
+          'manifest.json not found at subdir '
+          '`${parsed.subdir ?? "(root)"}` in the refreshed repo.',
+        );
+      }
+      final manifest = _readManifest(pluginSourceDir);
+      _requirePluginNix(pluginSourceDir);
+
+      // Wipe + repopulate. Simple and matches the install shape;
+      // any file the new plugin version no longer ships is gone
+      // cleanly.
+      targetDir.deleteSync(recursive: true);
+      targetDir.createSync(recursive: true);
+
+      for (final name in const [
+        'plugin.nix',
+        'manifest.json',
+        'README.md',
+        'LICENSE',
+      ]) {
+        final src = File('$pluginSourceDir/$name');
+        if (src.existsSync()) {
+          src.copySync('${targetDir.path}/$name');
+        }
+      }
+
+      // Restore user config, overwriting the empty copy the manifest
+      // flow might want to seed.
+      existingCfgFile.writeAsStringSync(preservedCfg);
+
+      final now = DateTime.now().toUtc();
+      final refreshed = existing.copyWith(
+        pinnedRev: pinnedRev,
+        lastUpdatedAt: now,
+      );
+
+      File('${targetDir.path}/.plugin-metadata.json').writeAsStringSync(
+        '${const JsonEncoder.withIndent('  ').convert(refreshed.toJson())}\n',
+      );
+
+      await _gitIntentToAdd(targetDir.path);
+
+      final updated = List<PluginEntry>.from(config.plugins);
+      updated[idx] = refreshed;
+      await configService.writeConfig(
+        config.copyWith(plugins: updated),
+      );
+
+      LogService.info(
+        'PluginService: refreshed ${existing.id} '
+        '(pin: ${existing.pinnedRev} → $pinnedRev, '
+        'schema=${manifest.schemaVersion})',
+      );
+      return refreshed;
+    } finally {
+      try {
+        await tmpDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
+  /// Refresh every active (non-tombstoned) plugin in order.
+  /// Returns the list of refreshed entries. If a single plugin
+  /// refresh fails, the error propagates and any already-refreshed
+  /// plugins stay refreshed (the working tree may be partially
+  /// updated; Apply will show the partial diff).
+  Future<List<PluginEntry>> refreshAll({bool allowInsecure = false}) async {
+    final active = await list();
+    final out = <PluginEntry>[];
+    for (final p in active) {
+      out.add(await refresh(p.id, allowInsecure: allowInsecure));
+    }
+    return out;
+  }
+
   /// Active plugins by default; pass [includeTombstones] for the full
   /// audit trail.
   Future<List<PluginEntry>> list({bool includeTombstones = false}) async {
@@ -453,9 +585,24 @@ class PluginUrl {
     bool allowInsecure = false,
     String? subdir,
   }) {
-    final base = _parseBase(raw, allowInsecure: allowInsecure);
-    if (subdir == null || subdir.isEmpty) return base;
-    final normalized = subdir.replaceAll(RegExp(r'^/+|/+$'), '');
+    // Canonical URLs for non-github schemes encode the subdir as
+    // `?dir=<subdir>` (produced by [_withSubdir]). When we re-parse
+    // a stored PluginEntry.id (e.g. during `plugin refresh`), split
+    // that query-string suffix off before handing to the scheme
+    // parsers — then fold it back in via [_withSubdir] on the way
+    // out. Keeps the round-trip deterministic.
+    String effectiveRaw = raw;
+    String? embeddedSubdir;
+    final qIdx = raw.indexOf('?dir=');
+    if (qIdx >= 0) {
+      embeddedSubdir = raw.substring(qIdx + '?dir='.length);
+      effectiveRaw = raw.substring(0, qIdx);
+    }
+
+    final base = _parseBase(effectiveRaw, allowInsecure: allowInsecure);
+    final finalSubdir = subdir ?? embeddedSubdir;
+    if (finalSubdir == null || finalSubdir.isEmpty) return base;
+    final normalized = finalSubdir.replaceAll(RegExp(r'^/+|/+$'), '');
     if (normalized.isEmpty) return base;
     if (base.subdir != null) {
       if (base.subdir == normalized) return base;

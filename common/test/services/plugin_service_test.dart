@@ -444,6 +444,99 @@ void main() {
       expect(config.plugins.first.uninstalledAt, isNull);
     });
 
+    test('refresh re-fetches files but preserves per-plugin config.json',
+        () async {
+      final first = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+
+      // User edits their plugin config. Refresh must not clobber it.
+      final cfgPath = '${home.path}/plugins/${first.dirName}/config.json';
+      File(cfgPath).writeAsStringSync(
+        jsonEncode({'custom_key': 'value', 'other': 42}),
+      );
+
+      // Advance the upstream repo: change plugin.nix, commit.
+      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
+        '# refreshed plugin.nix v2\n{ services.tailscale.enable = true; }\n',
+      );
+      final env = {
+        'GIT_AUTHOR_NAME': 't',
+        'GIT_AUTHOR_EMAIL': 't@t',
+        'GIT_COMMITTER_NAME': 't',
+        'GIT_COMMITTER_EMAIL': 't@t',
+      };
+      for (final args in [
+        ['add', '-A'],
+        ['commit', '-m', 'update plugin'],
+      ]) {
+        final r = await Process.run(
+          'git',
+          args,
+          workingDirectory: srcRepo.path,
+          environment: env,
+        );
+        expect(r.exitCode, 0, reason: r.stderr.toString());
+      }
+
+      final refreshed = await svc.refresh(
+        first.id,
+        allowInsecure: true,
+      );
+
+      // Pin advanced.
+      expect(refreshed.pinnedRev, isNot(first.pinnedRev));
+      expect(refreshed.dirName, first.dirName);
+
+      // Files updated.
+      final pluginNix = File(
+        '${home.path}/plugins/${refreshed.dirName}/plugin.nix',
+      ).readAsStringSync();
+      expect(pluginNix, contains('# refreshed plugin.nix v2'));
+
+      // Per-plugin config preserved.
+      final cfg = jsonDecode(File(cfgPath).readAsStringSync()) as Map;
+      expect(cfg['custom_key'], 'value');
+      expect(cfg['other'], 42);
+
+      // Main config entry updated in place.
+      final afterConfig =
+          await ConfigService(baseDir: home.path).readConfig();
+      expect(afterConfig.plugins.length, 1);
+      expect(afterConfig.plugins.first.pinnedRev, refreshed.pinnedRev);
+    });
+
+    test('refresh throws when plugin is not installed', () async {
+      expect(
+        () => svc.refresh('file:///nope/not-here', allowInsecure: true),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('refreshAll walks every active plugin', () async {
+      // Second repo so we have two distinct plugins to refresh.
+      final secondRepo = Directory.systemTemp.createTempSync(
+        'nixblitz_refresh_second_',
+      );
+      try {
+        await _seedPluginRepo(secondRepo.path, manifestName: 'second');
+        await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        await svc.install(
+          'file://${secondRepo.path}',
+          allowInsecure: true,
+        );
+
+        final refreshed = await svc.refreshAll(allowInsecure: true);
+        expect(refreshed.length, 2);
+      } finally {
+        secondRepo.deleteSync(recursive: true);
+      }
+    });
+
     test('list hides tombstones unless requested', () async {
       final entry = await svc.install(
         'file://${srcRepo.path}',
@@ -623,6 +716,26 @@ void main() {
       final p = PluginUrl.parse('github:a/b/c', subdir: 'c');
       expect(p.canonical, 'github:a/b/c');
       expect(p.subdir, 'c');
+    });
+
+    test('round-trips canonical URL with embedded ?dir=', () {
+      // `?dir=<subdir>` is how _withSubdir serializes non-github
+      // canonical URLs. Reparsing should recover the same subdir
+      // without being explicitly passed the flag.
+      final original = PluginUrl.parse(
+        '/home/user/plugins',
+        allowInsecure: true,
+        subdir: 'tailscale',
+      );
+      expect(original.canonical, 'file:///home/user/plugins?dir=tailscale');
+
+      final roundTripped = PluginUrl.parse(
+        original.canonical,
+        allowInsecure: true,
+      );
+      expect(roundTripped.canonical, original.canonical);
+      expect(roundTripped.cloneUrl, 'file:///home/user/plugins');
+      expect(roundTripped.subdir, 'tailscale');
     });
   });
 }
