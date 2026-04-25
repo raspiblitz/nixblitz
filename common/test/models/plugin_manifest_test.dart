@@ -38,6 +38,91 @@ void main() {
       expect(m.config['exit_node']!.defaultValue, false);
     });
 
+    test('parses actions block', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'reset_db': {
+            'label': 'Reset database',
+            'description': 'Wipes the DB.',
+            'command': 'lnbits-reset',
+            'run_as_root': true,
+            'confirm': true,
+            'timeout_seconds': 60,
+          },
+          'whoami': {
+            'label': 'Who am I',
+            'command': 'whoami',
+            'confirm': false,
+          },
+        },
+      });
+      expect(m.actions.keys, containsAll(['reset_db', 'whoami']));
+      expect(m.actions['reset_db']!.label, 'Reset database');
+      expect(m.actions['reset_db']!.runAsRoot, isTrue);
+      expect(m.actions['reset_db']!.timeoutSeconds, 60);
+      expect(m.actions['whoami']!.confirm, isFalse);
+      expect(m.actions['whoami']!.timeoutSeconds, 300); // default
+      expect(m.actions['whoami']!.runAsRoot, isFalse); // default
+    });
+
+    test('action without label throws FormatException', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'broken': {'command': 'whoami'},
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('action without command throws FormatException', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'broken': {'label': 'no command'},
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('action with non-positive timeout throws FormatException', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'bad': {
+              'label': 'x',
+              'command': 'true',
+              'timeout_seconds': 0,
+            },
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('actions round-trip via toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'r': {
+            'label': 'R',
+            'command': 'true',
+            'run_as_root': true,
+            'timeout_seconds': 90,
+          },
+        },
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.actions['r']!.runAsRoot, isTrue);
+      expect(back.actions['r']!.timeoutSeconds, 90);
+    });
+
     test('parses permissions block', () {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},

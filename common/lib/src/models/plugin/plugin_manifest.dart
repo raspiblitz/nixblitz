@@ -1,3 +1,4 @@
+import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/models/plugin/plugin_permissions.dart';
 
 /// Plugin manifest schema (see `docs/decisions/plugins.md`, D1/D6/D14/D16).
@@ -54,6 +55,11 @@ class PluginManifest {
   /// need no user-editable config (e.g. tailscale).
   final Map<String, ConfigField> config;
 
+  /// User-triggerable actions (Phase 4). Keys are action ids
+  /// (used internally), values describe the labeled command. May
+  /// be empty — many plugins are install-and-leave-alone.
+  final Map<String, PluginAction> actions;
+
   /// Declarative permission block (D14). Informational in Phase 1.
   final PluginPermissions permissions;
 
@@ -63,6 +69,7 @@ class PluginManifest {
     required this.name,
     required this.description,
     this.config = const {},
+    this.actions = const {},
     this.permissions = const PluginPermissions(),
   });
 
@@ -94,6 +101,18 @@ class PluginManifest {
       configMap[entry.key] = ConfigField.fromJson(v);
     }
 
+    final rawActions = json['actions'] as Map<String, dynamic>? ?? const {};
+    final actionMap = <String, PluginAction>{};
+    for (final entry in rawActions.entries) {
+      final v = entry.value;
+      if (v is! Map<String, dynamic>) {
+        throw FormatException(
+          'actions.${entry.key} must be a map, got ${v.runtimeType}',
+        );
+      }
+      actionMap[entry.key] = PluginAction.fromJson(v);
+    }
+
     final permsRaw = json['permissions'];
     final perms = permsRaw is Map<String, dynamic>
         ? PluginPermissions.fromJson(permsRaw)
@@ -105,6 +124,7 @@ class PluginManifest {
       name: name,
       description: header['description'] as String? ?? '',
       config: configMap,
+      actions: actionMap,
       permissions: perms,
     );
   }
@@ -119,6 +139,10 @@ class PluginManifest {
     if (config.isNotEmpty)
       'config': {
         for (final e in config.entries) e.key: e.value.toJson(),
+      },
+    if (actions.isNotEmpty)
+      'actions': {
+        for (final e in actions.entries) e.key: e.value.toJson(),
       },
     if (!permissions.isEmpty) 'permissions': permissions.toJson(),
   };

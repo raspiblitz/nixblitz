@@ -1,15 +1,36 @@
+import 'dart:async';
+
 import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
 import '../widgets/plugin_field_editor.dart';
+import '../widgets/scrollable_log.dart';
+import '../widgets/spinner.dart';
 
 /// Per-plugin config form. Rendered by [ConfigureView] when the user
 /// picks a plugin from the `plugins` tab.
 ///
-/// Owns its own local state (selected-field index + overlay-open
-/// field key). On Esc from the form list, calls [onDismiss] so the
-/// parent can go back to the plugin list.
+/// State machine:
+///
+/// - **List mode** (default): renders config fields + actions as a
+///   single navigable list. Enter on a field → text overlay or
+///   in-place toggle/cycle. Enter on an action → confirm overlay
+///   (or directly running, if `confirm: false`).
+/// - **Text-edit overlay**: text input for `string` / `secret` /
+///   `list<…>` field types.
+/// - **Confirm-action overlay**: y/N prompt before running a
+///   destructive action.
+/// - **Running-action overlay**: streams stdout/stderr from the
+///   action; spinner while running, exit code on completion.
+///
+/// On Esc from List mode, calls [onDismiss] (parent goes back to
+/// the plugin list). On Esc from any overlay, the overlay
+/// dismisses and we return to list mode.
+///
+/// Esc on the running overlay does **not** kill the action — the
+/// process keeps running in the background; we just hide the log.
+/// Cancellation is out of scope for Phase 4.
 class PluginConfigView extends StatefulComponent {
   final PluginEntry entry;
   final VoidCallback onDismiss;
@@ -24,10 +45,38 @@ class PluginConfigView extends StatefulComponent {
   State<PluginConfigView> createState() => _PluginConfigViewState();
 }
 
+/// Tagged-union row in the unified field+action list.
+sealed class _Row {
+  const _Row();
+}
+
+class _FieldRow extends _Row {
+  final String key;
+  final ConfigField spec;
+  const _FieldRow(this.key, this.spec);
+}
+
+class _ActionRow extends _Row {
+  final String key;
+  final PluginAction action;
+  const _ActionRow(this.key, this.action);
+}
+
 class _PluginConfigViewState extends State<PluginConfigView> {
   int _selectedIndex = 0;
   String? _overlayFieldKey;
+  String? _confirmingActionId;
+  String? _runningActionId;
+  final List<String> _actionOutput = [];
+  int? _actionExitCode;
+  StreamSubscription<String>? _actionSub;
   String? _errorMessage;
+
+  @override
+  void dispose() {
+    _actionSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Component build(BuildContext context) {
@@ -90,11 +139,16 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     PluginConfigNotifier notifier,
   ) {
     final entry = component.entry;
-    final fields = manifest.config.entries.toList();
 
-    // If there's nothing configurable, render a stub and still allow
-    // Esc to leave.
-    if (fields.isEmpty) {
+    // Build the unified field+action list. Order: all fields first,
+    // then all actions. Indexes here match _selectedIndex.
+    final rows = <_Row>[
+      for (final e in manifest.config.entries) _FieldRow(e.key, e.value),
+      for (final e in manifest.actions.entries) _ActionRow(e.key, e.value),
+    ];
+
+    // Empty plugin (no config + no actions) — render stub.
+    if (rows.isEmpty) {
       return Focusable(
         focused: true,
         onKeyEvent: (event) {
@@ -112,7 +166,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
               _header(entry, manifest),
               const SizedBox(height: 1),
               const Text(
-                '(no configurable fields)',
+                '(no configurable fields or actions)',
                 style: TextStyle(color: Color.fromRGB(150, 150, 170)),
               ),
               const SizedBox(height: 1),
@@ -126,22 +180,36 @@ class _PluginConfigViewState extends State<PluginConfigView> {
       );
     }
 
-    // Text-edit overlay on top of the form list.
-    final overlayKey = _overlayFieldKey;
-    if (overlayKey != null) {
-      final spec = manifest.config[overlayKey];
+    // Overlay precedence: running > confirming > text-edit > list.
+    if (_runningActionId != null) {
+      final action = manifest.actions[_runningActionId];
+      if (action == null) {
+        // Manifest churn mid-run (action removed). Drop to list.
+        _runningActionId = null;
+      } else {
+        return _runningOverlay(action);
+      }
+    }
+    if (_confirmingActionId != null) {
+      final action = manifest.actions[_confirmingActionId];
+      if (action == null) {
+        _confirmingActionId = null;
+      } else {
+        return _confirmOverlay(action);
+      }
+    }
+    if (_overlayFieldKey != null) {
+      final spec = manifest.config[_overlayFieldKey];
       if (spec == null) {
-        // Defensive: overlay pointed at a field that no longer
-        // exists (manifest churn mid-edit). Drop the overlay.
         _overlayFieldKey = null;
       } else {
         return PluginTextOverlay(
           spec: spec,
-          fieldKey: overlayKey,
-          initialValue: cfg[overlayKey],
+          fieldKey: _overlayFieldKey!,
+          initialValue: cfg[_overlayFieldKey],
           onSubmit: (value) async {
             try {
-              await notifier.updateField(overlayKey, value);
+              await notifier.updateField(_overlayFieldKey!, value);
               setState(() {
                 _overlayFieldKey = null;
                 _errorMessage = null;
@@ -171,7 +239,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           }
           if (event.logicalKey == LogicalKey.keyJ ||
               event.logicalKey == LogicalKey.arrowDown) {
-            if (_selectedIndex < fields.length - 1) {
+            if (_selectedIndex < rows.length - 1) {
               setState(() => _selectedIndex += 1);
             }
             return true;
@@ -185,7 +253,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           }
           if (event.logicalKey == LogicalKey.enter ||
               event.logicalKey == LogicalKey.space) {
-            _activateSelectedField(fields, cfg, notifier);
+            _activateRow(context, rows, cfg, notifier);
             return true;
           }
           return false;
@@ -201,29 +269,210 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           children: [
             _header(entry, manifest),
             const SizedBox(height: 1),
-            ...List.generate(fields.length, (i) {
-              final e = fields[i];
-              return PluginFieldRow(
-                spec: e.value,
-                fieldKey: e.key,
-                value: cfg[e.key] ?? e.value.defaultValue,
-                focused: i == _selectedIndex,
-              );
-            }),
+            ..._renderRows(rows, cfg, manifest),
             if (_errorMessage != null) ...[
               const SizedBox(height: 1),
               Text(
                 _errorMessage!,
-                style: const TextStyle(
-                  color: Color.fromRGB(255, 80, 80),
-                ),
+                style: const TextStyle(color: Color.fromRGB(255, 80, 80)),
               ),
             ],
             const SizedBox(height: 1),
             const Text(
-              '[↑/↓] move  [Enter] edit  [Esc] back',
+              '[↑/↓] move  [Enter] edit/run  [Esc] back',
               style: TextStyle(color: Color.fromRGB(110, 110, 130)),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Render the unified rows list with focus highlight + an
+  /// "Actions" heading separator if the manifest has both fields
+  /// and actions.
+  List<Component> _renderRows(
+    List<_Row> rows,
+    Map<String, dynamic> cfg,
+    PluginManifest manifest,
+  ) {
+    final out = <Component>[];
+    var sawActionsHeading = false;
+    final hasFields = manifest.config.isNotEmpty;
+
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      // Insert the "Actions" heading once, between the last field
+      // row and the first action row, when both are present.
+      if (row is _ActionRow && hasFields && !sawActionsHeading) {
+        out.add(const SizedBox(height: 1));
+        out.add(const Text(
+          'Actions',
+          style: TextStyle(
+            color: Color.fromRGB(247, 147, 26),
+            fontWeight: FontWeight.bold,
+          ),
+        ));
+        sawActionsHeading = true;
+      }
+      // If the plugin only has actions, also show the heading.
+      if (row is _ActionRow && !hasFields && !sawActionsHeading) {
+        out.add(const Text(
+          'Actions',
+          style: TextStyle(
+            color: Color.fromRGB(247, 147, 26),
+            fontWeight: FontWeight.bold,
+          ),
+        ));
+        sawActionsHeading = true;
+      }
+
+      final focused = i == _selectedIndex;
+      switch (row) {
+        case _FieldRow(:final key, :final spec):
+          out.add(PluginFieldRow(
+            spec: spec,
+            fieldKey: key,
+            value: cfg[key] ?? spec.defaultValue,
+            focused: focused,
+          ));
+        case _ActionRow(:final key, :final action):
+          out.add(_actionRow(key, action, focused));
+      }
+    }
+    return out;
+  }
+
+  Component _actionRow(String key, PluginAction action, bool focused) {
+    final prefix = focused ? '> ' : '  ';
+    final color = focused
+        ? const Color.fromRGB(247, 147, 26)
+        : const Color.fromRGB(200, 200, 200);
+    final hint = action.confirm ? '  (requires confirmation)' : '';
+    return Text(
+      '$prefix${action.label}$hint',
+      style: TextStyle(color: color),
+    );
+  }
+
+  Component _confirmOverlay(PluginAction action) {
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape ||
+              event.logicalKey == LogicalKey.keyN) {
+            setState(() => _confirmingActionId = null);
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyY ||
+              event.logicalKey == LogicalKey.enter) {
+            final id = _confirmingActionId!;
+            _launchAction(id, action);
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('plugin action confirm key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Run: ${action.label}',
+              style: const TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (action.description.isNotEmpty) ...[
+              const SizedBox(height: 1),
+              Text(
+                action.description,
+                style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+            ],
+            const SizedBox(height: 1),
+            Text(
+              'Command: ${action.command}'
+              '${action.runAsRoot ? "  (as root via sudo)" : ""}',
+              style: const TextStyle(color: Color.fromRGB(110, 110, 130)),
+            ),
+            const SizedBox(height: 1),
+            const Text(
+              'Proceed? [y/N]',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Component _runningOverlay(PluginAction action) {
+    final exit = _actionExitCode;
+    final isDone = exit != null;
+    final headerColor = !isDone
+        ? const Color.fromRGB(247, 147, 26)
+        : (exit == 0
+            ? const Color.fromRGB(110, 220, 110)
+            : const Color.fromRGB(220, 180, 100));
+    final statusText = !isDone
+        ? '${action.label} — running…'
+        : (exit == 0
+            ? '${action.label} — done (exit 0)'
+            : (exit == 124
+                ? '${action.label} — timed out (exit 124)'
+                : '${action.label} — failed (exit $exit)'));
+
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape ||
+              event.logicalKey == LogicalKey.enter) {
+            // Hide overlay. If still running, the subprocess keeps
+            // going; we cancel the subscription so we don't leak
+            // listeners. The overlay's "done" state is lost — user
+            // can re-trigger if they need to see output again.
+            _actionSub?.cancel();
+            _actionSub = null;
+            setState(() {
+              _runningActionId = null;
+              _actionOutput.clear();
+              _actionExitCode = null;
+            });
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('plugin action running key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              statusText,
+              style: TextStyle(color: headerColor, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 1),
+            Expanded(child: ScrollableLog(lines: List.unmodifiable(_actionOutput))),
+            const SizedBox(height: 1),
+            if (!isDone)
+              Spinner(label: 'Working…')
+            else
+              const Text(
+                '[Enter/Esc] dismiss',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
           ],
         ),
       ),
@@ -254,17 +503,34 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     );
   }
 
-  void _activateSelectedField(
-    List<MapEntry<String, ConfigField>> fields,
+  void _activateRow(
+    BuildContext context,
+    List<_Row> rows,
     Map<String, dynamic> cfg,
     PluginConfigNotifier notifier,
   ) {
-    final entry = fields[_selectedIndex];
-    final spec = entry.value;
-    final key = entry.key;
+    final row = rows[_selectedIndex];
+    switch (row) {
+      case _FieldRow(:final key, :final spec):
+        _activateField(key, spec, cfg, notifier);
+      case _ActionRow(:final key, :final action):
+        if (action.confirm) {
+          setState(() {
+            _confirmingActionId = key;
+            _errorMessage = null;
+          });
+        } else {
+          _launchAction(key, action);
+        }
+    }
+  }
 
-    // Bool / select cycle in place; everything else opens the
-    // text-entry overlay.
+  void _activateField(
+    String key,
+    ConfigField spec,
+    Map<String, dynamic> cfg,
+    PluginConfigNotifier notifier,
+  ) {
     try {
       final cycled = cyclePrimitiveValue(spec, cfg[key] ?? spec.defaultValue);
       if (cycled != null) {
@@ -280,13 +546,53 @@ class _PluginConfigViewState extends State<PluginConfigView> {
       setState(() => _errorMessage = e.message ?? 'unsupported field type');
       return;
     }
-
-    // Text-shaped fields: open the overlay.
     if (fieldRequiresOverlay(spec)) {
       setState(() {
         _overlayFieldKey = key;
         _errorMessage = null;
       });
     }
+  }
+
+  void _launchAction(String id, PluginAction action) {
+    final runner = context.read(pluginActionRunnerProvider);
+    LogService.info('plugin action started: $id (${action.label})');
+
+    setState(() {
+      _confirmingActionId = null;
+      _runningActionId = id;
+      _actionOutput.clear();
+      _actionExitCode = null;
+      _errorMessage = null;
+    });
+
+    final r = runner.run(action);
+    _actionSub = r.output.listen(
+      (line) {
+        // Persist every output line so post-mortem debugging works
+        // after the overlay's been dismissed. Mirror what
+        // `apply_view` + `update_view` do for nixos-rebuild output.
+        for (final l in line.split('\n')) {
+          if (l.isEmpty) continue;
+          LogService.info('[plugin-action $id] $l');
+        }
+        if (!mounted) return;
+        setState(() => _actionOutput.add(line));
+      },
+      onError: (e, st) {
+        LogService.error('plugin action stream error', e, st);
+      },
+    );
+    r.exitCode.then((code) {
+      LogService.info(
+        'plugin action finished: $id exit=$code',
+      );
+      if (!mounted) return;
+      setState(() => _actionExitCode = code);
+    }).catchError((e, st) {
+      LogService.error('plugin action exitCode threw', e, st);
+      if (!mounted) return;
+      setState(() => _actionExitCode = -1);
+    });
   }
 }
