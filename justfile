@@ -70,10 +70,12 @@ vm-boot:
   }
 
   print "Booting NixOS installer VM..."
-  print "  SSH: ssh -p 10022 nixos@localhost"
-  print "  Disk: nixblitz-disk.qcow2 (virtio)"
+  print "  SSH:    ssh -p 10022 nixos@localhost"
+  print "  HTTP:   http://localhost:18080  (nginx)"
+  print "  LNBits: http://localhost:18231  (when installed)"
+  print "  Disk:   nixblitz-disk.qcow2 (virtio)"
   (qemu-system-x86_64 -enable-kvm -m 8192 -smp 4
-    -netdev user,id=mynet0,hostfwd=tcp::10022-:22,hostfwd=tcp::18080-:80
+    -netdev user,id=mynet0,hostfwd=tcp::10022-:22,hostfwd=tcp::18080-:80,hostfwd=tcp::18231-:8231
     -device virtio-net-pci,netdev=mynet0
     -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
     -device virtio-blk-pci,drive=virtio0
@@ -88,9 +90,11 @@ vm-run:
   }
 
   print "Booting installed NixOS VM..."
-  print "  SSH: ssh -p 10022 admin@localhost"
+  print "  SSH:    ssh -p 10022 admin@localhost"
+  print "  HTTP:   http://localhost:18080  (nginx)"
+  print "  LNBits: http://localhost:18231  (when installed)"
   (qemu-system-x86_64 -enable-kvm -m 8192 -smp 4
-    -netdev user,id=mynet0,hostfwd=tcp::10022-:22,hostfwd=tcp::18080-:80
+    -netdev user,id=mynet0,hostfwd=tcp::10022-:22,hostfwd=tcp::18080-:80,hostfwd=tcp::18231-:8231
     -device virtio-net-pci,netdev=mynet0
     -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
     -device virtio-blk-pci,drive=virtio0)
