@@ -123,4 +123,78 @@ class PluginActionRunner {
 
     return (output: controller.stream, exitCode: exitCodeFuture);
   }
+
+  /// One-shot variant of [run] for code paths that need to consume
+  /// the command's output as a single buffered string instead of a
+  /// live stream. Used by `PluginDashboardService` to poll
+  /// tile-state commands every N seconds and parse the JSON output.
+  ///
+  /// Mirrors [run]'s sudo wrapping + PATH preamble + watchdog so
+  /// that whatever a plugin author can do in an action, they can
+  /// also do as a tile poll. Returns stdout + stderr **separately**
+  /// (unlike [run] which interleaves them) because tile-output
+  /// parsing only cares about stdout.
+  ///
+  /// Exit code conventions match [run]: actual child exit code,
+  /// or 124 if the watchdog killed it on timeout.
+  Future<({int exitCode, String stdout, String stderr})> runOneShot({
+    required String command,
+    bool runAsRoot = false,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final wrapped =
+        r'export PATH="' + _systemPath + r':${PATH:-}"; ' + command;
+    final argv = runAsRoot
+        ? ['-n', 'bash', '-c', wrapped]
+        : ['-c', wrapped];
+    final exe = runAsRoot ? 'sudo' : 'bash';
+
+    Process process;
+    try {
+      process = await Process.start(exe, argv);
+    } catch (e, st) {
+      LogService.error('PluginActionRunner.runOneShot: spawn failed', e, st);
+      return (exitCode: 127, stdout: '', stderr: 'spawn failed: $e');
+    }
+
+    final stdoutBuf = StringBuffer();
+    final stderrBuf = StringBuffer();
+    final stdoutDone = Completer<void>();
+    final stderrDone = Completer<void>();
+    process.stdout.transform(const SystemEncoding().decoder).listen(
+          stdoutBuf.write,
+          onDone: () =>
+              stdoutDone.isCompleted ? null : stdoutDone.complete(),
+          cancelOnError: true,
+        );
+    process.stderr.transform(const SystemEncoding().decoder).listen(
+          stderrBuf.write,
+          onDone: () =>
+              stderrDone.isCompleted ? null : stderrDone.complete(),
+          cancelOnError: true,
+        );
+
+    var timedOut = false;
+    Timer? termTimer;
+    Timer? killTimer;
+    termTimer = Timer(timeout, () {
+      timedOut = true;
+      process.kill(ProcessSignal.sigterm);
+      killTimer = Timer(_sigKillGrace, () {
+        process.kill(ProcessSignal.sigkill);
+      });
+    });
+
+    final actual = await process.exitCode;
+    await stdoutDone.future;
+    await stderrDone.future;
+    termTimer.cancel();
+    killTimer?.cancel();
+
+    return (
+      exitCode: timedOut ? 124 : actual,
+      stdout: stdoutBuf.toString(),
+      stderr: stderrBuf.toString(),
+    );
+  }
 }

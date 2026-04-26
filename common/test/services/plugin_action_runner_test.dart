@@ -72,4 +72,31 @@ void main() {
       expect(r.exitCode, isNot(0));
     });
   });
+
+  group('PluginActionRunner.runOneShot', () {
+    final svc = PluginActionRunner();
+
+    test('captures stdout and stderr separately', () async {
+      final r = await svc.runOneShot(
+        command: r'echo to-stdout; echo to-stderr 1>&2',
+      );
+      expect(r.exitCode, 0);
+      expect(r.stdout.trim(), 'to-stdout');
+      expect(r.stderr.trim(), 'to-stderr');
+    });
+
+    test('captures non-zero exit code', () async {
+      final r = await svc.runOneShot(command: 'echo nope; exit 3');
+      expect(r.exitCode, 3);
+      expect(r.stdout.trim(), 'nope');
+    });
+
+    test('timeout surfaces as exit 124', () async {
+      final r = await svc.runOneShot(
+        command: 'sleep 30',
+        timeout: const Duration(seconds: 1),
+      );
+      expect(r.exitCode, 124);
+    }, timeout: const Timeout(Duration(seconds: 15)));
+  });
 }

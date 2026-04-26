@@ -1,5 +1,6 @@
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/models/plugin/plugin_permissions.dart';
+import 'package:common/src/models/plugin/plugin_tile.dart';
 
 /// Plugin manifest schema (see `docs/decisions/plugins.md`, D1/D6/D14/D16).
 ///
@@ -63,6 +64,10 @@ class PluginManifest {
   /// Declarative permission block (D14). Informational in Phase 1.
   final PluginPermissions permissions;
 
+  /// Optional dashboard tile declaration (Phase 3). Plugins without
+  /// a `dashboard` block in `manifest.json` don't get a tile.
+  final PluginTileSpec? dashboard;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -71,6 +76,7 @@ class PluginManifest {
     this.config = const {},
     this.actions = const {},
     this.permissions = const PluginPermissions(),
+    this.dashboard,
   });
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
@@ -118,6 +124,11 @@ class PluginManifest {
         ? PluginPermissions.fromJson(permsRaw)
         : const PluginPermissions();
 
+    final dashboardRaw = json['dashboard'];
+    final dashboard = dashboardRaw is Map<String, dynamic>
+        ? PluginTileSpec.fromJson(dashboardRaw)
+        : null;
+
     return PluginManifest(
       schemaVersion: header['schema_version'] as int? ?? 1,
       minTuiVersion: minTui,
@@ -126,6 +137,7 @@ class PluginManifest {
       config: configMap,
       actions: actionMap,
       permissions: perms,
+      dashboard: dashboard,
     );
   }
 
@@ -145,6 +157,7 @@ class PluginManifest {
         for (final e in actions.entries) e.key: e.value.toJson(),
       },
     if (!permissions.isEmpty) 'permissions': permissions.toJson(),
+    if (dashboard != null) 'dashboard': dashboard!.toJson(),
   };
 }
 

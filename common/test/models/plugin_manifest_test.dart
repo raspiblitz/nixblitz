@@ -123,6 +123,111 @@ void main() {
       expect(back.actions['r']!.timeoutSeconds, 90);
     });
 
+    test('parses dashboard block', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'dashboard': {
+          'title': 'Tailscale',
+          'accent_color': '#2596be',
+          'command': 'tailscale-tile-state',
+          'poll_interval_seconds': 30,
+          'timeout_seconds': 5,
+          'run_as_root': false,
+        },
+      });
+      expect(m.dashboard, isNotNull);
+      expect(m.dashboard!.title, 'Tailscale');
+      expect(m.dashboard!.accentColorHex, '#2596be');
+      expect(m.dashboard!.command, 'tailscale-tile-state');
+      expect(m.dashboard!.pollInterval, const Duration(seconds: 30));
+      expect(m.dashboard!.timeout, const Duration(seconds: 5));
+      expect(m.dashboard!.runAsRoot, isFalse);
+    });
+
+    test('dashboard with defaults', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'dashboard': {
+          'title': 'X',
+          'command': 'x-state',
+        },
+      });
+      expect(m.dashboard!.pollInterval, const Duration(seconds: 30));
+      expect(m.dashboard!.timeout, const Duration(seconds: 5));
+      expect(m.dashboard!.accentColorHex, '#888899');
+    });
+
+    test('dashboard without title throws FormatException', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'dashboard': {'command': 'x'},
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('dashboard without command throws FormatException', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'dashboard': {'title': 'X'},
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('dashboard with malformed accent color throws', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'dashboard': {
+            'title': 'X',
+            'command': 'x',
+            'accent_color': 'red',
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('dashboard with poll_interval below floor throws', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'dashboard': {
+            'title': 'X',
+            'command': 'x',
+            'poll_interval_seconds': 1,
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('manifest without dashboard block has null dashboard', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+      });
+      expect(m.dashboard, isNull);
+    });
+
+    test('dashboard round-trips via toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'dashboard': {
+          'title': 'X',
+          'accent_color': '#abcdef',
+          'command': 'x-state',
+          'poll_interval_seconds': 60,
+        },
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.dashboard!.title, 'X');
+      expect(back.dashboard!.accentColorHex, '#abcdef');
+      expect(back.dashboard!.pollInterval, const Duration(seconds: 60));
+    });
+
     test('parses permissions block', () {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},

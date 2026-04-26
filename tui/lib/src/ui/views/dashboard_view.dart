@@ -4,6 +4,7 @@ import 'package:common/common.dart';
 import 'dashboard/bitcoin_tile.dart';
 import 'dashboard/hardware_tile.dart';
 import 'dashboard/lightning_tile.dart';
+import 'dashboard/plugin_tile.dart';
 import 'dashboard/system_tile.dart';
 
 class DashboardView extends StatefulComponent {
@@ -54,6 +55,40 @@ class _DashboardViewState extends State<DashboardView> {
       rows.add(const SizedBox(height: 1));
     }
     return rows;
+  }
+
+  /// Build one [PluginTile] per active plugin whose manifest declares
+  /// a `dashboard` block. Sorted alphabetically by manifest title for
+  /// stable layout regardless of install order. Plugins whose
+  /// manifests fail to parse are silently skipped (logged); the
+  /// dashboard staying functional matters more than surfacing
+  /// per-plugin manifest errors here.
+  List<Component> _pluginTiles(BuildContext context, NixblitzConfig config) {
+    final svc = context.read(pluginServiceProvider);
+    final entries = <({String dirName, String title, String accent})>[];
+    for (final p in config.plugins) {
+      if (p.uninstalledAt != null || !p.enabled) continue;
+      try {
+        final manifest = svc.readManifest(p.dirName);
+        final spec = manifest.dashboard;
+        if (spec == null) continue;
+        entries.add(
+          (dirName: p.dirName, title: spec.title, accent: spec.accentColorHex),
+        );
+      } catch (e, st) {
+        LogService.warn('dashboard: skipping plugin ${p.dirName}: $e');
+        LogService.error('manifest read', e, st);
+      }
+    }
+    entries.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    return [
+      for (final e in entries)
+        PluginTile(
+          dirName: e.dirName,
+          fallbackTitle: e.title,
+          accentColorHex: e.accent,
+        ),
+    ];
   }
 
   bool _handleScrollKey(KeyboardEvent event) {
@@ -140,11 +175,13 @@ class _DashboardViewState extends State<DashboardView> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final cols = _columnsFor(constraints.maxWidth);
+                    final pluginTiles = _pluginTiles(context, config);
                     final tiles = <Component>[
                       const SystemTile(),
                       const HardwareTile(),
                       const BitcoinTile(),
                       const LightningTile(),
+                      ...pluginTiles,
                     ];
                     return Focusable(
                       focused: true,
