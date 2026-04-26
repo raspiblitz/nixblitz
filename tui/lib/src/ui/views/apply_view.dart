@@ -106,11 +106,41 @@ class _ApplyViewState extends State<ApplyView> {
       final baseDirPath = context.read(baseDirProvider);
       final git = context.read(gitServiceProvider);
       final systemService = context.read(systemServiceProvider);
+      final sudo = context.read(sudoSessionProvider);
 
       context.read(_applyModeProvider.notifier).state = _ApplyMode.running;
       context.read(_applyOutputProvider.notifier).state = [];
       context.read(_applyExitCodeProvider.notifier).state = null;
 
+      // Authenticate sudo BEFORE we touch git, so the password modal
+      // appears before the user has waited for the rebuild to run and
+      // hit the sudo wall halfway through.
+      _append('> sudo -v (authorize)');
+      sudo.ensureFresh().then((ok) {
+        if (!ok) {
+          _append('Authorization cancelled — aborting Apply.');
+          context.read(_applyExitCodeProvider.notifier).state = 1;
+          context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+          _started = false;
+          return;
+        }
+        _continueApply(baseDirPath, git, systemService);
+      });
+    } catch (e, st) {
+      LogService.error('Apply start failed', e, st);
+      _append('Error: $e');
+      context.read(_applyExitCodeProvider.notifier).state = 1;
+      context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+      _started = false;
+    }
+  }
+
+  void _continueApply(
+    String baseDirPath,
+    GitService git,
+    SystemService systemService,
+  ) {
+    try {
       _append('> git add -A && git commit -m "Apply settings"');
       git.commitAll('Apply settings').then((committed) {
         _append(
@@ -157,7 +187,7 @@ class _ApplyViewState extends State<ApplyView> {
         _started = false;
       });
     } catch (e, st) {
-      LogService.error('Apply start failed', e, st);
+      LogService.error('Apply continueApply failed', e, st);
       _append('Error: $e');
       context.read(_applyExitCodeProvider.notifier).state = 1;
       context.read(_applyModeProvider.notifier).state = _ApplyMode.done;

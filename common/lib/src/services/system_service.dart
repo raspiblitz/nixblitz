@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:common/src/models/service_status.dart';
+import 'package:common/src/services/sudo_session.dart';
 
 /// Exit code that the shell wrapper at `bin/nixblitz` interprets as
 /// "restart me with the fresh binary in PATH". Hard-coded in
@@ -14,6 +15,10 @@ const String _currentSystemBin =
     '/run/current-system/sw/bin/nixblitz-bin';
 
 class SystemService {
+  SystemService({required this.sudoSession});
+
+  final SudoSession sudoSession;
+
   Future<ServiceStatus> getServiceStatus(String serviceName) async {
     final result = await Process.run('systemctl', [
       'show', serviceName, '--property=ActiveState,SubState', '--no-pager',
@@ -115,12 +120,12 @@ class SystemService {
       controller.add('');
       controller.add('> sudo nixos-rebuild switch --flake $flakePath');
       controller.add('');
-      final rebuild = await Process.start(
-        'sudo', ['nixos-rebuild', 'switch', '--flake', flakePath],
+      final (:output, :exitCode) = sudoSession.runStreaming(
+        ['nixos-rebuild', 'switch', '--flake', flakePath],
       );
-      rebuild.stdout.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      rebuild.stderr.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      final rebuildCode = await rebuild.exitCode;
+      final sub = output.listen(controller.add);
+      final rebuildCode = await exitCode;
+      await sub.cancel();
       await controller.close();
       return rebuildCode;
     }();
@@ -145,17 +150,8 @@ class SystemService {
   }
 
   ({Stream<String> output, Future<int> exitCode}) rebuild(String flakePath) {
-    final controller = StreamController<String>();
-    final exitCodeFuture = () async {
-      final process = await Process.start(
-        'sudo', ['nixos-rebuild', 'switch', '--flake', flakePath],
-      );
-      process.stdout.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      process.stderr.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      final code = await process.exitCode;
-      await controller.close();
-      return code;
-    }();
-    return (output: controller.stream, exitCode: exitCodeFuture);
+    return sudoSession.runStreaming(
+      ['nixos-rebuild', 'switch', '--flake', flakePath],
+    );
   }
 }

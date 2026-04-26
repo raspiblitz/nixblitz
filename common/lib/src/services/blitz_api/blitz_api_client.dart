@@ -21,8 +21,16 @@ class BlitzApiClient {
   /// (skip the nginx proxy to avoid SSE buffering gotchas).
   final Uri baseUrl;
 
-  /// Path to the password file. Read via `sudo -n cat` so we don't
-  /// need the caller to be in blitzapi's group.
+  /// Path to the password file. Read via `sudo -n cat` because the
+  /// admin user isn't in the blitz_api group. Under Posture A
+  /// (wheelNeedsPassword=true) the very first read after TUI launch
+  /// fails — there's no cached sudo timestamp yet — and the
+  /// SSE stream stays disconnected until the user authorizes sudo
+  /// somewhere (Apply, Update, Change Password, …). The
+  /// `_runWithBackoff` retry loop picks up the new auth on the next
+  /// poll cycle (≤30s). See sudo posture plan for follow-up:
+  /// move this off sudo entirely (group-readable file or systemd
+  /// LoadCredential) so the dashboard works without auth.
   final String passwordFilePath;
 
   /// Backoff sequence in seconds; last value repeats indefinitely.

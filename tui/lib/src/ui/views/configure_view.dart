@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -32,22 +33,29 @@ class ConfigureView extends StatelessComponent {
         minLength: 8,
         requireConfirmation: true,
         onSubmit: (password) {
-          final chpasswd = Process.runSync(
-            'bash',
-            ['-c', 'echo "admin:$password" | sudo -n chpasswd'],
-          );
-          if (chpasswd.exitCode != 0) {
-            LogService.error(
-              'chpasswd failed: exit=${chpasswd.exitCode} stderr=${chpasswd.stderr}',
-            );
-            context.read(_statusMessageProvider.notifier).state =
-                'Failed to change password. Passwordless sudo required.';
-          } else {
-            LogService.info('Password changed successfully');
-            context.read(_statusMessageProvider.notifier).state =
-                'Password changed successfully.';
-          }
-          context.read(_changingPasswordProvider.notifier).state = false;
+          // sudo timestamp is already fresh (we ran ensureFresh before
+          // entering this view), so chpasswd runs silently.
+          final session = context.read(sudoSessionProvider);
+          final stdin =
+              Uint8List.fromList(utf8.encode('admin:$password\n'));
+          session
+              .runOneShot(['chpasswd'], stdinBytes: stdin)
+              .then((res) {
+            if (res.exitCode != 0) {
+              LogService.error(
+                'chpasswd failed: exit=${res.exitCode} '
+                'stderr=${res.stderr}',
+              );
+              context.read(_statusMessageProvider.notifier).state =
+                  'Failed to change password (exit ${res.exitCode}).';
+            } else {
+              LogService.info('Password changed successfully');
+              context.read(_statusMessageProvider.notifier).state =
+                  'Password changed successfully.';
+            }
+            context.read(_changingPasswordProvider.notifier).state =
+                false;
+          });
         },
         onCancel: () {
           context.read(_changingPasswordProvider.notifier).state = false;
@@ -146,9 +154,20 @@ class ConfigureView extends StatelessComponent {
               }
               if (event.logicalKey == LogicalKey.enter ||
                   event.logicalKey == LogicalKey.space) {
-                // Password change is a special action, not a config toggle
+                // Password change is a special action, not a config toggle.
+                // Authenticate sudo first so chpasswd later runs silently.
                 if (currentService == 'system' && selectedOption == 3) {
-                  context.read(_changingPasswordProvider.notifier).state = true;
+                  final session = context.read(sudoSessionProvider);
+                  session.ensureFresh().then((ok) {
+                    if (ok) {
+                      context
+                          .read(_changingPasswordProvider.notifier)
+                          .state = true;
+                    } else {
+                      context.read(_statusMessageProvider.notifier).state =
+                          'sudo authorization required to change password.';
+                    }
+                  });
                   return true;
                 }
                 // Plugins tab: Enter drills into the selected plugin's

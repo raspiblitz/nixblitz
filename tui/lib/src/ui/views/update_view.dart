@@ -45,6 +45,7 @@ class _UpdateViewState extends State<UpdateView> {
     try {
       final baseDirPath = context.read(baseDirProvider);
       final systemService = context.read(systemServiceProvider);
+      final sudo = context.read(sudoSessionProvider);
 
       context.read(_updateModeProvider.notifier).state = _UpdateMode.running;
       context.read(_updateOutputProvider.notifier).state = [];
@@ -56,6 +57,31 @@ class _UpdateViewState extends State<UpdateView> {
         context.read(_updateOutputProvider.notifier).state = [...current, line];
       }
 
+      append('> sudo -v (authorize)');
+      sudo.ensureFresh().then((ok) {
+        if (!ok) {
+          append('Authorization cancelled — aborting refresh.');
+          context.read(_updateExitCodeProvider.notifier).state = 1;
+          context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+          _started = false;
+          return;
+        }
+        _continueRefreshTemplates(baseDirPath, systemService, append);
+      });
+    } catch (e, st) {
+      LogService.error('Failed to refresh templates', e, st);
+      context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+      context.read(_updateExitCodeProvider.notifier).state = 1;
+      _started = false;
+    }
+  }
+
+  void _continueRefreshTemplates(
+    String baseDirPath,
+    SystemService systemService,
+    void Function(String) append,
+  ) {
+    try {
       append('> Refreshing Nix templates from embedded sources');
       final written = ScaffoldService(targetDir: baseDirPath)
           .refreshTemplatesSync();
@@ -112,7 +138,7 @@ class _UpdateViewState extends State<UpdateView> {
         _started = false;
       });
     } catch (e, st) {
-      LogService.error('Failed to refresh templates', e, st);
+      LogService.error('continueRefreshTemplates failed', e, st);
       context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
       context.read(_updateExitCodeProvider.notifier).state = 1;
       _started = false;
@@ -125,19 +151,30 @@ class _UpdateViewState extends State<UpdateView> {
 
     try {
       final baseDirPath = context.read(baseDirProvider);
+      final sudo = context.read(sudoSessionProvider);
       context.read(_updateModeProvider.notifier).state = _UpdateMode.running;
       context.read(_updateOutputProvider.notifier).state = [];
       context.read(_updateExitCodeProvider.notifier).state = null;
 
-      // Full system update: refresh auto_update plugins first per
-      // plugins.md D11 ("Update entire system" is an implicit
-      // plugin update for non-pinned plugins). NixBlitz-only stays
-      // narrow — touches no plugins.
-      if (nixblitzOnly) {
-        _startSystemUpdate(baseDirPath, nixblitzOnly: true);
-      } else {
-        _refreshPluginsThenUpdate(baseDirPath);
-      }
+      _appendUpdateLine('> sudo -v (authorize)');
+      sudo.ensureFresh().then((ok) {
+        if (!ok) {
+          _appendUpdateLine('Authorization cancelled — aborting update.');
+          context.read(_updateExitCodeProvider.notifier).state = 1;
+          context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+          _started = false;
+          return;
+        }
+        // Full system update: refresh auto_update plugins first per
+        // plugins.md D11 ("Update entire system" is an implicit
+        // plugin update for non-pinned plugins). NixBlitz-only stays
+        // narrow — touches no plugins.
+        if (nixblitzOnly) {
+          _startSystemUpdate(baseDirPath, nixblitzOnly: true);
+        } else {
+          _refreshPluginsThenUpdate(baseDirPath);
+        }
+      });
     } catch (e, st) {
       LogService.error('Failed to start update', e, st);
       _started = false;

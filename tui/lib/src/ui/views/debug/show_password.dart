@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:nocterm/nocterm.dart';
+import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:common/common.dart';
 
 class ShowPasswordView extends StatefulComponent {
@@ -36,22 +37,30 @@ class _ShowPasswordViewState extends State<ShowPasswordView> {
     if (_started) return;
     _started = true;
     try {
-      final r = Process.runSync('sudo', [
-        '-n',
-        'cat',
-        '/var/lib/blitz_api/.login-password',
-      ]);
-      if (r.exitCode != 0) {
-        setState(() {
-          _error =
-              'Could not read password file (exit ${r.exitCode}). '
-              'Is blitz-api enabled and have you run Apply since?';
-        });
-      } else {
-        setState(() {
-          _password = (r.stdout as String).trim();
-        });
-      }
+      final session = context.read(sudoSessionProvider);
+      session.ensureFresh().then((ok) async {
+        if (!ok) {
+          setState(() {
+            _error = 'sudo authorization required to read password file.';
+          });
+          return;
+        }
+        final res = await session.runOneShot([
+          'cat',
+          '/var/lib/blitz_api/.login-password',
+        ]);
+        if (res.exitCode != 0) {
+          setState(() {
+            _error =
+                'Could not read password file (exit ${res.exitCode}). '
+                'Is blitz-api enabled and have you run Apply since?';
+          });
+        } else {
+          setState(() {
+            _password = res.stdout.trim();
+          });
+        }
+      });
     } catch (e, st) {
       LogService.error('Read password failed', e, st);
       setState(() {

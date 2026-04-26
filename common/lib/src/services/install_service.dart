@@ -65,7 +65,7 @@ class InstallService {
     final controller = StreamController<String>();
     final exitCodeFuture = () async {
       final process = await Process.start('sudo', [
-        'disko-install', '--flake', '$flakePath#nixblitz', '--disk', 'main', diskPath,
+        '-n', 'disko-install', '--flake', '$flakePath#nixblitz-installer', '--disk', 'main', diskPath,
       ]);
       process.stdout.transform(const SystemEncoding().decoder).transform(const LineSplitter()).listen((line) => controller.add(line));
       process.stderr.transform(const SystemEncoding().decoder).transform(const LineSplitter()).listen((line) => controller.add(line));
@@ -87,7 +87,7 @@ class InstallService {
 
     // Run nixos-generate-config to detect hardware
     final genResult = await Process.run('sudo', [
-      'nixos-generate-config', '--root', mountPoint,
+      '-n', 'nixos-generate-config', '--root', mountPoint,
     ]);
     if (genResult.exitCode != 0) {
       LogService.error('nixos-generate-config failed: ${genResult.stderr}');
@@ -103,7 +103,7 @@ class InstallService {
       return false;
     }
 
-    final copyResult = await Process.run('sudo', ['cp', hwConfigSrc, hwConfigDst]);
+    final copyResult = await Process.run('sudo', ['-n', 'cp', hwConfigSrc, hwConfigDst]);
     if (copyResult.exitCode != 0) {
       LogService.error('Failed to copy hardware config: ${copyResult.stderr}');
       return false;
@@ -132,11 +132,11 @@ class InstallService {
     if (mountCheck.exitCode != 0) {
       LogService.warn('$mountPoint is not mounted, attempting to mount');
       // disko-install may have unmounted — try to remount
-      await Process.run('sudo', ['mount', '/dev/disk/by-partlabel/disk-main-root', mountPoint]);
+      await Process.run('sudo', ['-n', 'mount', '/dev/disk/by-partlabel/disk-main-root', mountPoint]);
     }
 
     // Create target directory
-    var result = await Process.run('sudo', ['mkdir', '-p', targetConfigDir]);
+    var result = await Process.run('sudo', ['-n', 'mkdir', '-p', targetConfigDir]);
     if (result.exitCode != 0) {
       LogService.error('Failed to create target dir: ${result.stderr}');
       return false;
@@ -144,13 +144,13 @@ class InstallService {
 
     // Copy config directory (try rsync, fall back to cp)
     result = await Process.run('sudo', [
-      'rsync', '-av', '--delete', '$sourceDir/', '$targetConfigDir/',
+      '-n', 'rsync', '-av', '--delete', '$sourceDir/', '$targetConfigDir/',
     ]);
     if (result.exitCode != 0) {
       LogService.warn('rsync failed (${result.exitCode}): ${result.stderr}');
       LogService.info('Falling back to cp -r');
       result = await Process.run('sudo', [
-        'cp', '-r', '$sourceDir/.', '$targetConfigDir/',
+        '-n', 'cp', '-r', '$sourceDir/.', '$targetConfigDir/',
       ]);
       if (result.exitCode != 0) {
         LogService.error('cp also failed (${result.exitCode}): ${result.stderr}');
@@ -162,7 +162,7 @@ class InstallService {
     if (File(logFile).existsSync()) {
       LogService.info('Copying install log to $targetLogDir/nixblitz.log');
       result = await Process.run('sudo', [
-        'cp', logFile, '$targetLogDir/nixblitz.log',
+        '-n', 'cp', logFile, '$targetLogDir/nixblitz.log',
       ]);
       if (result.exitCode != 0) {
         LogService.warn('Failed to copy log file: ${result.stderr}');
@@ -172,7 +172,7 @@ class InstallService {
 
     // Fix ownership (UID 1000 = first normal user "admin")
     result = await Process.run('sudo', [
-      'chown', '-R', '1000:100', targetConfigDir,
+      '-n', 'chown', '-R', '1000:100', targetConfigDir,
     ]);
     if (result.exitCode != 0) {
       LogService.warn('Failed to chown config dir: ${result.stderr}');
@@ -180,7 +180,7 @@ class InstallService {
 
     // Fix log file ownership too
     await Process.run('sudo', [
-      'chown', '1000:100', '$targetLogDir/nixblitz.log',
+      '-n', 'chown', '1000:100', '$targetLogDir/nixblitz.log',
     ]);
 
     LogService.info('Config and log copied to target successfully');

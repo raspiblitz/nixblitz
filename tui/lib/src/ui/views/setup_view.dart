@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -148,19 +150,34 @@ class _SetupViewState extends State<SetupView> {
       minLength: 8,
       requireConfirmation: true,
       onSubmit: (password) {
-        final chpasswd = Process.runSync(
-          'bash',
-          ['-c', 'echo "admin:$password" | sudo -n chpasswd'],
-        );
-        if (chpasswd.exitCode != 0) {
-          LogService.error(
-            'chpasswd failed: exit=${chpasswd.exitCode} stderr=${chpasswd.stderr}',
-          );
-        } else {
+        // First boot: the SudoSession will prompt for the *current*
+        // admin password ("nixblitz", the initialPassword baked into
+        // installed.nix). After auth, chpasswd runs silently and sets
+        // the new password.
+        final session = context.read(sudoSessionProvider);
+        session.ensureFresh().then((ok) async {
+          if (!ok) {
+            LogService.error(
+              'First-boot chpasswd: sudo authorization cancelled or failed',
+            );
+            // Stay on the password step so the user can retry.
+            return;
+          }
+          final stdin =
+              Uint8List.fromList(utf8.encode('admin:$password\n'));
+          final res =
+              await session.runOneShot(['chpasswd'], stdinBytes: stdin);
+          if (res.exitCode != 0) {
+            LogService.error(
+              'chpasswd failed: exit=${res.exitCode} '
+              'stderr=${res.stderr}',
+            );
+            return;
+          }
           LogService.info('Password set successfully');
-        }
-        context.read(_setupStepProvider.notifier).state =
-            SetupStep.buildServices;
+          context.read(_setupStepProvider.notifier).state =
+              SetupStep.buildServices;
+        });
       },
     );
   }

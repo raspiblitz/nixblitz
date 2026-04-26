@@ -588,7 +588,7 @@ class _InstallViewState extends State<InstallView> {
         final rmResult = Process.runSync('rm', ['-rf', baseDirPath]);
         if (rmResult.exitCode != 0) {
           LogService.warn('rm -rf failed, trying with sudo');
-          Process.runSync('sudo', ['rm', '-rf', baseDirPath]);
+          Process.runSync('sudo', ['-n', 'rm', '-rf', baseDirPath]);
         }
       }
 
@@ -793,7 +793,7 @@ class _InstallViewState extends State<InstallView> {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
-            Process.run('sudo', ['reboot']);
+            Process.run('sudo', ['-n', 'reboot']);
             return true;
           }
           return false;
