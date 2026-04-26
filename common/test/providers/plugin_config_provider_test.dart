@@ -22,7 +22,7 @@ void _seedPlugin(
   File('${dir.path}/manifest.json').writeAsStringSync(
     jsonEncode({
       'manifest': {
-        'schema_version': 1,
+        'schema_version': 2,
         'min_tui_version': 1,
         'name': dirName,
       },

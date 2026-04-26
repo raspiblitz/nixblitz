@@ -25,7 +25,6 @@ class PluginTileSpec {
 
   final Duration pollInterval;
   final Duration timeout;
-  final bool runAsRoot;
 
   static const Duration _minPollInterval = Duration(seconds: 5);
   static const String _defaultAccent = '#888899';
@@ -36,7 +35,6 @@ class PluginTileSpec {
     required this.command,
     this.pollInterval = const Duration(seconds: 30),
     this.timeout = const Duration(seconds: 5),
-    this.runAsRoot = false,
   });
 
   factory PluginTileSpec.fromJson(Map<String, dynamic> json) {
@@ -67,13 +65,20 @@ class PluginTileSpec {
         'dashboard.accent_color must be `#rrggbb`, got `$accent`',
       );
     }
+    if (json.containsKey('run_as_root')) {
+      throw const FormatException(
+        'dashboard.run_as_root is no longer supported (manifest schema '
+        'v2). Tile commands always run as the admin user; expose any '
+        'privileged data through a group-readable file or a setuid '
+        'wrapper.',
+      );
+    }
     return PluginTileSpec(
       title: title,
       accentColorHex: accent,
       command: command,
       pollInterval: Duration(seconds: pollSec),
       timeout: Duration(seconds: timeoutSec),
-      runAsRoot: json['run_as_root'] as bool? ?? false,
     );
   }
 
@@ -84,7 +89,6 @@ class PluginTileSpec {
     if (pollInterval.inSeconds != 30)
       'poll_interval_seconds': pollInterval.inSeconds,
     if (timeout.inSeconds != 5) 'timeout_seconds': timeout.inSeconds,
-    if (runAsRoot) 'run_as_root': runAsRoot,
   };
 
   static final _hexRe = RegExp(r'^#[0-9a-fA-F]{6}$');

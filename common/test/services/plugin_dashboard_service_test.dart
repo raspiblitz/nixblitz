@@ -24,7 +24,7 @@ void _seedPluginWithTileCommand(
   File('${dir.path}/manifest.json').writeAsStringSync(
     jsonEncode({
       'manifest': {
-        'schema_version': 1,
+        'schema_version': 2,
         'min_tui_version': 1,
         'name': dirName,
       },
@@ -182,7 +182,7 @@ void main() {
       File('${home.path}/plugins/headless/manifest.json').writeAsStringSync(
         jsonEncode({
           'manifest': {
-            'schema_version': 1,
+            'schema_version': 2,
             'min_tui_version': 1,
             'name': 'headless',
           },

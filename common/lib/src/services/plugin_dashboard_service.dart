@@ -164,7 +164,6 @@ class _PluginPoller {
     try {
       final result = await runner.runOneShot(
         command: spec.command,
-        runAsRoot: spec.runAsRoot,
         timeout: spec.timeout,
       );
       if (_disposed) return;

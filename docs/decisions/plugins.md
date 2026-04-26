@@ -635,6 +635,74 @@ regular editor.
 
 ---
 
-_Last updated: 2026-04-24. Update the top of the relevant decision
+---
+
+## D18 — Sudo posture: SudoSession + privileged actions via systemd units
+
+**Chosen** (2026-04-26): the installed system uses NixOS's default
+`security.sudo.wheelNeedsPassword = true`. The TUI authenticates
+sudo non-interactively via a shared `SudoSession` service that
+prompts the operator for a password once per "session of activity"
+(typically once per TUI launch), refreshes the timestamp every
+~10 min in the background, and lets every privileged call site
+reuse the cached timestamp via `sudo -n`.
+
+The live ISO keeps `wheelNeedsPassword = false` via a separate
+host module (`templates/hosts/installer.nix`), so the install
+flow doesn't need a credential it can't have yet (no admin
+password is set on the live ISO). The installed system uses
+`templates/hosts/installed.nix`.
+
+For plugin actions the consequence is structural. A passwordless
+`sudo -n bash -c '<arbitrary plugin shell>'` would either trigger
+a prompt mid-flow (UX regression) or require adding `bash` to a
+NOPASSWD allow-list (defeats the entire tightening). Neither is
+acceptable, so we reshape the action DSL.
+
+### Schema v2 changes
+
+- **`run_as_root` is removed.** Manifests v1 with `run_as_root:
+  true` actions hard-fail at load with a migration-hint error
+  message.
+- **Discriminated action types:** an action declares **exactly
+  one** of `command:` (runs as the admin user via `bash -c`, no
+  sudo) or `unit:` (dispatches a Type=oneshot systemd service via
+  `sudo -n systemctl start --wait <unit>`).
+- **`permissions.privileged_units: [...]`** is a closed allow-list
+  of unit names the plugin's `unit:` actions are allowed to
+  reference. Manifests cross-validate at parse time: an action
+  pointing at a unit not in this list is rejected.
+- **Tile commands** (the `dashboard` block) always run as the
+  admin user. Any `run_as_root: true` on a tile spec is also
+  rejected — tile polling fires every 30s on a background timer
+  and must never surface a password prompt.
+
+### Why this isn't just "better sudoers rules"
+
+Posture C (a NOPASSWD allow-list scoped to specific binaries)
+was the cheaper alternative considered and rejected. It captures
+most of the value (`sudo bash` and `sudo nix-shell` blocked from a
+stolen SSH session), but plugin shell actions can't be allow-listed
+by command — a plugin's shell snippet is by definition arbitrary.
+The allow-list either has to include `bash` (defeating the win) or
+forbid privileged actions entirely (forcing the same systemd-unit
+migration we now do under Posture A, with no UX upside). Posture A
+is kept as the headline; Posture C remains documented as a
+fallback if a future deployment can't tolerate the prompt UX.
+
+### What this doesn't fix
+
+D14's threat model is unchanged. A plugin can still smuggle a
+`systemd.services.helpful-service` with `wantedBy = ["multi-user.
+target"]` into its `plugin.nix`; that runs as root automatically
+at every boot, never going through the action DSL or SudoSession.
+Posture A narrows the attack surface for *plugin-supplied actions
+the user runs explicitly*, not for the rebuild-time module
+evaluation. Phase 6 (per-plugin systemd users) is what closes the
+deeper hole.
+
+---
+
+_Last updated: 2026-04-26. Update the top of the relevant decision
 entry when rescoping; don't rewrite — future readers need the
 trail._

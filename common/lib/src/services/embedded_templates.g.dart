@@ -115,7 +115,19 @@ const String _flake = r'''
       system = "x86_64-linux";
       specialArgs = {inherit nixblitz;};
       modules = [
-        ./hosts/default.nix
+        ./hosts/installed.nix
+        self.nixosModules.default
+      ];
+    };
+
+    # Live-ISO config used by `disko-install --flake .#nixblitz-installer`.
+    # Identical to nixosConfigurations.nixblitz except for passwordless
+    # sudo. See docs/decisions/plugins.md (sudo posture).
+    nixosConfigurations.nixblitz-installer = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      specialArgs = {inherit nixblitz;};
+      modules = [
+        ./hosts/installer.nix
         self.nixosModules.default
       ];
     };
@@ -255,6 +267,16 @@ const String _hardwareX86 = r'''
 ''';
 
 const String _hostsDefault = r'''
+{...}: {
+  # Back-compat shim for any external flake referrers that still target
+  # ./hosts/default.nix. The flake's nixosConfigurations now point
+  # directly at installer.nix (live ISO) and installed.nix (post-install)
+  # — see ../flake.nix.
+  imports = [./installed.nix];
+}
+''';
+
+const String _hostsInstalled = r'''
 {
   config,
   lib,
@@ -316,10 +338,32 @@ in {
     initialPassword = "nixblitz";
   };
 
-  security.sudo.wheelNeedsPassword = false;
+  # NixOS default: wheelNeedsPassword = true. The TUI authenticates
+  # sudo via the SudoSession service (sudo -S -v + ~10 min keepalive),
+  # so all privileged flows still work non-interactively after one
+  # password prompt per session of activity.
   services.openssh.enable = true;
 
   system.stateVersion = "25.11";
+}
+''';
+
+const String _hostsInstaller = r'''
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: {
+  # Live ISO host config, used by `disko-install --flake .#nixblitz-installer`.
+  # Differs from the installed system in exactly one place: passwordless sudo,
+  # so the TUI's install-time wizard (disko-install, nixos-generate-config,
+  # mount, cp, chown, …) can run non-interactively. The live ISO is
+  # ephemeral and has no persistent attacker, so this is the right default
+  # here. The installed system uses NixOS's wheelNeedsPassword=true default.
+  imports = [./installed.nix];
+
+  security.sudo.wheelNeedsPassword = false;
 }
 ''';
 
@@ -882,6 +926,8 @@ Map<String, String> _getAllTemplates() {
     'hardware/vm.nix': _hardwareVm,
     'hardware/x86.nix': _hardwareX86,
     'hosts/default.nix': _hostsDefault,
+    'hosts/installed.nix': _hostsInstalled,
+    'hosts/installer.nix': _hostsInstaller,
     'modules/apps/bitcoind.nix': _modulesAppsBitcoind,
     'modules/apps/blitz-api.nix': _modulesAppsBlitzApi,
     'modules/apps/blitz-web.nix': _modulesAppsBlitzWeb,

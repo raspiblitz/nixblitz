@@ -30,7 +30,7 @@ Future<String> _seedPluginRepo(
     final manifest = manifestOverride ??
         {
           'manifest': {
-            'schema_version': 1,
+            'schema_version': 2,
             'min_tui_version': 1,
             'name': manifestName,
             'description': 'test plugin',
@@ -189,7 +189,7 @@ void main() {
         File('${outer.path}/tailscale/manifest.json').writeAsStringSync(
           jsonEncode({
             'manifest': {
-              'schema_version': 1,
+              'schema_version': 2,
               'min_tui_version': 1,
               'name': 'ts',
             },
@@ -231,7 +231,7 @@ void main() {
           File('${multi.path}/$name/manifest.json').writeAsStringSync(
             jsonEncode({
               'manifest': {
-                'schema_version': 1,
+                'schema_version': 2,
                 'min_tui_version': 1,
                 'name': name,
               },
@@ -299,7 +299,7 @@ void main() {
         File('${multi.path}/tailscale/manifest.json').writeAsStringSync(
           jsonEncode({
             'manifest': {
-              'schema_version': 1,
+              'schema_version': 2,
               'min_tui_version': 1,
               'name': 'tailscale',
             },

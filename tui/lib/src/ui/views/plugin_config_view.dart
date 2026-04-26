@@ -398,8 +398,9 @@ class _PluginConfigViewState extends State<PluginConfigView> {
             ],
             const SizedBox(height: 1),
             Text(
-              'Command: ${action.command}'
-              '${action.runAsRoot ? "  (as root via sudo)" : ""}',
+              action.unit != null
+                  ? 'Unit: ${action.unit}  (root via systemctl)'
+                  : 'Command: ${action.command}',
               style: const TextStyle(color: Color.fromRGB(110, 110, 130)),
             ),
             const SizedBox(height: 1),
@@ -556,6 +557,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
 
   void _launchAction(String id, PluginAction action) {
     final runner = context.read(pluginActionRunnerProvider);
+    final session = context.read(sudoSessionProvider);
     LogService.info('plugin action started: $id (${action.label})');
 
     setState(() {
@@ -566,6 +568,28 @@ class _PluginConfigViewState extends State<PluginConfigView> {
       _errorMessage = null;
     });
 
+    // Privileged actions go through systemctl-via-sudo, so prime the
+    // sudo timestamp first. Unprivileged command actions skip the
+    // prompt — they run as the admin user, no auth needed.
+    final guard = action.isPrivileged
+        ? session.ensureFresh()
+        : Future<bool>.value(true);
+
+    guard.then((ok) {
+      if (!ok) {
+        if (!mounted) return;
+        setState(() {
+          _actionOutput.add('Authorization cancelled — aborting.\n');
+          _actionExitCode = 1;
+        });
+        return;
+      }
+      _streamAction(id, runner, action);
+    });
+  }
+
+  void _streamAction(
+      String id, PluginActionRunner runner, PluginAction action) {
     final r = runner.run(action);
     _actionSub = r.output.listen(
       (line) {

@@ -6,14 +6,14 @@ void main() {
     test('parses a minimal valid manifest', () {
       final m = PluginManifest.fromJson({
         'manifest': {
-          'schema_version': 1,
+          'schema_version': 2,
           'min_tui_version': 1,
           'name': 'nixblitz-tailscale',
           'description': 'Enable Tailscale on this node',
         },
       });
       expect(m.name, 'nixblitz-tailscale');
-      expect(m.schemaVersion, 1);
+      expect(m.schemaVersion, 2);
       expect(m.minTuiVersion, 1);
       expect(m.config, isEmpty);
       expect(m.permissions.isEmpty, isTrue);
@@ -22,7 +22,7 @@ void main() {
     test('parses config fields', () {
       final m = PluginManifest.fromJson({
         'manifest': {
-          'schema_version': 1,
+          'schema_version': 2,
           'min_tui_version': 1,
           'name': 'tailscale',
         },
@@ -38,18 +38,10 @@ void main() {
       expect(m.config['exit_node']!.defaultValue, false);
     });
 
-    test('parses actions block', () {
+    test('parses unprivileged command actions', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'actions': {
-          'reset_db': {
-            'label': 'Reset database',
-            'description': 'Wipes the DB.',
-            'command': 'lnbits-reset',
-            'run_as_root': true,
-            'confirm': true,
-            'timeout_seconds': 60,
-          },
           'whoami': {
             'label': 'Who am I',
             'command': 'whoami',
@@ -57,19 +49,130 @@ void main() {
           },
         },
       });
-      expect(m.actions.keys, containsAll(['reset_db', 'whoami']));
-      expect(m.actions['reset_db']!.label, 'Reset database');
-      expect(m.actions['reset_db']!.runAsRoot, isTrue);
-      expect(m.actions['reset_db']!.timeoutSeconds, 60);
+      expect(m.actions['whoami']!.command, 'whoami');
+      expect(m.actions['whoami']!.unit, isNull);
+      expect(m.actions['whoami']!.isPrivileged, isFalse);
       expect(m.actions['whoami']!.confirm, isFalse);
       expect(m.actions['whoami']!.timeoutSeconds, 300); // default
-      expect(m.actions['whoami']!.runAsRoot, isFalse); // default
+    });
+
+    test('parses privileged unit actions', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'reset_db': {
+            'label': 'Reset database',
+            'description': 'Wipes the DB.',
+            'unit': 'lnbits-reset-db.service',
+            'timeout_seconds': 60,
+          },
+        },
+        'permissions': {
+          'privileged_units': ['lnbits-reset-db.service'],
+        },
+      });
+      expect(m.actions['reset_db']!.unit, 'lnbits-reset-db.service');
+      expect(m.actions['reset_db']!.command, isNull);
+      expect(m.actions['reset_db']!.isPrivileged, isTrue);
+      expect(m.actions['reset_db']!.timeoutSeconds, 60);
+      expect(m.permissions.privilegedUnits,
+          ['lnbits-reset-db.service']);
+    });
+
+    test('schema v1 manifest with no v1-only fields is rejected', () {
+      // v1 manifests are no longer accepted; loader hard-fails so an
+      // operator running an old TUI gets a clear migration message.
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {
+            'schema_version': 1,
+            'min_tui_version': 1,
+            'name': 'p',
+          },
+        }),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('schema_version'),
+        )),
+      );
+    });
+
+    test('v1 run_as_root action gets migration-hint error', () {
+      // The action-level `run_as_root: true` rejection has its own
+      // pointed message even before the schema-version check fires.
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {
+            'schema_version': 1,
+            'min_tui_version': 1,
+            'name': 'p',
+          },
+          'actions': {
+            'r': {
+              'label': 'R',
+              'command': 'true',
+              'run_as_root': true,
+            },
+          },
+        }),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('run_as_root'),
+        )),
+      );
+    });
+
+    test('action with both command and unit rejected', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'mixed': {
+              'label': 'Mixed',
+              'command': 'whoami',
+              'unit': 'whoami.service',
+            },
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('action with neither command nor unit rejected', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'noop': {'label': 'Noop'},
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('unit action without permissions.privileged_units entry rejected',
+        () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'sneaky': {
+              'label': 'Sneaky',
+              'unit': 'systemd-shutdown.service',
+            },
+          },
+          // No permissions.privileged_units → unit reference is rejected.
+        }),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('action without label throws FormatException', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'actions': {
             'broken': {'command': 'whoami'},
           },
@@ -78,22 +181,30 @@ void main() {
       );
     });
 
-    test('action without command throws FormatException', () {
+    test('action with run_as_root in v2 manifest is rejected', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'actions': {
-            'broken': {'label': 'no command'},
+            'broken': {
+              'label': 'broken',
+              'command': 'whoami',
+              'run_as_root': true,
+            },
           },
         }),
-        throwsA(isA<FormatException>()),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('run_as_root'),
+        )),
       );
     });
 
     test('action with non-positive timeout throws FormatException', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'actions': {
             'bad': {
               'label': 'x',
@@ -106,33 +217,51 @@ void main() {
       );
     });
 
-    test('actions round-trip via toJson', () {
+    test('command actions round-trip via toJson', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'actions': {
           'r': {
             'label': 'R',
             'command': 'true',
-            'run_as_root': true,
             'timeout_seconds': 90,
           },
         },
       });
       final back = PluginManifest.fromJson(m.toJson());
-      expect(back.actions['r']!.runAsRoot, isTrue);
+      expect(back.actions['r']!.command, 'true');
+      expect(back.actions['r']!.unit, isNull);
       expect(back.actions['r']!.timeoutSeconds, 90);
+    });
+
+    test('unit actions round-trip via toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'reset': {
+            'label': 'Reset',
+            'unit': 'p-reset.service',
+          },
+        },
+        'permissions': {
+          'privileged_units': ['p-reset.service'],
+        },
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.actions['reset']!.unit, 'p-reset.service');
+      expect(back.actions['reset']!.command, isNull);
+      expect(back.permissions.privilegedUnits, ['p-reset.service']);
     });
 
     test('parses dashboard block', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'dashboard': {
           'title': 'Tailscale',
           'accent_color': '#2596be',
           'command': 'tailscale-tile-state',
           'poll_interval_seconds': 30,
           'timeout_seconds': 5,
-          'run_as_root': false,
         },
       });
       expect(m.dashboard, isNotNull);
@@ -141,12 +270,33 @@ void main() {
       expect(m.dashboard!.command, 'tailscale-tile-state');
       expect(m.dashboard!.pollInterval, const Duration(seconds: 30));
       expect(m.dashboard!.timeout, const Duration(seconds: 5));
-      expect(m.dashboard!.runAsRoot, isFalse);
+    });
+
+    test('dashboard with run_as_root in v2 manifest is rejected', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {
+            'schema_version': 2,
+            'min_tui_version': 1,
+            'name': 'p',
+          },
+          'dashboard': {
+            'title': 'X',
+            'command': 'x',
+            'run_as_root': true,
+          },
+        }),
+        throwsA(isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('run_as_root'),
+        )),
+      );
     });
 
     test('dashboard with defaults', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'dashboard': {
           'title': 'X',
           'command': 'x-state',
@@ -160,7 +310,7 @@ void main() {
     test('dashboard without title throws FormatException', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'dashboard': {'command': 'x'},
         }),
         throwsA(isA<FormatException>()),
@@ -170,7 +320,7 @@ void main() {
     test('dashboard without command throws FormatException', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'dashboard': {'title': 'X'},
         }),
         throwsA(isA<FormatException>()),
@@ -180,7 +330,7 @@ void main() {
     test('dashboard with malformed accent color throws', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'dashboard': {
             'title': 'X',
             'command': 'x',
@@ -194,7 +344,7 @@ void main() {
     test('dashboard with poll_interval below floor throws', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'dashboard': {
             'title': 'X',
             'command': 'x',
@@ -207,14 +357,14 @@ void main() {
 
     test('manifest without dashboard block has null dashboard', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
       });
       expect(m.dashboard, isNull);
     });
 
     test('dashboard round-trips via toJson', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'dashboard': {
           'title': 'X',
           'accent_color': '#abcdef',
@@ -230,7 +380,7 @@ void main() {
 
     test('parses permissions block', () {
       final m = PluginManifest.fromJson({
-        'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'permissions': {
           'bitcoin': ['rpc:read'],
           'network': ['outbound'],
@@ -248,7 +398,7 @@ void main() {
     test('round-trips via toJson', () {
       final json = {
         'manifest': {
-          'schema_version': 1,
+          'schema_version': 2,
           'min_tui_version': 1,
           'name': 'p',
           'description': 'desc',
@@ -290,7 +440,7 @@ void main() {
     test('throws FormatException when name missing', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {'schema_version': 1, 'min_tui_version': 1},
+          'manifest': {'schema_version': 2, 'min_tui_version': 1},
         }),
         throwsA(isA<FormatException>()),
       );

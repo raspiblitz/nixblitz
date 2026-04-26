@@ -1,9 +1,20 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:test/test.dart';
 
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/services/plugin_action_runner.dart';
+import 'package:common/src/services/sudo_session.dart';
+
+class _NoopAuth implements SudoAuthBackend {
+  @override
+  Future<int> silentVerify() async => 0;
+  @override
+  Future<int> passwordVerify(Uint8List password) async => 0;
+  @override
+  Future<int> forget() async => 0;
+}
 
 Future<({List<String> output, int exitCode})> _runAndCollect(
   PluginActionRunner svc,
@@ -20,8 +31,10 @@ Future<({List<String> output, int exitCode})> _runAndCollect(
 }
 
 void main() {
-  group('PluginActionRunner', () {
-    final svc = PluginActionRunner();
+  group('PluginActionRunner command actions', () {
+    final svc = PluginActionRunner(
+      sudoSession: SudoSession(authBackend: _NoopAuth()),
+    );
 
     test('happy path: echo command exits 0 with output', () async {
       final action = PluginAction(
@@ -74,7 +87,9 @@ void main() {
   });
 
   group('PluginActionRunner.runOneShot', () {
-    final svc = PluginActionRunner();
+    final svc = PluginActionRunner(
+      sudoSession: SudoSession(authBackend: _NoopAuth()),
+    );
 
     test('captures stdout and stderr separately', () async {
       final r = await svc.runOneShot(

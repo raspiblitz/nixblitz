@@ -21,10 +21,18 @@ import 'package:common/src/models/plugin/plugin_tile.dart';
 /// fields. Breaking changes bump both constants so old TUIs refuse.
 
 /// What version of the manifest schema this TUI understands.
-const int currentPluginManifestVersion = 1;
+///
+/// v2 (current): privileged actions are dispatched as systemd
+/// `unit:` references rather than `command:` + `run_as_root: true`.
+/// Tile commands always run as the admin user (no `run_as_root` on
+/// `dashboard`). See sudo posture / Posture A in the project plan.
+const int currentPluginManifestVersion = 2;
 
-/// Lowest manifest schema version this TUI can safely load.
-const int minCompatibleManifestVersion = 1;
+/// Lowest manifest schema version this TUI can safely load. v1
+/// manifests are rejected because their `run_as_root: true` action
+/// path silently breaks under wheelNeedsPassword=true — better to
+/// hard-fail at load with a migration hint than silently no-op.
+const int minCompatibleManifestVersion = 2;
 
 class PluginTooNewException implements Exception {
   final int requiredMinTuiVersion;
@@ -124,13 +132,37 @@ class PluginManifest {
         ? PluginPermissions.fromJson(permsRaw)
         : const PluginPermissions();
 
+    // Cross-validate: any `unit:` action must point at a unit
+    // listed in permissions.privileged_units. This prevents a
+    // manifest from triggering arbitrary system units it didn't
+    // declare up-front.
+    for (final entry in actionMap.entries) {
+      final unit = entry.value.unit;
+      if (unit != null && !perms.privilegedUnits.contains(unit)) {
+        throw FormatException(
+          'action `${entry.key}` references unit `$unit` which is '
+          'not declared in permissions.privileged_units',
+        );
+      }
+    }
+
     final dashboardRaw = json['dashboard'];
     final dashboard = dashboardRaw is Map<String, dynamic>
         ? PluginTileSpec.fromJson(dashboardRaw)
         : null;
 
+    final schemaVersion = header['schema_version'] as int? ?? 1;
+    if (schemaVersion < minCompatibleManifestVersion) {
+      throw FormatException(
+        'manifest.schema_version $schemaVersion is too old; this TUI '
+        'requires v$minCompatibleManifestVersion or newer. v1 plugins '
+        'with `run_as_root: true` actions need to migrate to `unit:` '
+        'systemd dispatch — see sudo posture in the project docs.',
+      );
+    }
+
     return PluginManifest(
-      schemaVersion: header['schema_version'] as int? ?? 1,
+      schemaVersion: schemaVersion,
       minTuiVersion: minTui,
       name: name,
       description: header['description'] as String? ?? '',

@@ -26,12 +26,20 @@ class PluginPermissions {
   /// `listen:<port>`.
   final List<String> network;
 
+  /// Systemd unit names this plugin's actions are allowed to start
+  /// via `unit:` action dispatch (manifest schema v2). The plugin's
+  /// plugin.nix must define every unit listed here. Listing here is
+  /// what makes a unit usable by the operator from the TUI; absent
+  /// units are rejected at manifest parse time.
+  final List<String> privilegedUnits;
+
   const PluginPermissions({
     this.bitcoin = const [],
     this.lightning = const [],
     this.filesystemRead = const [],
     this.filesystemWrite = const [],
     this.network = const [],
+    this.privilegedUnits = const [],
   });
 
   factory PluginPermissions.fromJson(Map<String, dynamic> json) {
@@ -42,6 +50,7 @@ class PluginPermissions {
       filesystemRead: _stringList(fs['read']),
       filesystemWrite: _stringList(fs['write']),
       network: _stringList(json['network']),
+      privilegedUnits: _stringList(json['privileged_units']),
     );
   }
 
@@ -62,6 +71,7 @@ class PluginPermissions {
         if (filesystemWrite.isNotEmpty) 'write': filesystemWrite,
       },
     if (network.isNotEmpty) 'network': network,
+    if (privilegedUnits.isNotEmpty) 'privileged_units': privilegedUnits,
   };
 
   bool get isEmpty =>
@@ -69,7 +79,8 @@ class PluginPermissions {
       lightning.isEmpty &&
       filesystemRead.isEmpty &&
       filesystemWrite.isEmpty &&
-      network.isEmpty;
+      network.isEmpty &&
+      privilegedUnits.isEmpty;
 
   /// Human-readable lines for the `plugin add` consent prompt.
   /// Empty list → no permissions requested (still worth surfacing
@@ -86,6 +97,9 @@ class PluginPermissions {
       lines.add('filesystem write: ${filesystemWrite.join(", ")}');
     }
     if (network.isNotEmpty) lines.add('network: ${network.join(", ")}');
+    if (privilegedUnits.isNotEmpty) {
+      lines.add('root systemd units: ${privilegedUnits.join(", ")}');
+    }
     return lines;
   }
 }
