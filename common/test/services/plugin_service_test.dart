@@ -108,7 +108,10 @@ void main() {
       expect(File('${pluginDir.path}/plugin.nix').existsSync(), isTrue);
       expect(File('${pluginDir.path}/manifest.json').existsSync(), isTrue);
       expect(File('${pluginDir.path}/config.json').existsSync(), isTrue);
-      expect(File('${pluginDir.path}/.plugin-metadata.json').existsSync(), isTrue);
+      // .plugin-metadata.json is intentionally NOT written —
+      // main config's plugins[] is the authoritative record and
+      // duplicating timestamps just churns the diff.
+      expect(File('${pluginDir.path}/.plugin-metadata.json').existsSync(), isFalse);
 
       final config = await ConfigService(baseDir: home.path).readConfig();
       expect(config.plugins.length, 1);
@@ -505,6 +508,30 @@ void main() {
           await ConfigService(baseDir: home.path).readConfig();
       expect(afterConfig.plugins.length, 1);
       expect(afterConfig.plugins.first.pinnedRev, refreshed.pinnedRev);
+    });
+
+    test('refresh is a no-op when upstream pin matches existing',
+        () async {
+      final first = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+
+      // No upstream change between install and refresh — the new
+      // pin will equal the existing one, refresh should bail before
+      // touching anything.
+      final refreshed = await svc.refresh(
+        first.id,
+        allowInsecure: true,
+      );
+
+      expect(refreshed.pinnedRev, first.pinnedRev);
+      expect(refreshed.lastUpdatedAt, first.lastUpdatedAt,
+          reason: 'last_updated_at should not bump on no-op refresh');
+
+      // Main config wasn't touched either.
+      final after = await ConfigService(baseDir: home.path).readConfig();
+      expect(after.plugins.first.lastUpdatedAt, first.lastUpdatedAt);
     });
 
     test('refresh throws when plugin is not installed', () async {

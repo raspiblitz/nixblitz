@@ -154,10 +154,6 @@ class PluginService {
         lastUpdatedAt: now,
       );
 
-      File('${targetDir.path}/.plugin-metadata.json').writeAsStringSync(
-        '${const JsonEncoder.withIndent('  ').convert(entry.toJson())}\n',
-      );
-
       // Mark the new plugin files as intent-to-add (git add -N) so
       // the Apply view's `git diff` renders them as new-file
       // additions instead of hiding them as untracked. The files
@@ -277,6 +273,21 @@ class PluginService {
     try {
       await _gitClone(parsed.cloneUrl, existing.branch, tmpDir.path);
       final pinnedRev = await _gitRevParseHead(tmpDir.path);
+
+      // Early return when the upstream pin matches what we have.
+      // `last_updated_at` semantically means "files changed", not
+      // "we polled" — touching it on every no-op refresh would
+      // dirty config.json with timestamp churn even when nothing
+      // actually moved upstream. The plugin tree on disk also
+      // stays untouched.
+      if (pinnedRev == existing.pinnedRev) {
+        LogService.info(
+          'PluginService: refresh ${existing.id} no-op '
+          '(pin already at $pinnedRev)',
+        );
+        return existing;
+      }
+
       _rejectSymlinks(tmpDir.path);
 
       final pluginSourceDir = parsed.subdir == null
@@ -318,10 +329,6 @@ class PluginService {
       final refreshed = existing.copyWith(
         pinnedRev: pinnedRev,
         lastUpdatedAt: now,
-      );
-
-      File('${targetDir.path}/.plugin-metadata.json').writeAsStringSync(
-        '${const JsonEncoder.withIndent('  ').convert(refreshed.toJson())}\n',
       );
 
       await _gitIntentToAdd(targetDir.path);
