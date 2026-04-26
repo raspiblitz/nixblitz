@@ -4,6 +4,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import 'views/confirm_prompt_demo_view.dart';
+import 'views/dashboard_demo_view.dart';
 import 'views/dev_menu_view.dart';
 import 'views/help_popup_demo_view.dart';
 import 'views/log_demo_view.dart';
@@ -24,6 +25,7 @@ enum DevView {
   optionEditor,
   serviceCard,
   helpPopup,
+  dashboard,
 }
 
 final currentDevViewProvider = StateProvider<DevView>((ref) => DevView.menu);
@@ -131,6 +133,7 @@ class _DevShell extends StatelessComponent {
                 DevView.optionEditor => const OptionEditorDemoView(),
                 DevView.serviceCard => const ServiceCardDemoView(),
                 DevView.helpPopup => const HelpPopupDemoView(),
+                DevView.dashboard => const DashboardDemoView(),
               },
             ),
           ],

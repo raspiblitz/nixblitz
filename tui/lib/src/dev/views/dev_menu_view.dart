@@ -55,6 +55,12 @@ const _entries = [
     'Modal overlay with keybinding reference',
     DevView.helpPopup,
   ),
+  _DevMenuEntry(
+    'Dashboard Layout',
+    'Static preview of the dashboard tile grid with realistic '
+        'content sizes — for iterating on tile spacing and alignment',
+    DevView.dashboard,
+  ),
 ];
 
 class DevMenuView extends StatelessComponent {

@@ -6,6 +6,7 @@ import 'dashboard/hardware_tile.dart';
 import 'dashboard/lightning_tile.dart';
 import 'dashboard/plugin_tile.dart';
 import 'dashboard/system_tile.dart';
+import 'dashboard/tile_layout.dart';
 
 class DashboardView extends StatefulComponent {
   const DashboardView({super.key});
@@ -21,40 +22,6 @@ class _DashboardViewState extends State<DashboardView> {
   void dispose() {
     _scroll.dispose();
     super.dispose();
-  }
-
-  // Responsive column count. Under 80 cols the labels get cramped
-  // side-by-side; at 140+ there's enough horizontal room for 3.
-  int _columnsFor(double width) {
-    if (width < 80) return 1;
-    if (width < 140) return 2;
-    return 3;
-  }
-
-  /// Group tiles into N-wide rows, padding the last row so every tile
-  /// in the flex layout gets an equal share.
-  List<Component> _tileRows(List<Component> tiles, int cols) {
-    final rows = <Component>[];
-    for (var i = 0; i < tiles.length; i += cols) {
-      final slice = tiles.sublist(i, (i + cols).clamp(0, tiles.length));
-      final children = <Component>[];
-      for (var j = 0; j < cols; j++) {
-        if (j > 0) children.add(const SizedBox(width: 2));
-        children.add(
-          Expanded(
-            child: j < slice.length
-                ? slice[j]
-                : const SizedBox.shrink(),
-          ),
-        );
-      }
-      rows.add(Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ));
-      rows.add(const SizedBox(height: 1));
-    }
-    return rows;
   }
 
   /// Build one [PluginTile] per active plugin whose manifest declares
@@ -174,7 +141,7 @@ class _DashboardViewState extends State<DashboardView> {
                 padding: const EdgeInsets.symmetric(horizontal: 1),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    final cols = _columnsFor(constraints.maxWidth);
+                    final cols = columnsFor(constraints.maxWidth);
                     final pluginTiles = _pluginTiles(context, config);
                     final tiles = <Component>[
                       const SystemTile(),
@@ -190,7 +157,7 @@ class _DashboardViewState extends State<DashboardView> {
                         controller: _scroll,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: _tileRows(tiles, cols),
+                          children: tileRows(tiles, cols),
                         ),
                       ),
                     );
