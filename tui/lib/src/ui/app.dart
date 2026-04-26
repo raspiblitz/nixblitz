@@ -14,6 +14,7 @@ import 'views/setup_view.dart';
 import 'views/update_view.dart';
 import 'shutdown.dart';
 import 'widgets/help_popup.dart';
+import 'widgets/password_overlay.dart';
 import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
 
@@ -174,11 +175,13 @@ class _Shell extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final helpVisible = context.watch(_helpVisibleProvider);
+    final sudoPromptVisible =
+        context.watch(pendingSudoPromptProvider) != null;
 
     return Stack(
       children: [
         Focusable(
-          focused: !helpVisible,
+          focused: !helpVisible && !sudoPromptVisible,
           onKeyEvent: (event) {
             try {
               if (event.matches(LogicalKey.keyC, ctrl: true)) {
@@ -305,6 +308,10 @@ class _Shell extends StatelessComponent {
               context.read(_helpVisibleProvider.notifier).state = false;
             },
           ),
+        // Sudo password modal — full-screen overlay; takes focus
+        // exclusively so keystrokes can't leak into the underlying
+        // view (passwords typed past Enter would otherwise be visible).
+        if (sudoPromptVisible) const PasswordOverlay(),
       ],
     );
   }
