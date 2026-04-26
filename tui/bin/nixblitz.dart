@@ -38,7 +38,9 @@ void main(List<String> arguments) async {
           ArgParser()
             ..addFlag('all', negatable: false)
             ..addFlag('insecure', negatable: false),
-        ),
+        )
+        ..addCommand('pin', ArgParser())
+        ..addCommand('unpin', ArgParser()),
     );
 
   try {

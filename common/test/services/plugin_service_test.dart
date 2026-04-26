@@ -530,10 +530,105 @@ void main() {
           allowInsecure: true,
         );
 
-        final refreshed = await svc.refreshAll(allowInsecure: true);
-        expect(refreshed.length, 2);
+        final result = await svc.refreshAll(allowInsecure: true);
+        expect(result.refreshed.length, 2);
+        expect(result.failures, isEmpty);
+        expect(result.skipped, isEmpty);
       } finally {
         secondRepo.deleteSync(recursive: true);
+      }
+    });
+
+    test('pin flips auto_update to false; unpin flips it back',
+        () async {
+      final entry = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      expect(entry.autoUpdate, isTrue);
+
+      final pinned = await svc.pin(entry.id);
+      expect(pinned.autoUpdate, isFalse);
+
+      // Persisted on disk.
+      final cfg = await ConfigService(baseDir: home.path).readConfig();
+      expect(cfg.plugins.first.autoUpdate, isFalse);
+
+      final unpinned = await svc.unpin(entry.id);
+      expect(unpinned.autoUpdate, isTrue);
+    });
+
+    test('refreshAll skips pinned plugins when includePinned=false',
+        () async {
+      final secondRepo = Directory.systemTemp.createTempSync(
+        'nixblitz_refresh_pinned_',
+      );
+      try {
+        await _seedPluginRepo(secondRepo.path, manifestName: 'second');
+        final first = await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        await svc.install(
+          'file://${secondRepo.path}',
+          allowInsecure: true,
+        );
+
+        // Pin the first one so includePinned=false should skip it.
+        await svc.pin(first.id);
+
+        final result = await svc.refreshAll(
+          allowInsecure: true,
+          includePinned: false,
+        );
+        expect(result.refreshed.length, 1);
+        expect(result.skipped.length, 1);
+        expect(result.skipped.first.id, first.id);
+      } finally {
+        secondRepo.deleteSync(recursive: true);
+      }
+    });
+
+    test('refreshAll keeps going when one plugin fails', () async {
+      // Install one good plugin, then poison it: rename the source
+      // dir so the next refresh's git clone fails. A second healthy
+      // plugin should still refresh + be reported in `refreshed`.
+      final secondRepo = Directory.systemTemp.createTempSync(
+        'nixblitz_refresh_partial_',
+      );
+      final movedRepo = Directory.systemTemp.createTempSync(
+        'nixblitz_refresh_moved_',
+      );
+      try {
+        await _seedPluginRepo(secondRepo.path, manifestName: 'good');
+        final bad = await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        await svc.install(
+          'file://${secondRepo.path}',
+          allowInsecure: true,
+        );
+
+        // Poison: move the first source repo so refresh's clone
+        // fails for it.
+        movedRepo.deleteSync(recursive: true);
+        Directory(srcRepo.path).renameSync(movedRepo.path);
+
+        final result = await svc.refreshAll(
+          allowInsecure: true,
+        );
+        expect(result.refreshed.length, 1);
+        expect(result.failures.length, 1);
+        expect(result.failures.first.plugin.id, bad.id);
+
+        // Restore for setUp / tearDown's cleanup.
+        movedRepo.renameSync(srcRepo.path);
+      } finally {
+        secondRepo.deleteSync(recursive: true);
+        if (movedRepo.existsSync()) {
+          movedRepo.deleteSync(recursive: true);
+        }
       }
     });
 

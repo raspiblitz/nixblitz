@@ -29,6 +29,10 @@ Future<int> runPluginCli(ArgResults pluginArgs, String baseDir) async {
         return await _runList(svc, sub);
       case 'refresh':
         return await _runRefresh(svc, sub);
+      case 'pin':
+        return await _runPin(svc, sub, pin: true);
+      case 'unpin':
+        return await _runPin(svc, sub, pin: false);
       default:
         stderr.writeln('unknown verb: ${sub.name}');
         return 2;
@@ -112,12 +116,16 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
     return 0;
   }
   // Compact table. Not pretty-aligned; plugin lists stay short.
-  stdout.writeln('ID  |  BRANCH  |  PIN      |  ENABLED  |  INSTALLED');
+  stdout.writeln(
+    'ID  |  BRANCH  |  PIN      |  ENABLED  |  AUTO-UPDATE  |  INSTALLED',
+  );
   for (final p in plugins) {
     final tombMark = p.isTombstone ? '  [removed]' : '';
+    final autoMark = p.autoUpdate ? 'true' : 'false [pinned]';
     stdout.writeln(
       '${p.id}  |  ${p.branch}  |  ${_shortRev(p.pinnedRev)}  |  '
-      '${p.enabled}  |  ${p.installedAt.toIso8601String().split("T").first}'
+      '${p.enabled}  |  $autoMark  |  '
+      '${p.installedAt.toIso8601String().split("T").first}'
       '$tombMark',
     );
   }
@@ -136,19 +144,24 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
       );
       return 2;
     }
-    final refreshed = await svc.refreshAll(allowInsecure: insecure);
-    if (refreshed.isEmpty) {
+    final result = await svc.refreshAll(allowInsecure: insecure);
+    if (result.totalAttempted == 0 && result.skipped.isEmpty) {
       stdout.writeln('(no plugins to refresh)');
       return 0;
     }
-    for (final p in refreshed) {
+    for (final p in result.refreshed) {
       stdout.writeln('refreshed ${p.id}  pin=${_shortRev(p.pinnedRev)}');
     }
-    stdout.writeln();
-    stdout.writeln(
-      'Run the Apply view (`a` in the TUI) to commit and rebuild.',
-    );
-    return 0;
+    for (final f in result.failures) {
+      stderr.writeln('FAILED ${f.plugin.id}: ${f.error}');
+    }
+    if (result.refreshed.isNotEmpty) {
+      stdout.writeln();
+      stdout.writeln(
+        'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+      );
+    }
+    return result.hasAnyFailure ? 1 : 0;
   }
 
   if (rest.isEmpty) {
@@ -167,6 +180,36 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
   stdout.writeln(
     'Run the Apply view (`a` in the TUI) to commit and rebuild.',
   );
+  return 0;
+}
+
+Future<int> _runPin(
+  PluginService svc,
+  ArgResults args, {
+  required bool pin,
+}) async {
+  final rest = args.rest;
+  if (rest.isEmpty) {
+    stderr.writeln(
+      'Usage: nixblitz plugin ${pin ? "pin" : "unpin"} <id>',
+    );
+    return 2;
+  }
+  final id = rest.first;
+  final entry = pin ? await svc.pin(id) : await svc.unpin(id);
+  if (pin) {
+    stdout.writeln(
+      'pinned ${entry.id}\n'
+      '  auto_update is now false; "Update entire system" will skip this '
+      'plugin until you `unpin` or run `plugin refresh ${entry.id}` directly.',
+    );
+  } else {
+    stdout.writeln(
+      'unpinned ${entry.id}\n'
+      '  auto_update is now true; the next "Update entire system" will '
+      'advance its pin alongside the rest.',
+    );
+  }
   return 0;
 }
 

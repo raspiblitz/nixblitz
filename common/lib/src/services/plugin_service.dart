@@ -346,17 +346,70 @@ class PluginService {
   }
 
   /// Refresh every active (non-tombstoned) plugin in order.
-  /// Returns the list of refreshed entries. If a single plugin
-  /// refresh fails, the error propagates and any already-refreshed
-  /// plugins stay refreshed (the working tree may be partially
-  /// updated; Apply will show the partial diff).
-  Future<List<PluginEntry>> refreshAll({bool allowInsecure = false}) async {
+  ///
+  /// - When [includePinned] is `false`, plugins with
+  ///   `auto_update == false` are skipped. Used by the Update-view
+  ///   integration so per-plugin pins behave like opt-out from
+  ///   system-wide refresh (D11).
+  /// - Per-plugin refresh failures are **non-fatal**: errors are
+  ///   logged + collected; the loop continues with the remaining
+  ///   plugins. Returns a [PluginRefreshAllResult] capturing the
+  ///   successes and the per-plugin failures so the caller can
+  ///   surface them in its UI.
+  Future<PluginRefreshAllResult> refreshAll({
+    bool allowInsecure = false,
+    bool includePinned = true,
+  }) async {
     final active = await list();
-    final out = <PluginEntry>[];
+    final refreshed = <PluginEntry>[];
+    final failures = <({PluginEntry plugin, Object error})>[];
+    final skipped = <PluginEntry>[];
     for (final p in active) {
-      out.add(await refresh(p.id, allowInsecure: allowInsecure));
+      if (!includePinned && !p.autoUpdate) {
+        skipped.add(p);
+        continue;
+      }
+      try {
+        refreshed.add(await refresh(p.id, allowInsecure: allowInsecure));
+      } catch (e, st) {
+        LogService.error(
+          'PluginService.refreshAll: ${p.id} failed',
+          e,
+          st,
+        );
+        failures.add((plugin: p, error: e));
+      }
     }
-    return out;
+    return PluginRefreshAllResult(
+      refreshed: refreshed,
+      failures: failures,
+      skipped: skipped,
+    );
+  }
+
+  /// Mark [id] as `auto_update = false`. The next bulk refresh
+  /// (Update-view "Update entire system") skips it. Direct
+  /// `plugin refresh <id>` ignores the flag and still works.
+  Future<PluginEntry> pin(String id) async => _setAutoUpdate(id, false);
+
+  /// Inverse of [pin]: re-enable bulk auto-refresh for [id].
+  Future<PluginEntry> unpin(String id) async => _setAutoUpdate(id, true);
+
+  Future<PluginEntry> _setAutoUpdate(String id, bool value) async {
+    final config = await configService.readConfig();
+    final idx = config.plugins.indexWhere(
+      (p) => p.id == id && p.uninstalledAt == null,
+    );
+    if (idx < 0) {
+      throw StateError('Plugin not installed: $id');
+    }
+    final updatedEntry = config.plugins[idx].copyWith(autoUpdate: value);
+    final updatedPlugins = List<PluginEntry>.from(config.plugins);
+    updatedPlugins[idx] = updatedEntry;
+    await configService.writeConfig(
+      config.copyWith(plugins: updatedPlugins),
+    );
+    return updatedEntry;
   }
 
   /// Active plugins by default; pass [includeTombstones] for the full
@@ -554,6 +607,34 @@ class PluginService {
     }
     return '$base-$i';
   }
+}
+
+/// Aggregate result from [PluginService.refreshAll]. The Update-view
+/// integration in `tui/lib/src/ui/views/update_view.dart` walks
+/// these three lists to render successes / warnings / skipped lines
+/// in the existing log surface.
+class PluginRefreshAllResult {
+  /// Plugins whose refresh advanced their pin successfully.
+  final List<PluginEntry> refreshed;
+
+  /// Plugins whose refresh threw. The error is whatever
+  /// [PluginService.refresh] surfaces — typically [StateError] for
+  /// network failures or malformed upstream output.
+  final List<({PluginEntry plugin, Object error})> failures;
+
+  /// Plugins skipped because [PluginService.refreshAll] was called
+  /// with `includePinned: false` and the plugin had
+  /// `auto_update == false`.
+  final List<PluginEntry> skipped;
+
+  const PluginRefreshAllResult({
+    required this.refreshed,
+    required this.failures,
+    required this.skipped,
+  });
+
+  bool get hasAnyFailure => failures.isNotEmpty;
+  int get totalAttempted => refreshed.length + failures.length;
 }
 
 /// Parsed plugin URL. Handles the D9 accepted schemes and the D8

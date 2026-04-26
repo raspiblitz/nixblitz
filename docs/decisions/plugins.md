@@ -460,24 +460,39 @@ explicit-consent + vetted-repo model.
 ## Phasing (snapshot, may evolve)
 
 Smallest viable slice that proves the concept — each phase is
-shippable on its own:
+shippable on its own. Status as of 2026-04-26:
 
-1. **Plumbing**: `nixblitz plugin add/remove/list`, main-config
-   `plugins[]` array (schema bump + migration), auto-discovered
-   `plugins/*/plugin.nix` in the generated flake, manifest
-   parser + validator. No TUI integration yet — user hand-edits
-   per-plugin `config.json`. Dogfood with a hand-rolled tailscale
-   plugin.
-2. **Configure integration**: manifest-driven Configure section
-   for plugin settings, reusing existing option editors.
-3. **Dashboard integration**: manifest-driven tile on the dashboard
-   (command-source polling to start; http / SSE source later).
-4. **Actions integration**: manifest-driven actions show in the
-   Debug menu (or a new dedicated Plugins menu).
-5. **Update integration**: wire plugin refresh into Update flow;
-   plugin diffs surface in Apply review.
-6. **Permissions (later)**: enforcement of the permission manifest
-   via per-plugin users + wrapped CLIs + scoped API tokens.
+1. ✅ **Plumbing** (done): `nixblitz plugin add/remove/list/refresh`,
+   main-config `plugins[]` array (schema v13 + v14), auto-discovered
+   `plugins/*/plugin.nix` in the generated flake (with
+   `_module.args.pluginCfg` injection per the two-stage ABI),
+   manifest parser + validator. Dogfooded with a hand-rolled
+   tailscale plugin.
+2. ✅ **Configure integration** (done): manifest-driven Configure
+   section for plugin settings; per-plugin `config.json` edited
+   via the form, persisted on every keystroke. Dogfooded with
+   tailscale `auth_key`/`exit_node` and the lnbits backend wiring
+   (Phase 2.5 second dogfood plugin).
+3. ✅ **Dashboard integration** (done): manifest-driven tile on the
+   dashboard, command-source polling. Tailscale dogfood tile shows
+   ok/warn/error states. HTTP/SSE source still parked.
+4. ✅ **Actions integration** (done): manifest-declared actions
+   render alongside config fields in the plugin's Configure
+   screen; confirm overlay + streaming output overlay; lnbits
+   "Reset database" dogfood action.
+5. 🟡 **Update integration** (partial): `plugin refresh <id>` and
+   `plugin refresh --all` shipped as standalone CLI verbs. The
+   "Update entire system" flow does NOT yet auto-refresh plugins
+   per D11; the `auto_update` field on `PluginEntry` is modeled
+   but unread. See follow-up issues for the remaining work.
+6. ⏸ **Permissions** (deferred): enforcement of the permission
+   manifest via per-plugin users + wrapped CLIs + scoped API
+   tokens. D14 captures the threat model + Phase 6 plan; will
+   revisit when the ecosystem grows past vetted-only plugins.
+
+Open follow-ups + cross-cutting work track on the forgejo repo as
+issues, not in this document. See
+`forge.f44.fyi/f44/nixblitz_ng/issues`.
 
 ---
 

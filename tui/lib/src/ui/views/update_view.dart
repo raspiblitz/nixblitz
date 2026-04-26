@@ -125,46 +125,109 @@ class _UpdateViewState extends State<UpdateView> {
 
     try {
       final baseDirPath = context.read(baseDirProvider);
-      final systemService = context.read(systemServiceProvider);
-
       context.read(_updateModeProvider.notifier).state = _UpdateMode.running;
       context.read(_updateOutputProvider.notifier).state = [];
       context.read(_updateExitCodeProvider.notifier).state = null;
 
-      final (:output, :exitCode) = nixblitzOnly
-          ? systemService.updateInput(baseDirPath, 'nixblitz')
-          : systemService.updateAll(baseDirPath);
-
-      _outputSub = output.listen(
-        (line) {
-          LogService.info('[update] $line');
-          final current = context.read(_updateOutputProvider);
-          context.read(_updateOutputProvider.notifier).state = [...current, line];
-        },
-        onError: (e, st) {
-          LogService.error('Update output stream error', e, st);
-        },
-      );
-
-      exitCode.then((code) async {
-        LogService.info('update exited with code $code');
-        if (code == 0) {
-          final startup = context.read(startupBinaryProvider);
-          final updated = await systemService.hasNewerBinary(startup);
-          context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
-        }
-        context.read(_updateExitCodeProvider.notifier).state = code;
-        context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
-        _started = false;
-      }).catchError((e, st) {
-        LogService.error('Update failed', e, st);
-        context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
-        _started = false;
-      });
+      // Full system update: refresh auto_update plugins first per
+      // plugins.md D11 ("Update entire system" is an implicit
+      // plugin update for non-pinned plugins). NixBlitz-only stays
+      // narrow — touches no plugins.
+      if (nixblitzOnly) {
+        _startSystemUpdate(baseDirPath, nixblitzOnly: true);
+      } else {
+        _refreshPluginsThenUpdate(baseDirPath);
+      }
     } catch (e, st) {
       LogService.error('Failed to start update', e, st);
       _started = false;
     }
+  }
+
+  void _appendUpdateLine(String line) {
+    LogService.info('[update] $line');
+    final current = context.read(_updateOutputProvider);
+    context.read(_updateOutputProvider.notifier).state = [...current, line];
+  }
+
+  void _refreshPluginsThenUpdate(String baseDirPath) {
+    final pluginService = context.read(pluginServiceProvider);
+
+    _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
+    pluginService.refreshAll(includePinned: false).then((result) {
+      for (final p in result.refreshed) {
+        final pin = p.pinnedRev.length >= 7
+            ? p.pinnedRev.substring(0, 7)
+            : p.pinnedRev;
+        _appendUpdateLine('  refreshed ${p.id} → $pin');
+      }
+      for (final f in result.failures) {
+        _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
+      }
+      for (final s in result.skipped) {
+        _appendUpdateLine('  skipped (pinned): ${s.id}');
+      }
+      if (result.totalAttempted == 0 && result.skipped.isEmpty) {
+        _appendUpdateLine('  (no installed plugins)');
+      } else {
+        _appendUpdateLine(
+          '${result.refreshed.length} refreshed, '
+          '${result.failures.length} failed, '
+          '${result.skipped.length} skipped',
+        );
+      }
+      _startSystemUpdate(baseDirPath, nixblitzOnly: false);
+    }).catchError((e, st) {
+      // refreshAll() captures per-plugin failures internally and
+      // returns them as `failures`, so this catch only fires on a
+      // truly unexpected error (e.g. main config corrupt). Don't
+      // abort the system update on this — log + continue.
+      LogService.error('plugin refresh during update threw', e, st);
+      _appendUpdateLine('  ⚠ plugin refresh threw: $e (continuing)');
+      _startSystemUpdate(baseDirPath, nixblitzOnly: false);
+    });
+  }
+
+  void _startSystemUpdate(String baseDirPath, {required bool nixblitzOnly}) {
+    final systemService = context.read(systemServiceProvider);
+
+    _appendUpdateLine('');
+    _appendUpdateLine(
+      '> ${nixblitzOnly ? "nix flake update nixblitz" : "nix flake update"}'
+      ' + nixos-rebuild switch',
+    );
+    _appendUpdateLine('');
+
+    final (:output, :exitCode) = nixblitzOnly
+        ? systemService.updateInput(baseDirPath, 'nixblitz')
+        : systemService.updateAll(baseDirPath);
+
+    _outputSub = output.listen(
+      (line) {
+        LogService.info('[update] $line');
+        final current = context.read(_updateOutputProvider);
+        context.read(_updateOutputProvider.notifier).state = [...current, line];
+      },
+      onError: (e, st) {
+        LogService.error('Update output stream error', e, st);
+      },
+    );
+
+    exitCode.then((code) async {
+      LogService.info('update exited with code $code');
+      if (code == 0) {
+        final startup = context.read(startupBinaryProvider);
+        final updated = await systemService.hasNewerBinary(startup);
+        context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
+      }
+      context.read(_updateExitCodeProvider.notifier).state = code;
+      context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+      _started = false;
+    }).catchError((e, st) {
+      LogService.error('Update failed', e, st);
+      context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+      _started = false;
+    });
   }
 
   @override
