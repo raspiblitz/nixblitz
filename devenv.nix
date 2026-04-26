@@ -34,7 +34,7 @@ in {
     pkgs.mitmproxy
     pkgs.tailwindcss_4
     pkgs.tailwindcss-language-server
-    pkgs.forgejo-cli
+    pkgs-unstable.forgejo-cli
     pkgs.sshpass
   ];
 
