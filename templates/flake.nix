@@ -109,7 +109,19 @@
       system = "x86_64-linux";
       specialArgs = {inherit nixblitz;};
       modules = [
-        ./hosts/default.nix
+        ./hosts/installed.nix
+        self.nixosModules.default
+      ];
+    };
+
+    # Live-ISO config used by `disko-install --flake .#nixblitz-installer`.
+    # Identical to nixosConfigurations.nixblitz except for passwordless
+    # sudo. See docs/decisions/plugins.md (sudo posture).
+    nixosConfigurations.nixblitz-installer = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      specialArgs = {inherit nixblitz;};
+      modules = [
+        ./hosts/installer.nix
         self.nixosModules.default
       ];
     };
