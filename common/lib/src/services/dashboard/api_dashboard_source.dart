@@ -152,88 +152,141 @@ class ApiDashboardSource implements DashboardDataSource {
     }
   }
 
+  /// Events whose `data:` payload is JSON we know how to parse. Any
+  /// other event short-circuits before the `jsonDecode` — saves a
+  /// parse on the ignore-path AND, more importantly, stops blitz-api
+  /// events with bare-string payloads (`LN_INVOICE_STATUS` ships a
+  /// timestamp like `2026-04-24 14:12:39.672868`, not JSON) from
+  /// flooding the log with `FormatException` traces. See issue #1.
+  static const _kHandledEvents = <String>{
+    'btc_info',
+    'btc_mempool_status',
+    'btc_network_status',
+    'ln_info',
+    'wallet_balance',
+    'hardware_info',
+    'system_info',
+  };
+
   void _onEvent(dynamic ev) {
+    final String event;
+    final String rawData;
     try {
-      final event = ev.event as String;
-      final rawData = ev.data as String;
-      if (rawData.isEmpty) return;
+      event = ev.event as String;
+      rawData = ev.data as String;
+    } catch (e) {
+      LogService.warn('ApiDashboardSource: malformed SSE event object: $e');
+      return;
+    }
+
+    // Ignore events we don't surface (LN_INVOICE_STATUS,
+    // APP_MANAGE_MESSAGE, …). Doing this BEFORE the JSON decode
+    // means a non-JSON payload on an ignored event is silent — no
+    // log noise, no stack trace.
+    if (!_kHandledEvents.contains(event)) return;
+    if (rawData.isEmpty) return;
+
+    final Map<String, dynamic> m;
+    try {
       final json = jsonDecode(rawData);
-      if (json is! Map) return;
-      final m = json.cast<String, dynamic>();
+      if (json is! Map) {
+        LogService.warn(
+          'ApiDashboardSource: $event payload is not a JSON object '
+          '(got ${json.runtimeType}); skipping',
+        );
+        return;
+      }
+      m = json.cast<String, dynamic>();
+    } on FormatException catch (e) {
+      // Handled events that *should* be JSON occasionally aren't
+      // (e.g. blitz-api transient stream framing glitches). Log a
+      // single warn line — no stack trace, no escalating volume.
+      final preview = rawData.length > 80
+          ? '${rawData.substring(0, 80)}…'
+          : rawData;
+      LogService.warn(
+        'ApiDashboardSource: $event payload not JSON (${e.message}); '
+        'data preview: $preview',
+      );
+      return;
+    }
 
-      switch (event) {
-        case 'btc_info':
-          _btc = BtcSnapshot.fromBtcInfo(m, prev: _btc);
-          _btcCtrl.add(_btc);
-        case 'btc_mempool_status':
-          final prev = _btc;
-          if (prev != null) {
-            _btc = prev.copyWith(
-              mempoolTxs: (m['size'] as num?)?.toInt() ?? prev.mempoolTxs,
-              mempoolBytes: (m['bytes'] as num?)?.toInt() ?? prev.mempoolBytes,
-            );
-            _btcCtrl.add(_btc);
-          }
-        case 'btc_network_status':
-          // connections_in/out in case btc_info hasn't landed yet.
-          final peers = ((m['connections_in'] as num?)?.toInt() ?? 0) +
-              ((m['connections_out'] as num?)?.toInt() ?? 0);
-          _btc = (_btc ?? BtcSnapshot.fromBtcInfo(const {}))
-              .copyWith(peers: peers);
-          _btcCtrl.add(_btc);
-        case 'ln_info':
-          _ln = LnSnapshot.fromLnInfo(m, prev: _ln);
-          _lnCtrl.add(_ln);
-        case 'wallet_balance':
-          final onChain = (m['onchain_confirmed_balance'] as num?)?.toInt() ??
-              _ln?.onChainSats ??
-              0;
-          // API reports channel balances in msat.
-          final localMsat =
-              (m['channel_local_balance'] as num?)?.toInt() ?? 0;
-          final channelSats = localMsat ~/ 1000;
-          _ln = (_ln ?? LnSnapshot.fromLnInfo(const {}))
-              .copyWith(onChainSats: onChain, channelSats: channelSats);
-          _lnCtrl.add(_ln);
-        case 'hardware_info':
-          _hardware = HardwareSnapshot.fromApi(m);
-          _hardwareCtrl.add(_hardware);
+    try {
+      _dispatchEvent(event, m);
+    } catch (e, st) {
+      // Real bug in our own dispatch code (typo, missing field
+      // assumption, etc.). Keep the full trace here.
+      LogService.error('ApiDashboardSource dispatch failure for $event', e, st);
+    }
+  }
 
-          // Uptime derives from boot_time_timestamp (unix seconds).
-          // Cache the boot time so the service poll timer can tick
-          // uptime forward even when hardware_info isn't re-emitted.
-          final bootTs = (m['boot_time_timestamp'] as num?)?.toDouble();
-          if (bootTs != null) {
-            _bootTime = DateTime.fromMillisecondsSinceEpoch(
-              (bootTs * 1000).toInt(),
-            );
-            final prev = _system;
-            if (prev != null) {
-              _system = prev.copyWith(
-                uptime: DateTime.now().difference(_bootTime!),
-              );
-              _systemCtrl.add(_system);
-            }
-          }
-        case 'system_info':
+  void _dispatchEvent(String event, Map<String, dynamic> m) {
+    switch (event) {
+      case 'btc_info':
+        _btc = BtcSnapshot.fromBtcInfo(m, prev: _btc);
+        _btcCtrl.add(_btc);
+      case 'btc_mempool_status':
+        final prev = _btc;
+        if (prev != null) {
+          _btc = prev.copyWith(
+            mempoolTxs: (m['size'] as num?)?.toInt() ?? prev.mempoolTxs,
+            mempoolBytes: (m['bytes'] as num?)?.toInt() ?? prev.mempoolBytes,
+          );
+          _btcCtrl.add(_btc);
+        }
+      case 'btc_network_status':
+        // connections_in/out in case btc_info hasn't landed yet.
+        final peers = ((m['connections_in'] as num?)?.toInt() ?? 0) +
+            ((m['connections_out'] as num?)?.toInt() ?? 0);
+        _btc = (_btc ?? BtcSnapshot.fromBtcInfo(const {}))
+            .copyWith(peers: peers);
+        _btcCtrl.add(_btc);
+      case 'ln_info':
+        _ln = LnSnapshot.fromLnInfo(m, prev: _ln);
+        _lnCtrl.add(_ln);
+      case 'wallet_balance':
+        final onChain = (m['onchain_confirmed_balance'] as num?)?.toInt() ??
+            _ln?.onChainSats ??
+            0;
+        // API reports channel balances in msat.
+        final localMsat =
+            (m['channel_local_balance'] as num?)?.toInt() ?? 0;
+        final channelSats = localMsat ~/ 1000;
+        _ln = (_ln ?? LnSnapshot.fromLnInfo(const {}))
+            .copyWith(onChainSats: onChain, channelSats: channelSats);
+        _lnCtrl.add(_ln);
+      case 'hardware_info':
+        _hardware = HardwareSnapshot.fromApi(m);
+        _hardwareCtrl.add(_hardware);
+
+        // Uptime derives from boot_time_timestamp (unix seconds).
+        // Cache the boot time so the service poll timer can tick
+        // uptime forward even when hardware_info isn't re-emitted.
+        final bootTs = (m['boot_time_timestamp'] as num?)?.toDouble();
+        if (bootTs != null) {
+          _bootTime = DateTime.fromMillisecondsSinceEpoch(
+            (bootTs * 1000).toInt(),
+          );
           final prev = _system;
           if (prev != null) {
-            // Don't overwrite platform from BAPI_PLATFORM
-            // (native_python / raspiblitz) — the seed carries the
-            // nixblitz platform (vm / x86 / pi4) which is what the
-            // user expects to see.
             _system = prev.copyWith(
-              network: (m['chain'] as String?) ?? prev.network,
+              uptime: DateTime.now().difference(_bootTime!),
             );
             _systemCtrl.add(_system);
           }
-        default:
-          // Ignored event — APP_MANAGE_MESSAGE, LN_INVOICE_STATUS,
-          // etc. are not surfaced on the dashboard.
-          break;
-      }
-    } catch (e, st) {
-      LogService.error('ApiDashboardSource parse failure', e, st);
+        }
+      case 'system_info':
+        final prev = _system;
+        if (prev != null) {
+          // Don't overwrite platform from BAPI_PLATFORM
+          // (native_python / raspiblitz) — the seed carries the
+          // nixblitz platform (vm / x86 / pi4) which is what the
+          // user expects to see.
+          _system = prev.copyWith(
+            network: (m['chain'] as String?) ?? prev.network,
+          );
+          _systemCtrl.add(_system);
+        }
     }
   }
 }
