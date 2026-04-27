@@ -4,6 +4,7 @@ import 'package:args/args.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:common/common.dart';
 import 'package:tui/src/build_info.dart';
+import 'package:tui/src/cli/check_cli.dart';
 import 'package:tui/src/cli/plugin_cli.dart';
 import 'package:tui/src/ui/app.dart';
 
@@ -16,6 +17,12 @@ void main(List<String> arguments) async {
       abbr: 'v',
       negatable: false,
       help: 'Print version information',
+    )
+    ..addCommand(
+      'check',
+      ArgParser()
+        ..addCommand('light', ArgParser())
+        ..addCommand('heavy', ArgParser()),
     )
     ..addCommand(
       'plugin',
@@ -64,6 +71,10 @@ void main(List<String> arguments) async {
     // operations that print a result.
     if (results.command?.name == 'plugin') {
       final code = await runPluginCli(results.command!, baseDir);
+      exit(code);
+    }
+    if (results.command?.name == 'check') {
+      final code = await runCheckCli(results.command!, baseDir);
       exit(code);
     }
 

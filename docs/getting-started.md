@@ -220,6 +220,16 @@ the diff. The Apply view shows the unified `git diff` against
 
 That's the loop: edit → diff → apply.
 
+A second banner may also appear above the tiles after a few hours:
+**`updates available: nixpkgs, … — checked Xh ago`**. This is the
+periodic update-check service — a daily lightweight cron-style
+timer hits each flake input's upstream HEAD, and a weekly heavy
+timer additionally evaluates the new system + runs `nvd diff` for
+a per-package version delta. Both write to
+`/var/lib/nixblitz-tui/update-status.json`; the dashboard reads it
+each render. Run **`nixblitz check light`** or **`nixblitz check
+heavy`** at any shell to trigger them on demand.
+
 ## Access the running node
 
 From your host:

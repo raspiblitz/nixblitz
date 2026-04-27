@@ -164,9 +164,34 @@ just gen-locks             # regenerate Nix-side workspace locks
 | `~/nixblitz/plugins/<id>/`           | Each installed plugin's tree (manifest + plugin.nix + config.json) |
 | `~/nixblitz.log`                     | The TUI's own log (synchronous file append; no IOSink)  |
 | `/run/current-system/sw/bin/nixblitz`| The system-installed TUI binary (current generation)    |
+| `/var/lib/nixblitz-tui/update-status.json` | Periodic update-checker output; backs the dashboard's "updates available" banner |
 
 The whole `~/nixblitz/` tree is a git repo. Apply commits there;
 old generations are recoverable via `git revert`.
+
+## Manual update checks
+
+Two systemd timers seed the dashboard banner at daily / weekly
+cadence (see [architecture.md](architecture.md) → "Periodic update
+checks"). To trigger them on demand from a shell:
+
+```bash
+nixblitz check light       # ~kB upstream-HEAD via GitHub/Forgejo APIs
+nixblitz check heavy       # ~125MB nix flake update + nvd diff in tmpdir
+```
+
+For dev runs on a non-NixOS host where `/var/lib/nixblitz-tui/` is
+unwritable:
+
+```bash
+NIXBLITZ_UPDATE_STATUS_PATH=/tmp/nbz-status.json nixblitz check light
+cat /tmp/nbz-status.json | jq
+```
+
+The corresponding systemd units (on the installed system) are
+`nixblitz-check-{light,heavy}.{service,timer}` and can be
+inspected the usual way: `systemctl status`, `systemctl start`,
+`journalctl -u …`.
 
 ## Working with `jj`
 

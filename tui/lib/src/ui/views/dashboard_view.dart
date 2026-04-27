@@ -58,6 +58,58 @@ class _DashboardViewState extends State<DashboardView> {
     ];
   }
 
+  /// Reads `/var/lib/nixblitz-tui/update-status.json` (populated by
+  /// the daily / weekly systemd timers) and renders a banner when
+  /// either check found something to surface. No banner when the
+  /// file is missing (fresh install), no inputs ahead, or all the
+  /// timers have run cleanly with nothing to report.
+  List<Component> _buildUpdateAvailableBanner() {
+    final status = readUpdateStatus();
+    final lines = <Component>[];
+
+    final light = status.lightweight;
+    if (light != null && light.ok && light.inputsAhead.isNotEmpty) {
+      final n = light.inputsAhead.length;
+      final names = light.inputsAhead.map((e) => e.name).take(3).join(', ');
+      final more = n > 3 ? ' (+${n - 3} more)' : '';
+      final ago = _humanizeAge(light.checkedAt);
+      lines.add(Container(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text(
+          'updates available: $names$more — '
+          'checked $ago — press [u] Update',
+          style: const TextStyle(color: Color.fromRGB(120, 200, 220)),
+        ),
+      ));
+    }
+
+    final heavy = status.heavy;
+    if (heavy != null && heavy.ok &&
+        !heavy.noChanges && heavy.diffText.trim().isNotEmpty) {
+      final firstLine = heavy.diffText
+          .split('\n')
+          .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
+      final ago = _humanizeAge(heavy.checkedAt);
+      lines.add(Container(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text(
+          'preview ($ago): $firstLine',
+          style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+        ),
+      ));
+    }
+
+    return lines;
+  }
+
+  static String _humanizeAge(DateTime t) {
+    final diff = DateTime.now().toUtc().difference(t.toUtc());
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
   bool _handleScrollKey(KeyboardEvent event) {
     final k = event.logicalKey;
     if (k == LogicalKey.arrowUp || k == LogicalKey.keyK) {
@@ -135,6 +187,7 @@ class _DashboardViewState extends State<DashboardView> {
                   style: const TextStyle(color: Color.fromRGB(247, 147, 26)),
                 ),
               ),
+            ..._buildUpdateAvailableBanner(),
             const SizedBox(height: 1),
             Expanded(
               child: Container(

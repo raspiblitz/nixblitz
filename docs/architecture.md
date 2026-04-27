@@ -70,7 +70,7 @@ nixblitz/
 │   ├── flake.nix            # The flake the TUI installs onto disk
 │   ├── hosts/installer.nix  # Live-ISO host config
 │   ├── hosts/installed.nix  # Post-install host config
-│   ├── modules/system/      # base, disko, operator, test-lnd
+│   ├── modules/system/      # base, disko, operator, test-lnd, update-check
 │   └── modules/apps/        # bitcoind, lnd, cln, blitz-api, blitz-web
 ├── scripts/                 # Codegen helpers
 │   └── gen_embedded_templates.dart
@@ -195,6 +195,27 @@ The full design is in `docs/decisions/plugins.md` D18. Live ISO
 keeps `wheelNeedsPassword = false` via a separate host module
 (`templates/hosts/installer.nix`), since install runs before any
 admin password could exist.
+
+## Periodic update checks
+
+Two systemd timers run on the installed system to surface "X
+updates available" on the dashboard without the operator having to
+trigger an Update flow:
+
+| Timer                            | Cadence | What it does                                                              |
+| -------------------------------- | ------- | ------------------------------------------------------------------------- |
+| `nixblitz-check-light.timer`     | daily   | Calls each flake input's upstream API (GitHub / Forgejo) for the branch HEAD; compares to our locked rev. ~5 HTTP calls, ~kB transfer. |
+| `nixblitz-check-heavy.timer`     | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix eval` + `nvd diff` there. ~125 MB tarball fetch + 30-60s eval. |
+
+Both run as `User=admin` and write to
+`/var/lib/nixblitz-tui/update-status.json` (created with
+`admin:users` ownership by `systemd.tmpfiles`). The TUI dashboard
+reads this file on every render and shows a banner above the tile
+grid; absence of the file (fresh install) means no banner.
+
+Module: `templates/modules/system/update-check.nix`. Service:
+`common/lib/src/services/update_check_service.dart`. CLI invocations
+the timer wraps: `nixblitz check light` and `nixblitz check heavy`.
 
 ## Plugin model
 

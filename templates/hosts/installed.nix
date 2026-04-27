@@ -22,6 +22,12 @@ in {
 
   features.system.base.enable = true;
 
+  # Two background timers (daily light + weekly heavy) populate
+  # ~/.local/state/nixblitz/update-status.json so the dashboard can
+  # surface "X updates available" without the user kicking off a
+  # rebuild. See templates/modules/system/update-check.nix.
+  features.system.updateCheck.enable = initialized;
+
   # Disk layout — enable the appropriate disko config for the platform
   features.system.disko-vm.enable = sys.platform == "vm" || sys.platform == "x86";
 
