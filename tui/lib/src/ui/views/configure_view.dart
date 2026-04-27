@@ -103,10 +103,12 @@ class ConfigureView extends StatelessComponent {
           'plugins',
         ];
         final currentService = services[serviceIndex];
+        final pluginService = context.read(pluginServiceProvider);
         final options = _buildOptions(
           config,
           currentService,
           selectedOption,
+          pluginService,
         );
 
         return Focusable(
@@ -359,6 +361,7 @@ class ConfigureView extends StatelessComponent {
     NixblitzConfig config,
     String service,
     int selectedIndex,
+    PluginService pluginService,
   ) {
     switch (service) {
       case 'system':
@@ -459,21 +462,102 @@ class ConfigureView extends StatelessComponent {
             ),
           ];
         }
-        return List.generate(active.length, (i) {
-          final p = active[i];
-          final focused = selectedIndex == i;
-          final prefix = focused ? '> ' : '  ';
-          final color = focused
-              ? const Color.fromRGB(247, 147, 26)
-              : const Color.fromRGB(200, 200, 200);
-          final pin = p.pinnedRev.length >= 7
+
+        // Resolve display names + auto-update flags upfront so we
+        // can compute aligned column widths in one pass.
+        final rows = active.map((p) {
+          // Prefer the human-readable manifest name; fall back to
+          // the dirName if the manifest can't be read (e.g. a
+          // half-installed plugin from a failed refresh).
+          String name = p.dirName;
+          try {
+            name = pluginService.readManifest(p.dirName).name;
+          } catch (e) {
+            LogService.warn(
+              'configure: manifest read failed for ${p.dirName}: $e',
+            );
+          }
+          final rev = p.pinnedRev.length >= 7
               ? p.pinnedRev.substring(0, 7)
               : p.pinnedRev;
+          final updated = p.lastUpdatedAt.toIso8601String().substring(0, 10);
+          return (
+            name: name,
+            branch: p.branch,
+            rev: rev,
+            updated: updated,
+            autoUpdate: p.autoUpdate ? 'yes' : 'no',
+          );
+        }).toList();
+
+        const headers = (
+          name: 'Plugin',
+          branch: 'Branch',
+          rev: 'Rev',
+          updated: 'Updated',
+          autoUpdate: 'Auto-update',
+        );
+
+        int colWidth(String header, String Function(dynamic r) pick) {
+          var max = header.length;
+          for (final r in rows) {
+            final v = pick(r);
+            if (v.length > max) max = v.length;
+          }
+          return max;
+        }
+
+        final nameW = colWidth(headers.name, (r) => r.name);
+        final branchW = colWidth(headers.branch, (r) => r.branch);
+        final revW = colWidth(headers.rev, (r) => r.rev);
+        final updatedW = colWidth(headers.updated, (r) => r.updated);
+        const dim = Color.fromRGB(120, 120, 140);
+        const focusedColor = Color.fromRGB(247, 147, 26);
+        const normal = Color.fromRGB(200, 200, 200);
+
+        String formatLine(
+          String prefix,
+          String name,
+          String branch,
+          String rev,
+          String updated,
+          String autoUpdate,
+        ) =>
+            '$prefix${name.padRight(nameW)}  '
+            '${branch.padRight(branchW)}  '
+            '${rev.padRight(revW)}  '
+            '${updated.padRight(updatedW)}  '
+            '$autoUpdate';
+
+        final headerLine = Text(
+          formatLine(
+            '  ',
+            headers.name,
+            headers.branch,
+            headers.rev,
+            headers.updated,
+            headers.autoUpdate,
+          ),
+          style: const TextStyle(color: dim),
+        );
+
+        final dataLines = List<Component>.generate(active.length, (i) {
+          final r = rows[i];
+          final focused = selectedIndex == i;
           return Text(
-            '$prefix${p.dirName}  [$pin] — ${p.id}',
-            style: TextStyle(color: color),
+            formatLine(
+              focused ? '> ' : '  ',
+              r.name,
+              r.branch,
+              r.rev,
+              r.updated,
+              r.autoUpdate,
+            ),
+            style: TextStyle(color: focused ? focusedColor : normal),
           );
         });
+
+        return [headerLine, ...dataLines];
       default:
         return [const Text('Unknown service')];
     }
