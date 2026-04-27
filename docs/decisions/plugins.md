@@ -7,6 +7,10 @@ rationale. Update this doc when a decision changes; don't rewrite history
 Target audience: anyone revisiting "why is the plugin system shaped like
 this?" months from now.
 
+> Looking to *write* a plugin rather than understand the design?
+> See [`../plugin-authoring.md`](../plugin-authoring.md) for the
+> manifest reference, the two-stage ABI, and worked examples.
+
 ---
 
 ## Context
