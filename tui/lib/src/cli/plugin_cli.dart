@@ -58,39 +58,132 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
   final yes = args['yes'] as bool;
   final insecure = args['insecure'] as bool;
 
-  // Pre-consent: show the manifest permissions block the plugin
-  // will request. We do this by doing a dry run that parses but
-  // doesn't land the plugin — cheapest option in Phase 1 is just
-  // to install and trust the user, prompting before the clone.
-  if (!yes) {
-    stdout.writeln('About to install plugin from: $url');
-    stdout.writeln('Branch: $branch');
-    if (subdir != null) stdout.writeln('Subdir: $subdir');
-    if (insecure) stdout.writeln('  (via --insecure)');
-    stdout.write('Proceed? [y/N]: ');
-    final line = stdin.readLineSync() ?? '';
-    if (line.trim().toLowerCase() != 'y' &&
-        line.trim().toLowerCase() != 'yes') {
-      stdout.writeln('aborted');
-      return 1;
-    }
+  // Consent flow: run the clone + manifest fetch first so the
+  // prompt has real metadata (name, description, pinned rev) to
+  // show. The PluginService callback hooks in at the right point
+  // — after parse, before any state lands on disk. `--yes`
+  // bypasses by passing null.
+  try {
+    final entry = await svc.install(
+      url,
+      branch: branch,
+      allowInsecure: insecure,
+      subdir: subdir,
+      confirm: yes
+          ? null
+          : (preview) => _askConsent(
+                preview,
+                requestedSubdir: subdir,
+                insecure: insecure,
+              ),
+    );
+    stdout.writeln('installed ${entry.id}');
+    stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
+    stdout.writeln('  dir:    plugins/${entry.dirName}');
+    stdout.writeln('  branch: ${entry.branch}');
+    stdout.writeln();
+    stdout.writeln(
+      'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+    );
+    return 0;
+  } on PluginInstallCancelled {
+    stdout.writeln('aborted');
+    return 1;
   }
+}
 
-  final entry = await svc.install(
-    url,
-    branch: branch,
-    allowInsecure: insecure,
-    subdir: subdir,
-  );
-  stdout.writeln('installed ${entry.id}');
-  stdout.writeln('  pin:   ${_shortRev(entry.pinnedRev)}');
-  stdout.writeln('  dir:   plugins/${entry.dirName}');
-  stdout.writeln('  branch: ${entry.branch}');
+/// Honest install consent prompt. Shows manifest metadata + a stark
+/// warning that installing grants the plugin author root. **Does
+/// not** display the manifest's `permissions` block — that field is
+/// author-supplied, unenforced, and would invite a false sense of
+/// security if surfaced as a "permissions requested" list.
+///
+/// Returns true on `y` / `yes`, false on anything else (including
+/// EOF / Ctrl-D).
+Future<bool> _askConsent(
+  PluginInstallPreview p, {
+  String? requestedSubdir,
+  required bool insecure,
+}) async {
+  stdout.writeln();
+  stdout.writeln('━━━ plugin: ${p.name} ━━━');
+  if (p.description.isNotEmpty) {
+    stdout.writeln(p.description);
+    stdout.writeln();
+  }
+  stdout.writeln('source:      ${p.url}');
+  if (requestedSubdir != null) {
+    stdout.writeln('subdir:      $requestedSubdir');
+  }
+  stdout.writeln('branch:      ${p.branch}');
+  stdout.writeln('pinned rev:  ${p.pinnedRev}');
+  stdout.writeln('schema:      v${p.schemaVersion}');
+  // Signature line — Approach A. The fingerprint is what gets
+  // pinned on the PluginEntry; subsequent refreshes that present
+  // a different fingerprint are escalated to re-consent.
+  stdout.writeln('signature:   ${_describeSignature(p.signature)}');
+  if (insecure) {
+    stdout.writeln('insecure:    yes (--insecure given for non-https URL)');
+  }
   stdout.writeln();
   stdout.writeln(
-    'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+    'WARNING: installing this plugin grants the plugin author root '
+    'on this node.',
   );
-  return 0;
+  stdout.writeln(
+    'plugin.nix is arbitrary Nix code that runs at nixos-rebuild '
+    'time as root and',
+  );
+  stdout.writeln(
+    'can declare any systemd service, activation script, or external '
+    'dependency.',
+  );
+  stdout.writeln(
+    'This prompt is consent to run that code, not a sandbox. If you '
+    "don't trust",
+  );
+  stdout.writeln(
+    'the source + commit above, read plugin.nix at the upstream URL '
+    'before answering yes.',
+  );
+  stdout.writeln();
+  stdout.write('Proceed? [y/N]: ');
+  final line = stdin.readLineSync() ?? '';
+  final answer = line.trim().toLowerCase();
+  return answer == 'y' || answer == 'yes';
+}
+
+/// Render a [GitSignature] as a single-line string for the consent
+/// prompt. Three relevant flavours, plus a generic fall-through:
+///
+/// - `signed by SSH key SHA256:abc…   (alice@example.com)` — fully
+///   verified against the operator's keyring.
+/// - `signed by SSH key SHA256:abc… [unverified key]` — good
+///   signature, key not in operator's `allowed_signers`. Still
+///   pinnable for TOFU.
+/// - `(unsigned)` — no signature on the commit. The install can
+///   still proceed; subsequent refreshes won't be able to detect
+///   key changes.
+String _describeSignature(GitSignature s) {
+  if (!s.isPresent) return '(unsigned)';
+  final fp = s.fingerprint.isEmpty ? '(no fingerprint)' : s.fingerprint;
+  final identity = s.signer.isEmpty ? '' : '   (${s.signer})';
+  switch (s.status) {
+    case 'G':
+      return 'signed by $fp$identity';
+    case 'U':
+      return 'signed by $fp$identity [unverified key]';
+    case 'X':
+      return 'signed by $fp$identity [signature expired]';
+    case 'Y':
+      return 'signed by $fp$identity [signing key expired]';
+    case 'R':
+      return 'signed by $fp$identity [signing key revoked]';
+    case 'B':
+      return 'BAD signature ($fp)';
+    default:
+      return 'signed (status=${s.status}, fp=$fp)';
+  }
 }
 
 Future<int> _runRemove(PluginService svc, ArgResults args) async {
@@ -172,15 +265,42 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
     return 2;
   }
   final id = rest.first;
-  final entry = await svc.refresh(id, allowInsecure: insecure);
-  stdout.writeln('refreshed ${entry.id}');
-  stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
-  stdout.writeln('  branch: ${entry.branch}');
-  stdout.writeln();
-  stdout.writeln(
-    'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+  try {
+    final entry = await svc.refresh(id, allowInsecure: insecure);
+    stdout.writeln('refreshed ${entry.id}');
+    stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
+    stdout.writeln('  branch: ${entry.branch}');
+    stdout.writeln();
+    stdout.writeln(
+      'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+    );
+    return 0;
+  } on PluginSignatureMismatch catch (e) {
+    _printSignatureMismatch(e);
+    return 1;
+  }
+}
+
+/// Render a [PluginSignatureMismatch] as a clear refusal message
+/// with a recovery hint. Refresh is intentionally hard-fail on
+/// mismatch so the operator has to explicitly re-consent before
+/// the new key is accepted.
+void _printSignatureMismatch(PluginSignatureMismatch e) {
+  stderr.writeln('REFUSED: signing key changed for ${e.pluginId}');
+  stderr.writeln('  pinned key:  ${e.expected}');
+  stderr.writeln('  new key:     ${e.actual ?? "(unsigned)"}');
+  stderr.writeln();
+  stderr.writeln(
+    'A bare `plugin refresh` will keep failing until you re-consent.',
   );
-  return 0;
+  stderr.writeln(
+    'If the new key is legitimate (publisher rotated, you trust both):',
+  );
+  stderr.writeln('  nixblitz plugin remove ${e.pluginId}');
+  stderr.writeln('  nixblitz plugin add    ${e.pluginId}');
+  stderr.writeln(
+    'and re-affirm the new fingerprint at the consent prompt.',
+  );
 }
 
 Future<int> _runPin(

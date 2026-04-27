@@ -36,13 +36,13 @@ walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
 ## Supported services
 
-| Service     | Description                                                  |
-| ----------- | ------------------------------------------------------------ |
-| bitcoind    | Bitcoin Core (mainnet/regtest, pruned or full)               |
-| LND         | Lightning Network Daemon                                     |
-| CLN         | Core Lightning                                               |
-| Blitz API   | RaspiBlitz API                                               |
-| Blitz Web   | RaspiBlitz Web UI                                            |
+| Service     | Description                                                                            |
+| ----------- | -------------------------------------------------------------------------------------- |
+| bitcoind    | Bitcoin Core (mainnet/regtest, pruned or full)                                         |
+| LND         | Lightning Network Daemon                                                               |
+| CLN         | Core Lightning                                                                         |
+| Blitz API   | RaspiBlitz API                                                                         |
+| Blitz Web   | RaspiBlitz Web UI                                                                      |
 | **Plugins** | Tailscale, LNBits — extend with your own ([authoring guide](docs/plugin-authoring.md)) |
 
 ## Supported platforms

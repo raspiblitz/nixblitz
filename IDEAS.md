@@ -1,3 +1,9 @@
+Okay, we have one problem with plugin monorepos. When we've added the electrs
+plugin and thus the HEAD of the repo changed it means that the TUI thinks
+that all the plugins are changed and have a new version. This not necessarily
+true though. But it's also not a huge problem, it just is a bit inconsistent in
+the TUI as it basically says a plugin was updated but it's not really.
+
 # Ideas & Future Features
 
 Parking lot for ideas we've discussed but don't want to implement right now.
@@ -23,7 +29,7 @@ Implement `CliDashboardSource implements DashboardDataSource` in
 - **Lightning snapshot** — poll every ~5 s, branch on which is enabled:
   - LND: `lncli getinfo` + `walletbalance` + `channelbalance`
   - CLN: `lightning-cli getinfo` + `listfunds` (aggregate onchain sats
-    + sum of channel local balances)
+    - sum of channel local balances)
 - **Hardware snapshot** — poll every ~5 s:
   - `/proc/loadavg` or `/proc/stat` delta for cpu%
   - `/proc/meminfo` (`MemTotal`, `MemAvailable`) for memory
@@ -89,6 +95,7 @@ any non-main chain (they must live inside the matching `[test]` /
 `[signet]` section).
 
 **Path forward:**
+
 - Fork nix-bitcoin to `forge.f44.fyi/f44/nix-bitcoin` and patch
   `modules/bitcoind.nix` so it emits a section header matching the
   active chain (generalize the existing `regtest=1\n[regtest]` block)
@@ -110,6 +117,7 @@ offer to convert the system.
 turn into a Bitcoin/Lightning node without reinstalling.
 
 **Sketch:**
+
 - Detect: not on live ISO + no `~/nixblitz/` + running NixOS
 - Prompt: "Convert this system to NixBlitz?"
 - On confirm:
@@ -165,6 +173,7 @@ tmpfs can fill up on devices with ≤8GB RAM, causing "No space left
 on device" before disko-install finishes.
 
 Possible fixes:
+
 - After disko partitions the disk but before the large build starts,
   mkswap a small partition and `swapon` it so the tmpfs can overflow
 - Or: add a "zram" swap device sized from available RAM

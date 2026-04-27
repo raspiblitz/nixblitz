@@ -180,11 +180,29 @@ class _DashboardViewState extends State<DashboardView> {
             if (pendingCount > 0)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text(
-                  '! $pendingCount pending '
-                  '${pendingCount == 1 ? "change" : "changes"} '
-                  '— press [a] to review',
-                  style: const TextStyle(color: Color.fromRGB(247, 147, 26)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '! $pendingCount pending '
+                      '${pendingCount == 1 ? "change" : "changes"} '
+                      '— press [a] to review',
+                      style: const TextStyle(
+                        color: Color.fromRGB(247, 147, 26),
+                      ),
+                    ),
+                    // Identity-continuity caveat (Approach A,
+                    // §5.4 Layer 1 of plugin-trust-models.md): the
+                    // dirty tree could be the operator's own edits
+                    // OR an out-of-band tamper. The TUI can't tell
+                    // from the diff alone; flag the dual reading
+                    // so the operator reviews unfamiliar entries.
+                    const Text(
+                      '  if you don\'t recognise these, an external '
+                      'process may have modified the tracked tree',
+                      style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+                    ),
+                  ],
                 ),
               ),
             ..._buildUpdateAvailableBanner(),

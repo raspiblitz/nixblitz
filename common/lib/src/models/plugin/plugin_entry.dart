@@ -45,6 +45,18 @@ class PluginEntry {
   /// [pinnedRev] (D11). Flipped off by `plugin pin <id>`.
   final bool autoUpdate;
 
+  /// Fingerprint of the SSH or OpenPGP key that signed the commit
+  /// at [pinnedRev], if any. Captured at install time when the
+  /// rev carried a signature; null when the operator consented to
+  /// an unsigned commit (or this entry pre-dates Approach A).
+  ///
+  /// On refresh, a non-null pinned fingerprint that doesn't match
+  /// the new rev's signature triggers `PluginSignatureMismatch`
+  /// — the operator must explicitly re-consent before the
+  /// publisher key change is accepted. See
+  /// `docs/decisions/plugin-trust-models.md` Approach A.
+  final String? signatureFingerprint;
+
   const PluginEntry({
     required this.id,
     required this.url,
@@ -56,6 +68,7 @@ class PluginEntry {
     required this.lastUpdatedAt,
     this.enabled = true,
     this.autoUpdate = true,
+    this.signatureFingerprint,
   });
 
   bool get isTombstone => uninstalledAt != null;
@@ -73,6 +86,7 @@ class PluginEntry {
     lastUpdatedAt: DateTime.parse(json['last_updated_at'] as String),
     enabled: json['enabled'] as bool? ?? true,
     autoUpdate: json['auto_update'] as bool? ?? true,
+    signatureFingerprint: json['signature_fingerprint'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -87,6 +101,8 @@ class PluginEntry {
     'last_updated_at': lastUpdatedAt.toIso8601String(),
     'enabled': enabled,
     'auto_update': autoUpdate,
+    if (signatureFingerprint != null)
+      'signature_fingerprint': signatureFingerprint,
   };
 
   PluginEntry copyWith({
@@ -101,6 +117,8 @@ class PluginEntry {
     DateTime? lastUpdatedAt,
     bool? enabled,
     bool? autoUpdate,
+    String? signatureFingerprint,
+    bool clearSignatureFingerprint = false,
   }) => PluginEntry(
     id: id ?? this.id,
     url: url ?? this.url,
@@ -113,6 +131,9 @@ class PluginEntry {
     lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
     enabled: enabled ?? this.enabled,
     autoUpdate: autoUpdate ?? this.autoUpdate,
+    signatureFingerprint: clearSignatureFingerprint
+        ? null
+        : (signatureFingerprint ?? this.signatureFingerprint),
   );
 
   @override
@@ -127,7 +148,8 @@ class PluginEntry {
       other.uninstalledAt == uninstalledAt &&
       other.lastUpdatedAt == lastUpdatedAt &&
       other.enabled == enabled &&
-      other.autoUpdate == autoUpdate;
+      other.autoUpdate == autoUpdate &&
+      other.signatureFingerprint == signatureFingerprint;
 
   @override
   int get hashCode => Object.hash(
@@ -141,5 +163,6 @@ class PluginEntry {
     lastUpdatedAt,
     enabled,
     autoUpdate,
+    signatureFingerprint,
   );
 }

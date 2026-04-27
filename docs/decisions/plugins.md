@@ -336,7 +336,18 @@ supply-chain concern or a wider audience.
 
 ---
 
-## D14 — Permissions: declarative-informational now, enforcement later
+## D14 — Trust model: install = root grant; consent surfaces metadata, not a sandbox
+
+### Updated framing (2026-04-27)
+
+Earlier drafts of this entry described `manifest.permissions` as
+"declarative now, enforced later (Phase 6)". That framing was
+wrong: it implied the consent prompt was a step toward sandboxing.
+It isn't, and the planned Phase 6 enforcement *also* wouldn't
+close the hole — see "Why Phase 6 doesn't help" below. This entry
+now documents the actual trust model: **install = root grant,
+consent surfaces metadata + a stark warning, and the only real
+defense is reading the source you're about to install.**
 
 ### Threat model (explicit)
 
@@ -370,94 +381,85 @@ Concrete exploit shape:
 ```
 
 Rebuild succeeds, service runs, secret leaves. The manifest
-`permissions` block **does not prevent this**; it's informational.
+`permissions` block **does not prevent this**; it's metadata the
+plugin author wrote themselves, with no runtime enforcement and
+no ability to constrain `plugin.nix`'s execution.
 
-This is a known, accepted risk for the Phase 1-5 technical-audience
-MVP, *not* an oversight. Mitigations rely on:
+### Consent prompt surfaces metadata, NOT permissions
 
-- **Vetted-only default**: users install from
+`nixblitz plugin add <url>` clones the source, parses
+`manifest.json`, and shows the operator:
+
+- `name`, `description` (what the plugin claims to be)
+- `source` URL + `branch` + 40-char `pinnedRev` (where the code
+  comes from + the exact commit they're consenting to)
+- `schema` version (so the operator knows which loader applies)
+- An explicit warning that confirming grants the author root, that
+  `plugin.nix` runs at rebuild time as root, and that the prompt
+  is consent to run that code rather than a sandbox.
+
+**Notably absent**: the manifest's `permissions` block. Surfacing
+that array as "Permissions requested" would create a false sense
+of security — the values are author-supplied, unverified, and even
+when honest they don't constrain anything `plugin.nix` does.
+
+The `permissions` field stays in the schema for two reasons:
+
+- **`privileged_units`** is load-bearing — the loader cross-checks
+  every `unit:` action against this allow-list at parse time, so
+  a manifest can't ship an action that triggers an undeclared
+  systemd unit. This is real enforcement and stays.
+- The other sub-fields (`bitcoin`, `lightning`, `filesystem`,
+  `network`) are author-declared documentation. They might inform
+  a future audit tool but don't show up at consent time.
+
+### Mitigations the user actually has
+
+- **Vetted-only default**: install from
   `nixblitz_official_plugins` or otherwise audit-reviewed sources.
-- **Explicit consent at install**: `plugin add` prints the
-  manifest's declared permissions + source URL and requires
-  `[y/N]` confirmation.
-- **Git-tracked diff visibility**: the entire plugin tree lands in
-  `~/nixblitz/plugins/<id>/` and Apply surfaces it in the review
-  diff. Reading the code before confirming rebuild is the user's
-  only real defense today.
+- **Pin to a reviewed rev**: the consent prompt shows the exact
+  SHA. After install, the rev is locked in `config.json`; the
+  plugin can't change without an explicit `plugin refresh` (which
+  re-prompts).
+- **Read the source** at the upstream URL before answering yes,
+  if the trust threshold isn't already met by the source choice.
+- **Apply review**: every plugin install also lands in the
+  `~/nixblitz/plugins/<id>/` git tree. The Apply view shows the
+  diff of `plugin.nix` (among other files) before commit + rebuild,
+  giving a second checkpoint where the operator can back out.
 
-Phase 6 (see below) is what actually closes this hole.
+### Why Phase 6 doesn't help
 
-### Phase 1-5 behavior
+Earlier drafts of this entry promised that Phase 6 would close
+the hole via per-plugin `DynamicUser` systemd services + scoped
+capability tokens. That's wrong. Per-plugin DynamicUser sandboxes
+the *running services* a plugin declares — so a long-running
+plugin daemon can be locked down. But:
 
-**Chosen**: `manifest.json` has a `permissions` block that plugins
-populate; the TUI prints these at `plugin add` time as part of the
-consent prompt. **No runtime enforcement** — plugin shell commands
-run as admin with admin's full privileges.
+1. `plugin.nix` runs at `nixos-rebuild` evaluation time as part
+   of the module system. It's not a service; it's code that
+   produces a NixOS configuration. There's no useful unit-level
+   sandbox to apply to it.
+2. Activation scripts (`system.activationScripts.x.text`) run at
+   switch time as root, before any DynamicUser sandboxing kicks
+   in. A plugin that just declares an activation script bypasses
+   service-level confinement entirely.
+3. Even with sandboxed services, a plugin's `plugin.nix` can read
+   any `config.services.*` value — including secrets — at eval
+   time and bake them into the activation script. Sandboxing the
+   service after the fact is too late.
 
-Schema (reserved for future enforcement):
+The only paths that *would* mitigate `plugin.nix` are
+fundamentally different (sandboxed Nix evaluation, a non-Nix
+plugin DSL, vetted-evaluator pre-flight) — all big architectural
+changes, all invalidating "plugins are NixOS modules". None of
+them are scoped or being planned today.
 
-```json
-{
-  "permissions": {
-    "bitcoin": ["rpc:read"],
-    "lightning": ["rpc:read", "wallet:read"],
-    "filesystem": {
-      "read": ["/mnt/data"],
-      "write": []
-    },
-    "network": ["outbound"]
-  }
-}
-```
+### Bottom line
 
-**Rejected for now** (documented for future phases):
-
-- **Per-plugin systemd user** with narrow group membership for
-  long-running plugin daemons. Covers the "plugin has its own
-  service" case but not the manifest-driven command case.
-- **Capability tokens via blitz-api** — plugin gets a scoped JWT;
-  API enforces scopes. Substantial API work; aligns with the
-  dashboard's direction.
-- **Sandboxed execution** of every manifest command via
-  `systemd-run --user --property=…`. Real enforcement but adds
-  latency and complexity to every `tailscale status --json` call.
-
-**Rationale**: real enforcement requires substantial NixOS +
-blitz-api plumbing (per-plugin users, group plumbing, scoped JWTs,
-sandboxed command execution) that is out of scope for MVP. The
-informational manifest sets honest expectations with users and
-gives the ecosystem a permission vocabulary to grow around —
-enforcement can be layered in later without breaking existing
-plugins because the manifest schema is already in place.
-
-**Follow-ups when enforcement lands (Phase 6)**:
-
-The module-system peer-equal-access problem from the threat model
-is the load-bearing piece. Addressing it requires:
-
-- **Per-plugin system user** with `DynamicUser=true`, declared via
-  the plugin's `plugin.nix` with core-provided helpers.
-- **No `config.*` reads across plugin boundaries**. Plugin services
-  run under their own user; any secret they legitimately need is
-  passed via systemd credential mounts (`LoadCredential`) scoped by
-  the manifest's permissions — not via `config.services.X.password`
-  templated into the unit's script.
-- Systemd hardening defaults on plugin-declared services:
-  `ProtectSystem=strict`, `RestrictAddressFamilies=...`,
-  `NoNewPrivileges=true`, explicit `RestrictNetwork` when the
-  manifest doesn't request `network: [outbound]`.
-- `bitcoin:read` → group membership (`bitcoin-public-rpc`) +
-  wrapper around `bitcoin-cli` that refuses write RPCs, exposed
-  only to plugin users that declared the capability.
-- `lightning:read` → wrapper around `lncli` / `lightning-cli` that
-  refuses mutating RPCs.
-- Sandboxed command runner (`systemd-run --user --property=…`) for
-  any manifest-declared shell commands that don't go through a
-  scoped wrapper.
-
-None of this is in scope before the ecosystem shows demand for
-third-party (i.e. non-vetted) plugins. Until then we rely on the
-explicit-consent + vetted-repo model.
+Installing a plugin is `sudo install-arbitrary-software`. Treat
+it that way. The consent prompt's job is to make that obvious
+without overstating what the system does.
 
 ---
 
@@ -489,10 +491,14 @@ shippable on its own. Status as of 2026-04-26:
    "Update entire system" flow does NOT yet auto-refresh plugins
    per D11; the `auto_update` field on `PluginEntry` is modeled
    but unread. See follow-up issues for the remaining work.
-6. ⏸ **Permissions** (deferred): enforcement of the permission
-   manifest via per-plugin users + wrapped CLIs + scoped API
-   tokens. D14 captures the threat model + Phase 6 plan; will
-   revisit when the ecosystem grows past vetted-only plugins.
+6. ⏸ **Permissions** (struck through): earlier phasing imagined
+   "Phase 6" runtime enforcement via per-plugin users + wrapped
+   CLIs + scoped API tokens. D14's updated framing rejects this
+   premise — Phase 6 wouldn't close the actual hole because the
+   threat lives at module-eval / activation time, not at the
+   running-service layer that `DynamicUser` would sandbox. The
+   trust model stays "install = root grant"; consent surfaces
+   metadata + a stark warning (see D14).
 
 Open follow-ups + cross-cutting work track on the forgejo repo as
 issues, not in this document. See

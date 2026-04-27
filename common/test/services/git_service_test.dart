@@ -165,6 +165,140 @@ void main() {
       expect(ok, false);
     });
 
+    test('verifyCommit on unsigned HEAD returns status N + empty fields',
+        () async {
+      // Hermetic env disables `commit.gpgsign`, so the seed commit is
+      // unsigned regardless of the developer's `~/.gitconfig`. The
+      // status code from `git log --format=%G?` for an unsigned
+      // commit is `N`, with the fingerprint / signer fields empty.
+      // Production callers (PluginService.install) construct
+      // GitService *without* the hermetic env so the operator's real
+      // gpg / SSH config is honoured — see
+      // common/lib/src/services/git_service.dart `verifyCommit`.
+      await service.init();
+      await File('${tempDir.path}/x.txt').writeAsString('x');
+      await service.commit('x.txt', 'initial');
+
+      final sig = await service.verifyCommit();
+      expect(sig.status, 'N');
+      expect(sig.fingerprint, isEmpty);
+      expect(sig.signer, isEmpty);
+      expect(sig.primaryKeyFingerprint, isEmpty);
+      expect(sig.isPresent, isFalse);
+      expect(sig.isVerified, isFalse);
+      expect(sig.isUnknownTrust, isFalse);
+    });
+
+    test('verifyCommit on missing ref returns N rather than throwing',
+        () async {
+      // Empty repo — no HEAD to inspect. verifyCommit must degrade
+      // gracefully so refresh-time logic can fall through to the
+      // "(unsigned)" path instead of bubbling a process error.
+      await service.init();
+      final sig = await service.verifyCommit();
+      expect(sig.status, 'N');
+      expect(sig.fingerprint, isEmpty);
+      expect(sig.isPresent, isFalse);
+    });
+
+    test(
+      'verifyCommit surfaces fingerprint for SSH-signed commit even '
+      'when allowed_signers is unconfigured',
+      () async {
+        // Regression for the operator-side bug where a freshly-
+        // installed NixBlitz user has no `gpg.ssh.allowedSignersFile`
+        // and `git log --format=%G?` reports `N` (no signature) for
+        // a signed commit — collapsing "signed but trust unknown"
+        // and "genuinely unsigned" into the same code. The fix
+        // retries with a temp empty allowed_signers so SSH
+        // verification gets far enough to emit `U` + the real
+        // fingerprint, which is what TOFU pins on.
+        final sshKeygen = await Process.run('which', ['ssh-keygen']);
+        if (sshKeygen.exitCode != 0) {
+          markTestSkipped('ssh-keygen not on PATH');
+          return;
+        }
+
+        // Generate an ed25519 keypair scoped to this test.
+        final keyPath = '${tempDir.path}/signing_key';
+        final gen = await Process.run('ssh-keygen', [
+          '-t', 'ed25519',
+          '-N', '',
+          '-C', 'nixblitz-test',
+          '-f', keyPath,
+        ]);
+        expect(gen.exitCode, 0, reason: gen.stderr.toString());
+
+        // Construct a non-hermetic GitService whose env has no
+        // global / system gitconfig and no allowed_signers — i.e.
+        // the operator's first-install state. We still need
+        // user.email / user.name + a per-repo signing config, so
+        // wire those via `extraConfigArgs` rather than via files.
+        final isolatedEnv = {
+          'PATH': Platform.environment['PATH'] ?? '',
+          'HOME': tempDir.path,
+          'GIT_CONFIG_NOSYSTEM': '1',
+          'GIT_CONFIG_GLOBAL': '/dev/null',
+          'GIT_TERMINAL_PROMPT': '0',
+          'GIT_AUTHOR_NAME': 'Test',
+          'GIT_AUTHOR_EMAIL': 'test@example.invalid',
+          'GIT_COMMITTER_NAME': 'Test',
+          'GIT_COMMITTER_EMAIL': 'test@example.invalid',
+        };
+        final signingConfig = [
+          '-c', 'gpg.format=ssh',
+          '-c', 'user.signingkey=$keyPath',
+          '-c', 'commit.gpgsign=true',
+        ];
+        final signing = GitService(
+          repoDir: tempDir.path,
+          environment: isolatedEnv,
+          extraConfigArgs: signingConfig,
+        );
+
+        await signing.init();
+        await File('${tempDir.path}/x.txt').writeAsString('hello');
+        final ok = await signing.commit('x.txt', 'signed commit');
+        expect(ok, isTrue, reason: 'signed commit should succeed');
+
+        // Sanity: the commit object actually carries an SSH
+        // signature header. If this fails the test setup is the
+        // problem, not verifyCommit.
+        final cat = await Process.run(
+          'git',
+          ['cat-file', '-p', 'HEAD'],
+          workingDirectory: tempDir.path,
+          environment: isolatedEnv,
+        );
+        expect(cat.stdout as String, contains('BEGIN SSH SIGNATURE'));
+
+        // Fingerprint git would report given the public key.
+        final fpProbe = await Process.run('ssh-keygen', [
+          '-l', '-f', '$keyPath.pub',
+        ]);
+        expect(fpProbe.exitCode, 0);
+        final expectedFp = (fpProbe.stdout as String)
+            .split(' ')
+            .firstWhere((p) => p.startsWith('SHA256:'));
+
+        // The actual assertion: verifyCommit on this repo with no
+        // allowed_signers must surface status `U` and the right
+        // fingerprint. Pre-fix this was `N` + empty.
+        final verify = GitService(
+          repoDir: tempDir.path,
+          environment: isolatedEnv,
+        );
+        final sig = await verify.verifyCommit();
+        expect(sig.fingerprint, expectedFp,
+            reason: 'fallback should surface the SSH key fingerprint');
+        expect(sig.status, 'U',
+            reason: 'good signature, no allowed_signers → unknown trust');
+        expect(sig.isPresent, isTrue);
+        expect(sig.isVerified, isFalse);
+        expect(sig.isUnknownTrust, isTrue);
+      },
+    );
+
     test('headRef returns null on a virgin repo, then a SHA', () async {
       await service.init();
       // No commits yet.

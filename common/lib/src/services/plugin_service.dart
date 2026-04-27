@@ -4,8 +4,10 @@ import 'dart:io';
 
 import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_entry.dart';
+import 'package:common/src/models/plugin/plugin_install_preview.dart';
 import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/services/config_service.dart';
+import 'package:common/src/services/git_service.dart';
 import 'package:common/src/services/log_service.dart';
 
 /// Manages installed plugins under `~/nixblitz/plugins/<dirName>/`
@@ -31,17 +33,25 @@ class PluginService {
   String get pluginsDir => '$baseDir/plugins';
 
   /// Install a plugin from [rawUrl] (D5 schemes). Clones to a
-  /// tmpdir, validates the manifest, then copies plugin files into
-  /// `plugins/<dirName>/` and appends a [PluginEntry] to the main
-  /// config. Reviving a tombstoned entry (D4) is idempotent.
+  /// tmpdir, validates the manifest, then (optionally) hands a
+  /// [PluginInstallPreview] to [confirm] before copying plugin files
+  /// into `plugins/<dirName>/` and appending a [PluginEntry] to the
+  /// main config. Reviving a tombstoned entry (D4) is idempotent.
   ///
   /// [allowInsecure] must be true for `file://`, `http://`, or
   /// `ssh://` URLs (D9).
+  ///
+  /// [confirm] runs after the manifest has been parsed but before
+  /// any state lands on disk. Returning `false` aborts cleanly with
+  /// [PluginInstallCancelled]. `null` (the default) skips the prompt
+  /// — the caller has either already collected consent (`--yes`) or
+  /// is invoking install from a non-interactive context.
   Future<PluginEntry> install(
     String rawUrl, {
     String branch = 'main',
     bool allowInsecure = false,
     String? subdir,
+    PluginInstallConfirm? confirm,
   }) async {
     final parsed = PluginUrl.parse(
       rawUrl,
@@ -109,6 +119,39 @@ class PluginService {
       final manifest = _readManifest(pluginSourceDir);
       _requirePluginNix(pluginSourceDir);
 
+      // Capture commit signature (Approach A) BEFORE the consent
+      // callback so the preview can render fingerprint + status.
+      // Note: GitService is constructed without `environment` so
+      // it inherits the operator's gpg / SSH config — the hermetic
+      // test env explicitly disables signing, but production code
+      // wants the real keyring visible.
+      final signature =
+          await GitService(repoDir: tmpDir.path).verifyCommit();
+
+      // Consent gate (D14). Hand the manifest metadata + signature
+      // to the caller's prompt; if it returns false, abort cleanly
+      // so nothing lands on disk. The tmpdir is cleaned up by the
+      // outer `finally` regardless.
+      if (confirm != null) {
+        final preview = PluginInstallPreview(
+          name: manifest.name,
+          description: manifest.description,
+          url: parsed.canonical,
+          branch: branch,
+          pinnedRev: pinnedRev,
+          schemaVersion: manifest.schemaVersion,
+          signature: signature,
+        );
+        final ok = await confirm(preview);
+        if (!ok) {
+          LogService.info(
+            'PluginService.install: cancelled by user '
+            '(${parsed.canonical})',
+          );
+          throw const PluginInstallCancelled();
+        }
+      }
+
       // Revival of a tombstoned entry (D4) reuses the original
       // dirName; only fresh installs collision-resolve against the
       // existing set.
@@ -152,6 +195,8 @@ class PluginService {
         dirName: dirName,
         installedAt: now,
         lastUpdatedAt: now,
+        signatureFingerprint:
+            signature.fingerprint.isEmpty ? null : signature.fingerprint,
       );
 
       // Mark the new plugin files as intent-to-add (git add -N) so
@@ -188,6 +233,9 @@ class PluginService {
           targetDir.deleteSync(recursive: true);
         } catch (_) {}
       }
+      // User-cancellation is an expected outcome, not an error —
+      // the prompt explicitly invites "no". Log at info, no stack.
+      if (e is PluginInstallCancelled) rethrow;
       LogService.error('PluginService.install failed for $rawUrl', e, st);
       rethrow;
     } finally {
@@ -303,6 +351,29 @@ class PluginService {
       final manifest = _readManifest(pluginSourceDir);
       _requirePluginNix(pluginSourceDir);
 
+      // Approach A signature check. Three cases:
+      // - existing pin null + new fp: silent upgrade — adopt the
+      //   new fp into the entry.
+      // - existing pin set + new fp matches: silent re-affirm.
+      // - existing pin set + new fp differs (or new is empty):
+      //   throw PluginSignatureMismatch. Caller decides how to
+      //   surface (CLI prints + suggests `plugin remove` +
+      //   `plugin add` to re-consent; refreshAll captures into
+      //   `failures`).
+      final newSignature =
+          await GitService(repoDir: tmpDir.path).verifyCommit();
+      final newFp = newSignature.fingerprint.isEmpty
+          ? null
+          : newSignature.fingerprint;
+      if (existing.signatureFingerprint != null &&
+          existing.signatureFingerprint != newFp) {
+        throw PluginSignatureMismatch(
+          pluginId: existing.id,
+          expected: existing.signatureFingerprint!,
+          actual: newFp,
+        );
+      }
+
       // Wipe + repopulate. Simple and matches the install shape;
       // any file the new plugin version no longer ships is gone
       // cleanly.
@@ -329,6 +400,8 @@ class PluginService {
       final refreshed = existing.copyWith(
         pinnedRev: pinnedRev,
         lastUpdatedAt: now,
+        signatureFingerprint: newFp,
+        clearSignatureFingerprint: newFp == null,
       );
 
       await _gitIntentToAdd(targetDir.path);

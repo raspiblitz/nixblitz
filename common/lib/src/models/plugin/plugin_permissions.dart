@@ -1,28 +1,40 @@
-/// Declarative manifest permissions (D14). Phase 1 surfaces these
-/// at `plugin add` consent time only; no runtime enforcement.
+/// Manifest permissions block. **Mostly author-supplied
+/// documentation, NOT a security boundary.** Read D14 in
+/// `docs/decisions/plugins.md` before treating any of these values
+/// as enforced.
 ///
-/// The shape is frozen here so plugins authored today survive the
-/// eventual enforcement layer without a manifest-schema bump — we
-/// can layer per-plugin users, scoped JWTs, or wrapped CLIs behind
-/// these exact keys later.
+/// One field IS load-bearing: [privilegedUnits] is cross-checked
+/// against `unit:` action references at manifest parse time, so a
+/// plugin can't ship an action that triggers an undeclared systemd
+/// unit. Everything else ([bitcoin], [lightning], [filesystemRead],
+/// [filesystemWrite], [network]) is author-declared metadata that
+/// nothing in NixBlitz reads at runtime — they exist so a future
+/// audit tool has a vocabulary to grow into, but installing a
+/// plugin grants the author root regardless of what these fields
+/// say. Do not surface them as "permissions requested" in any UI.
 library;
 
 class PluginPermissions {
-  /// Bitcoin RPC scopes requested. Conventional values: `rpc:read`,
+  /// Bitcoin RPC scopes the plugin claims to need. Documentation
+  /// only — not enforced. Conventional values: `rpc:read`,
   /// `rpc:write`.
   final List<String> bitcoin;
 
-  /// Lightning RPC scopes. Conventional values: `rpc:read`,
+  /// Lightning RPC scopes the plugin claims to need. Documentation
+  /// only — not enforced. Conventional values: `rpc:read`,
   /// `rpc:write`, `wallet:read`, `wallet:write`.
   final List<String> lightning;
 
-  /// Filesystem read paths. Absolute paths expected.
+  /// Filesystem read paths the plugin claims to need. Documentation
+  /// only — not enforced. Absolute paths expected.
   final List<String> filesystemRead;
 
-  /// Filesystem write paths. Absolute paths expected.
+  /// Filesystem write paths the plugin claims to need. Documentation
+  /// only — not enforced. Absolute paths expected.
   final List<String> filesystemWrite;
 
-  /// Network access scopes. Conventional values: `outbound`,
+  /// Network access scopes the plugin claims to need. Documentation
+  /// only — not enforced. Conventional values: `outbound`,
   /// `listen:<port>`.
   final List<String> network;
 
@@ -82,9 +94,12 @@ class PluginPermissions {
       network.isEmpty &&
       privilegedUnits.isEmpty;
 
-  /// Human-readable lines for the `plugin add` consent prompt.
-  /// Empty list → no permissions requested (still worth surfacing
-  /// so the user sees "requests: none").
+  /// Human-readable lines describing the manifest's
+  /// (author-supplied, unenforced) permission claims. **Do not
+  /// surface these in the install consent prompt** — see the class
+  /// docstring + D14. Kept for future audit / introspection
+  /// tooling; existing test coverage exercises round-trip parsing.
+  @Deprecated('do not surface as "permissions requested"; see D14')
   List<String> summaryLines() {
     if (isEmpty) return const ['requests: none'];
     final lines = <String>[];

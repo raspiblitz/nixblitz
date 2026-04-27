@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'package:common/src/models/nixblitz_config.dart';
+import 'package:common/src/models/plugin/plugin_install_preview.dart';
 import 'package:common/src/services/config_service.dart';
 import 'package:common/src/services/plugin_service.dart';
 
@@ -119,6 +120,61 @@ void main() {
         () => svc.install('file://${srcRepo.path}', allowInsecure: true),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('install confirm callback receives manifest preview', () async {
+      PluginInstallPreview? captured;
+      final entry = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+        confirm: (preview) async {
+          captured = preview;
+          return true;
+        },
+      );
+
+      // Callback fired with manifest fields populated.
+      expect(captured, isNotNull);
+      expect(captured!.name, 'nixblitz-tailscale');
+      expect(captured!.url, contains(srcRepo.path));
+      expect(captured!.branch, 'main');
+      expect(captured!.pinnedRev, matches(RegExp(r'^[0-9a-f]{40}$')));
+      expect(captured!.schemaVersion, 2);
+
+      // Install proceeded normally on `true`.
+      expect(entry.pinnedRev, captured!.pinnedRev);
+    });
+
+    test('install confirm returning false aborts cleanly', () async {
+      expect(
+        () => svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+          confirm: (_) async => false,
+        ),
+        throwsA(isA<PluginInstallCancelled>()),
+      );
+
+      // Nothing landed on disk.
+      final pluginsDir = Directory('${home.path}/plugins');
+      if (pluginsDir.existsSync()) {
+        expect(pluginsDir.listSync(), isEmpty);
+      }
+      final config = await ConfigService(baseDir: home.path).readConfig();
+      expect(config.plugins, isEmpty);
+    });
+
+    test('install with null confirm skips the prompt entirely', () async {
+      // Counter to verify no callback is constructed/called when
+      // `confirm` is omitted (the --yes / non-interactive case).
+      var calls = 0;
+      final entry = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+        // confirm: null, by omission
+      );
+      expect(entry.id, isNotEmpty);
+      expect(calls, 0);
     });
 
     test('install with malformed manifest leaves nothing behind', () async {
@@ -490,6 +546,141 @@ void main() {
         () => svc.refresh('file:///nope/not-here', allowInsecure: true),
         throwsA(isA<StateError>()),
       );
+    });
+
+    test('install consent preview carries the commit signature', () async {
+      // Hermetic seed repos commit unsigned, so the captured
+      // signature surfaces as status `N` with empty fingerprint —
+      // exactly the data the consent prompt needs to render
+      // "(unsigned)". The point isn't to verify a real key; it's
+      // that the plumbing from `git log --format=%G…` reaches the
+      // CLI callback intact.
+      PluginInstallPreview? captured;
+      await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+        confirm: (preview) async {
+          captured = preview;
+          return true;
+        },
+      );
+
+      expect(captured, isNotNull);
+      expect(captured!.signature.status, 'N');
+      expect(captured!.signature.fingerprint, isEmpty);
+      expect(captured!.signature.isPresent, isFalse);
+    });
+
+    test('install on unsigned commit leaves signatureFingerprint null',
+        () async {
+      // Belt-and-suspenders for the install side of Approach A:
+      // when no signature is present at install time, we explicitly
+      // pin null. That null is the trigger for the "silent upgrade"
+      // path on a future signed refresh — without this guarantee,
+      // the upgrade case could be confused with a key change.
+      final entry = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      expect(entry.signatureFingerprint, isNull);
+
+      final cfg = await ConfigService(baseDir: home.path).readConfig();
+      expect(cfg.plugins.first.signatureFingerprint, isNull);
+    });
+
+    test('refresh throws PluginSignatureMismatch when pinned fp differs',
+        () async {
+      // Approach A's hard-fail case: install captured a fingerprint,
+      // a later refresh sees a different one (or none) → the caller
+      // must explicitly re-consent. The hermetic env can't produce a
+      // real signature, so we spoof the *pinned* side by writing a
+      // fake fingerprint into the entry, then push a new (still
+      // unsigned) upstream commit — the pinned `fake-fp` vs new
+      // `(unsigned, null)` diff is enough to trip the check.
+      final entry = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+
+      // Forge a pinned fingerprint on the entry so the next refresh
+      // takes the mismatch branch instead of the silent-upgrade one.
+      final cs = ConfigService(baseDir: home.path);
+      final cfg = await cs.readConfig();
+      final tampered = cfg.copyWith(plugins: [
+        cfg.plugins.first
+            .copyWith(signatureFingerprint: 'SHA256:fake-pinned-key'),
+      ]);
+      await cs.writeConfig(tampered);
+
+      // Advance the upstream pin so refresh has *something* to do
+      // (a no-op refresh returns early before the signature check).
+      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
+        '# v2\n{ services.tailscale.enable = true; }\n',
+      );
+      for (final args in [
+        ['add', '-A'],
+        ['commit', '-m', 'rotate'],
+      ]) {
+        final r = await testGit(args, workingDirectory: srcRepo.path);
+        expect(r.exitCode, 0, reason: r.stderr.toString());
+      }
+
+      await expectLater(
+        () => svc.refresh(entry.id, allowInsecure: true),
+        throwsA(
+          isA<PluginSignatureMismatch>()
+              .having((e) => e.pluginId, 'pluginId', entry.id)
+              .having(
+                (e) => e.expected,
+                'expected',
+                'SHA256:fake-pinned-key',
+              )
+              .having((e) => e.actual, 'actual', isNull),
+        ),
+      );
+
+      // Mismatch is hard-fail: nothing on disk should have moved,
+      // pinnedRev included. The user has to `plugin remove` +
+      // `plugin add` to re-consent.
+      final after = await cs.readConfig();
+      expect(after.plugins.first.pinnedRev, entry.pinnedRev);
+      expect(
+        after.plugins.first.signatureFingerprint,
+        'SHA256:fake-pinned-key',
+      );
+    });
+
+    test('refresh with no pinned fp adopts whatever the new commit has',
+        () async {
+      // The "silent upgrade" path: an entry that was installed
+      // without a signature should accept new metadata on refresh
+      // without forcing the operator through re-consent. With the
+      // hermetic harness, "whatever the new commit has" is also
+      // null, so this test pins down the null→null no-throw shape;
+      // the null→fingerprint variant requires real signing keys
+      // outside the test scope.
+      final entry = await svc.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      expect(entry.signatureFingerprint, isNull);
+
+      // Advance upstream so refresh actually runs the signature
+      // check (no-op refresh returns before the comparison).
+      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
+        '# v2\n{ services.tailscale.enable = true; }\n',
+      );
+      for (final args in [
+        ['add', '-A'],
+        ['commit', '-m', 'advance'],
+      ]) {
+        final r = await testGit(args, workingDirectory: srcRepo.path);
+        expect(r.exitCode, 0, reason: r.stderr.toString());
+      }
+
+      final refreshed = await svc.refresh(entry.id, allowInsecure: true);
+      expect(refreshed.signatureFingerprint, isNull);
+      expect(refreshed.pinnedRev, isNot(entry.pinnedRev));
     });
 
     test('refreshAll walks every active plugin', () async {

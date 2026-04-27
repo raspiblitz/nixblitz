@@ -3,6 +3,7 @@ export 'src/models/install_state.dart';
 export 'src/models/nixblitz_config.dart';
 export 'src/models/plugin/plugin_action.dart';
 export 'src/models/plugin/plugin_entry.dart';
+export 'src/models/plugin/plugin_install_preview.dart';
 export 'src/models/plugin/plugin_manifest.dart';
 export 'src/models/plugin/plugin_permissions.dart';
 export 'src/models/plugin/plugin_tile.dart';

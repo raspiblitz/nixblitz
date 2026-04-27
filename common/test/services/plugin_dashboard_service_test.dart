@@ -154,6 +154,38 @@ void main() {
       expect(snap.footerColor, PluginTileStatus.error);
     });
 
+    test('exit 127 (command-not-found) renders as a yellow pending tile',
+        () async {
+      // Regression: before the fix, a freshly-installed plugin
+      // whose tile-state script wasn't on PATH yet (because the
+      // operator hadn't run Apply) rendered as a red runtime
+      // error. The right shape is a soft "pending" tile pointing
+      // them at Apply.
+      //
+      // Use the literal exit-127 from `bash -c <missing>` rather
+      // than spelling it out so the test mirrors what bash itself
+      // produces when a script is missing from PATH.
+      _seedPluginWithTileCommand(
+        home,
+        'demo',
+        tileCommand: 'definitely-not-a-real-binary-aiyf',
+      );
+      _writeMainConfig(home, ['demo']);
+
+      final container = _makeContainer(home);
+      addTearDown(container.dispose);
+      final svc = container.read(pluginDashboardServiceProvider);
+      addTearDown(svc.dispose);
+
+      final snap = await _waitForSnapshot(container, 'demo');
+      expect(snap, isNotNull);
+      expect(snap!.statusLabel, 'pending');
+      expect(snap.statusColor, PluginTileStatus.warn);
+      expect(snap.footerColor, PluginTileStatus.warn);
+      expect(snap.footer, contains('awaiting Apply'));
+      expect(snap.footer, contains('definitely-not-a-real-binary-aiyf'));
+    });
+
     test('invalid JSON output produces failure snapshot', () async {
       _seedPluginWithTileCommand(
         home,

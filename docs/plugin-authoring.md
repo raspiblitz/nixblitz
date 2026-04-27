@@ -92,9 +92,13 @@ collision.
 
 Caveat: `pluginCfg` is read by NixBlitz's flake at evaluation
 time, inlined into the store path. Today the values land in the
-store cleartext — fine for technical-audience MVP; the long-term
-fix is systemd `LoadCredential` mounts keyed off the manifest's
-`permissions` block, gated on Phase 6 of plugins.md.
+store cleartext, where any process that can read `/nix/store` can
+recover them. **Treat any field passed via `pluginCfg` as
+publicly-readable on the node** — fine for switches and option
+strings, not fine for long-lived secrets. There's no near-term
+path to fix this short of moving secret material out of `pluginCfg`
+entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
+`docs/decisions/plugins.md` D14 for the trust-model framing.
 
 ## Manifest reference
 

@@ -188,6 +188,24 @@ class _PluginPoller {
         reason: 'timed out (${spec.timeout.inSeconds}s)',
       );
     }
+    // bash exit 127 = command not found. The common cause is a
+    // freshly installed plugin whose tile-state script is declared
+    // in the manifest but not yet on PATH because the operator
+    // hasn't run Apply. Render that as a yellow "pending" tile
+    // rather than a red runtime error so it doesn't look like the
+    // plugin is broken before they've even had a chance to deploy
+    // it.
+    if (r.exitCode == 127) {
+      return PluginTileSnapshot(
+        title: spec.title,
+        accentColorHex: spec.accentColorHex,
+        rows: const [],
+        statusLabel: 'pending',
+        statusColor: PluginTileStatus.warn,
+        footer: 'awaiting Apply — `${spec.command}` not on PATH yet',
+        footerColor: PluginTileStatus.warn,
+      );
+    }
     if (r.exitCode != 0) {
       final lastErr = _lastNonEmptyLine(r.stderr);
       return PluginTileSnapshot.failure(
