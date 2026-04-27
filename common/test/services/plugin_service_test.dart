@@ -7,6 +7,8 @@ import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/services/config_service.dart';
 import 'package:common/src/services/plugin_service.dart';
 
+import '../test_helpers/git_isolation.dart';
+
 /// Seed a fresh git repo at [path] with a minimal plugin layout:
 /// plugin.nix, manifest.json, and a README. Returns the path so the
 /// caller can clone via `file://`.
@@ -44,18 +46,10 @@ Future<String> _seedPluginRepo(
   File('$path/README.md').writeAsStringSync('# $manifestName\n');
 
   // git init + commit so `git clone --depth 1 --branch main` works.
+  // testGit() applies the hermetic env + `-c` overrides; see
+  // ../test_helpers/git_isolation.dart.
   Future<void> run(List<String> args) async {
-    final r = await Process.run(
-      'git',
-      args,
-      workingDirectory: path,
-      environment: {
-        'GIT_AUTHOR_NAME': 'test',
-        'GIT_AUTHOR_EMAIL': 'test@example.com',
-        'GIT_COMMITTER_NAME': 'test',
-        'GIT_COMMITTER_EMAIL': 'test@example.com',
-      },
-    );
+    final r = await testGit(args, workingDirectory: path);
     if (r.exitCode != 0) {
       throw StateError('git ${args.join(" ")} failed: ${r.stderr}');
     }
@@ -242,23 +236,12 @@ void main() {
         File('${multi.path}/docs/notes.md').writeAsStringSync('# docs\n');
         File('${multi.path}/README.md').writeAsStringSync('# multi\n');
 
-        final env = {
-          'GIT_AUTHOR_NAME': 't',
-          'GIT_AUTHOR_EMAIL': 't@t',
-          'GIT_COMMITTER_NAME': 't',
-          'GIT_COMMITTER_EMAIL': 't@t',
-        };
         for (final args in [
           ['init', '-b', 'main'],
           ['add', '-A'],
           ['commit', '-m', 'initial'],
         ]) {
-          final r = await Process.run(
-            'git',
-            args,
-            workingDirectory: multi.path,
-            environment: env,
-          );
+          final r = await testGit(args, workingDirectory: multi.path);
           expect(r.exitCode, 0, reason: r.stderr.toString());
         }
 
@@ -306,23 +289,12 @@ void main() {
           }),
         );
         File('${multi.path}/README.md').writeAsStringSync('# multi\n');
-        final env = {
-          'GIT_AUTHOR_NAME': 't',
-          'GIT_AUTHOR_EMAIL': 't@t',
-          'GIT_COMMITTER_NAME': 't',
-          'GIT_COMMITTER_EMAIL': 't@t',
-        };
         for (final args in [
           ['init', '-b', 'main'],
           ['add', '-A'],
           ['commit', '-m', 'initial'],
         ]) {
-          final r = await Process.run(
-            'git',
-            args,
-            workingDirectory: multi.path,
-            environment: env,
-          );
+          final r = await testGit(args, workingDirectory: multi.path);
           expect(r.exitCode, 0, reason: r.stderr.toString());
         }
 
@@ -356,24 +328,14 @@ void main() {
       try {
         await _seedPluginRepo(malicious.path);
         Link('${malicious.path}/leak').createSync('/etc/passwd');
-        final env = {
-          'GIT_AUTHOR_NAME': 't',
-          'GIT_AUTHOR_EMAIL': 't@t',
-          'GIT_COMMITTER_NAME': 't',
-          'GIT_COMMITTER_EMAIL': 't@t',
-        };
-        final addRes = await Process.run(
-          'git',
+        final addRes = await testGit(
           ['add', '-A'],
           workingDirectory: malicious.path,
-          environment: env,
         );
         expect(addRes.exitCode, 0, reason: 'git add failed: ${addRes.stderr}');
-        final commitRes = await Process.run(
-          'git',
+        final commitRes = await testGit(
           ['commit', '-m', 'add symlink'],
           workingDirectory: malicious.path,
-          environment: env,
         );
         expect(
           commitRes.exitCode,
@@ -464,22 +426,11 @@ void main() {
       File('${srcRepo.path}/plugin.nix').writeAsStringSync(
         '# refreshed plugin.nix v2\n{ services.tailscale.enable = true; }\n',
       );
-      final env = {
-        'GIT_AUTHOR_NAME': 't',
-        'GIT_AUTHOR_EMAIL': 't@t',
-        'GIT_COMMITTER_NAME': 't',
-        'GIT_COMMITTER_EMAIL': 't@t',
-      };
       for (final args in [
         ['add', '-A'],
         ['commit', '-m', 'update plugin'],
       ]) {
-        final r = await Process.run(
-          'git',
-          args,
-          workingDirectory: srcRepo.path,
-          environment: env,
-        );
+        final r = await testGit(args, workingDirectory: srcRepo.path);
         expect(r.exitCode, 0, reason: r.stderr.toString());
       }
 

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:test/test.dart';
 import 'package:common/src/services/git_service.dart';
 
+import '../test_helpers/git_isolation.dart';
+
 void main() {
   group('GitService', () {
     late Directory tempDir;
@@ -10,7 +12,10 @@ void main() {
 
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('nixblitz_git_test_');
-      service = GitService(repoDir: tempDir.path);
+      // Hermetic GitService: ignores the developer's ~/.gitconfig,
+      // disables commit signing, and avoids askpass spawns. See
+      // ../test_helpers/git_isolation.dart for the env + -c shape.
+      service = hermeticGitService(tempDir.path);
     });
 
     tearDown(() {

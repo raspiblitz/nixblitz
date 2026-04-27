@@ -2,32 +2,82 @@
 import 'dart:io';
 
 class GitService {
+  GitService({
+    required this.repoDir,
+    this.environment,
+    this.extraConfigArgs = const [],
+  });
+
   final String repoDir;
 
-  GitService({required this.repoDir});
+  /// Optional environment overrides for every spawned `git` process.
+  /// Merged into the parent environment (Dart's
+  /// `Process.run(includeParentEnvironment: true)` is the default).
+  /// Production callers leave this null; tests pass a hermetic map
+  /// so the user's `~/.gitconfig`, ssh-agent state, and
+  /// askpass setup don't leak into the test harness — see
+  /// `common/test/test_helpers/git_isolation.dart`.
+  final Map<String, String>? environment;
+
+  /// `-c key=value` pairs prepended before every git subcommand.
+  /// Same purpose as [environment]: lets tests force
+  /// `commit.gpgsign=false`, etc., without touching production
+  /// behaviour at user-Apply time.
+  final List<String> extraConfigArgs;
+
+  /// Prepend the per-instance `-c` overrides to a subcommand argv.
+  List<String> _g(List<String> args) => [...extraConfigArgs, ...args];
 
   Future<bool> init() async {
-    final result = await Process.run('git', ['init'], workingDirectory: repoDir);
+    final result = await Process.run(
+      'git', _g(['init']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     if (result.exitCode != 0) return false;
-    await Process.run('git', ['config', 'user.email', 'nixblitz@localhost'], workingDirectory: repoDir);
-    await Process.run('git', ['config', 'user.name', 'NixBlitz'], workingDirectory: repoDir);
+    await Process.run(
+      'git', _g(['config', 'user.email', 'nixblitz@localhost']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    await Process.run(
+      'git', _g(['config', 'user.name', 'NixBlitz']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     return true;
   }
 
   Future<bool> commit(String filePath, String message) async {
-    final add = await Process.run('git', ['add', filePath], workingDirectory: repoDir);
+    final add = await Process.run(
+      'git', _g(['add', filePath]),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     if (add.exitCode != 0) return false;
-    final commit = await Process.run('git', ['commit', '-m', message], workingDirectory: repoDir);
+    final commit = await Process.run(
+      'git', _g(['commit', '-m', message]),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     return commit.exitCode == 0;
   }
 
   Future<bool> revertLast() async {
-    final result = await Process.run('git', ['revert', '--no-edit', 'HEAD'], workingDirectory: repoDir);
+    final result = await Process.run(
+      'git', _g(['revert', '--no-edit', 'HEAD']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     return result.exitCode == 0;
   }
 
   Future<String> log({int count = 10}) async {
-    final result = await Process.run('git', ['log', '--oneline', '-$count'], workingDirectory: repoDir);
+    final result = await Process.run(
+      'git', _g(['log', '--oneline', '-$count']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     return result.stdout as String;
   }
 
@@ -36,7 +86,11 @@ class GitService {
   /// in a plain [ScrollableLog].
   Future<String> diff({String? path}) async {
     final args = ['diff', '--no-color', ?path];
-    final result = await Process.run('git', args, workingDirectory: repoDir);
+    final result = await Process.run(
+      'git', _g(args),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     return result.stdout as String;
   }
 
@@ -45,8 +99,9 @@ class GitService {
   Future<List<String>> status() async {
     final result = await Process.run(
       'git',
-      ['status', '--porcelain'],
+      _g(['status', '--porcelain']),
       workingDirectory: repoDir,
+      environment: environment,
     );
     if (result.exitCode != 0) return const [];
     return (result.stdout as String)
@@ -61,14 +116,16 @@ class GitService {
   Future<bool> commitAll(String message) async {
     final add = await Process.run(
       'git',
-      ['add', '-A'],
+      _g(['add', '-A']),
       workingDirectory: repoDir,
+      environment: environment,
     );
     if (add.exitCode != 0) return false;
     final commit = await Process.run(
       'git',
-      ['commit', '-m', message],
+      _g(['commit', '-m', message]),
       workingDirectory: repoDir,
+      environment: environment,
     );
     return commit.exitCode == 0;
   }
@@ -78,8 +135,9 @@ class GitService {
   Future<bool> discardAll() async {
     final result = await Process.run(
       'git',
-      ['checkout', '--', '.'],
+      _g(['checkout', '--', '.']),
       workingDirectory: repoDir,
+      environment: environment,
     );
     return result.exitCode == 0;
   }
