@@ -81,6 +81,98 @@ class _UpdateViewState extends State<UpdateView> {
     }
   }
 
+  /// Refresh every non-pinned plugin from upstream, commit the diff
+  /// (scoped to plugin paths), then preview + (on confirm) rebuild.
+  /// Equivalent to `nixblitz plugin refresh --all` + Apply, but
+  /// inside the same Update flow so the operator sees the per-package
+  /// diff before deploying.
+  void _refreshPluginsOnly() {
+    if (_started) return;
+    _started = true;
+
+    try {
+      final baseDirPath = context.read(baseDirProvider);
+      final sudo = context.read(sudoSessionProvider);
+
+      _resetForRunning();
+      _appendUpdateLine('> sudo -v (authorize)');
+
+      sudo.ensureFresh().then((ok) {
+        if (!ok) {
+          _appendUpdateLine('Authorization cancelled — aborting refresh.');
+          _failToDone(1);
+          return;
+        }
+        _runPluginRefreshOnly(baseDirPath);
+      });
+    } catch (e, st) {
+      LogService.error('Failed to start plugin refresh', e, st);
+      _failToDone(1);
+    }
+  }
+
+  Future<void> _runPluginRefreshOnly(String baseDirPath) async {
+    final pluginService = context.read(pluginServiceProvider);
+    final git = context.read(gitServiceProvider);
+    final initialHead = await git.headRef();
+
+    _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
+    pluginService.refreshAll(includePinned: false).then((result) async {
+      for (final p in result.refreshed) {
+        final pin = p.pinnedRev.length >= 7
+            ? p.pinnedRev.substring(0, 7)
+            : p.pinnedRev;
+        _appendUpdateLine('  refreshed ${p.id} → $pin');
+      }
+      for (final f in result.failures) {
+        _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
+      }
+      for (final s in result.skipped) {
+        _appendUpdateLine('  skipped (pinned): ${s.id}');
+      }
+      if (result.totalAttempted == 0 && result.skipped.isEmpty) {
+        _appendUpdateLine('  (no installed plugins)');
+      } else {
+        _appendUpdateLine(
+          '${result.refreshed.length} refreshed, '
+          '${result.failures.length} failed, '
+          '${result.skipped.length} skipped',
+        );
+      }
+
+      // Same scoped-commit pattern as _refreshPluginsThenPreview
+      // so we don't sweep up unrelated working-tree edits.
+      if (result.refreshed.isNotEmpty) {
+        final paths = <String>[
+          'config.json',
+          for (final p in result.refreshed) 'plugins/${p.dirName}',
+        ];
+        final ids = result.refreshed.map((p) => p.id).join(', ');
+        _appendUpdateLine('');
+        _appendUpdateLine('> git commit -m "Update plugins: $ids"');
+        final ok = await git.commitPaths(paths, 'Update plugins: $ids');
+        if (!ok) {
+          _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
+        }
+      }
+
+      // Did the refresh actually move anything? If HEAD didn't
+      // advance, there's nothing to preview or apply.
+      final currentHead = await git.headRef();
+      if (currentHead == initialHead) {
+        _appendUpdateLine('');
+        _appendUpdateLine('Nothing to apply.');
+        _completeWithSuccess();
+        return;
+      }
+      _runPreviewDiff(baseDirPath);
+    }).catchError((e, st) {
+      LogService.error('plugin refresh threw', e, st);
+      _appendUpdateLine('  ⚠ plugin refresh threw: $e');
+      _failToDone(1);
+    });
+  }
+
   /// Refresh Nix template files from the embedded templates in this
   /// TUI, commit, then preview + (on confirm) rebuild.
   void _refreshTemplates() {
@@ -110,11 +202,17 @@ class _UpdateViewState extends State<UpdateView> {
 
   // ── Phase 1 helpers (running) ──────────────────────────────────
 
-  void _refreshPluginsThenPreview(String baseDirPath) {
+  Future<void> _refreshPluginsThenPreview(String baseDirPath) async {
     final pluginService = context.read(pluginServiceProvider);
+    final git = context.read(gitServiceProvider);
+
+    // Capture HEAD before any of this flow's commits so the
+    // "anything to apply?" check downstream covers BOTH plugin
+    // refresh commits AND any flake.lock commit.
+    final initialHead = await git.headRef();
 
     _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
-    pluginService.refreshAll(includePinned: false).then((result) {
+    pluginService.refreshAll(includePinned: false).then((result) async {
       for (final p in result.refreshed) {
         final pin = p.pinnedRev.length >= 7
             ? p.pinnedRev.substring(0, 7)
@@ -136,19 +234,53 @@ class _UpdateViewState extends State<UpdateView> {
           '${result.skipped.length} skipped',
         );
       }
-      _previewSystemUpdate(baseDirPath, nixblitzOnly: false);
+
+      // Commit the plugin-refresh diffs immediately, scoped to
+      // exactly the paths the refresh touched. Without this, the
+      // changes linger in the working tree and `nix flake update`
+      // (whose lock-update gate is the only signal updateLock
+      // checks) can correctly report "no inputs changed" even
+      // though plugin trees moved — the user would land on a
+      // confusing "Nothing to apply" screen and only later see
+      // pending changes on the dashboard. Scoped paths instead of
+      // `git add -A` so we don't sweep up unrelated user edits.
+      if (result.refreshed.isNotEmpty) {
+        final paths = <String>[
+          'config.json',
+          for (final p in result.refreshed) 'plugins/${p.dirName}',
+        ];
+        final ids = result.refreshed.map((p) => p.id).join(', ');
+        _appendUpdateLine('');
+        _appendUpdateLine('> git commit -m "Update plugins: $ids"');
+        final ok = await git.commitPaths(paths, 'Update plugins: $ids');
+        if (!ok) {
+          _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
+        }
+      }
+
+      _previewSystemUpdate(
+        baseDirPath,
+        nixblitzOnly: false,
+        initialHead: initialHead,
+      );
     }).catchError((e, st) {
       LogService.error('plugin refresh during update threw', e, st);
       _appendUpdateLine('  ⚠ plugin refresh threw: $e (continuing)');
-      _previewSystemUpdate(baseDirPath, nixblitzOnly: false);
+      _previewSystemUpdate(
+        baseDirPath,
+        nixblitzOnly: false,
+        initialHead: initialHead,
+      );
     });
   }
 
   void _previewSystemUpdate(
     String baseDirPath, {
     required bool nixblitzOnly,
+    String? initialHead,
   }) {
     final systemService = context.read(systemServiceProvider);
+    final git = context.read(gitServiceProvider);
     final updateArgs = nixblitzOnly
         ? const ['flake', 'update', 'nixblitz']
         : const ['flake', 'update'];
@@ -170,7 +302,18 @@ class _UpdateViewState extends State<UpdateView> {
         _failToDone(res.exitCode);
         return;
       }
-      if (!res.committed) {
+      // "Anything to apply?" — capture HEAD now and compare against
+      // wherever the flow started. Covers plugin-refresh commits
+      // upstream of us as well as updateLock's flake.lock commit.
+      // initialHead is null when this method was called directly
+      // from _startUpdate's nixblitzOnly path; treat that as "the
+      // only commit point is updateLock" and use the lock's own
+      // committed flag.
+      final currentHead = await git.headRef();
+      final headMoved = initialHead != null
+          ? currentHead != initialHead
+          : res.committed;
+      if (!headMoved) {
         _appendUpdateLine('');
         _appendUpdateLine('Nothing to apply.');
         _completeWithSuccess();
@@ -389,6 +532,7 @@ class _UpdateViewState extends State<UpdateView> {
     const options = [
       'Update NixBlitz TUI only',
       'Update entire system',
+      'Refresh plugins only',
       'Refresh Nix templates (from current TUI)',
       'Cancel',
     ];
@@ -419,6 +563,8 @@ class _UpdateViewState extends State<UpdateView> {
             } else if (selection == 1) {
               _startUpdate(false);
             } else if (selection == 2) {
+              _refreshPluginsOnly();
+            } else if (selection == 3) {
               _refreshTemplates();
             } else {
               context.read(currentViewProvider.notifier).state =
@@ -467,6 +613,8 @@ class _UpdateViewState extends State<UpdateView> {
                 1 =>
                   'Updates NixBlitz, NixOS, and all services. May take a while.',
                 2 =>
+                  'Pulls the latest commit for every installed plugin (skipping\npinned ones), commits the diff, then previews + rebuilds. Same as\n`nixblitz plugin refresh --all` followed by Apply.',
+                3 =>
                   'Rewrites ~/nixblitz/ Nix files from the currently running TUI.\nUse this after a TUI upgrade to pick up new modules, or to recover\nfrom a broken config. Preserves config.json.',
                 _ => '',
               },

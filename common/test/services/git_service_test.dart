@@ -125,5 +125,64 @@ void main() {
       final content = await file.readAsString();
       expect(content, 'original');
     });
+
+    test('commitPaths only stages the listed paths', () async {
+      await service.init();
+      // Initial commit so HEAD exists.
+      await File('${tempDir.path}/seed.txt').writeAsString('seed');
+      await service.commit('seed.txt', 'seed');
+
+      // Two unrelated changes; only one should land in the commit.
+      await File('${tempDir.path}/wanted.txt').writeAsString('keep me');
+      await File('${tempDir.path}/leftover.txt').writeAsString('skip me');
+
+      final ok =
+          await service.commitPaths(['wanted.txt'], 'scoped commit');
+      expect(ok, true);
+
+      // wanted.txt landed, leftover.txt is still pending.
+      final lines = await service.status();
+      expect(lines.any((l) => l.contains('wanted.txt')), false);
+      expect(lines.any((l) => l.contains('leftover.txt')), true);
+
+      final log = await service.log(count: 1);
+      expect(log, contains('scoped commit'));
+    });
+
+    test('commitPaths returns false when none of the paths changed',
+        () async {
+      await service.init();
+      await File('${tempDir.path}/seed.txt').writeAsString('seed');
+      await service.commit('seed.txt', 'seed');
+
+      final ok = await service.commitPaths(['seed.txt'], 'no-op');
+      expect(ok, false);
+    });
+
+    test('commitPaths returns false on empty path list', () async {
+      await service.init();
+      final ok = await service.commitPaths(const [], 'whatever');
+      expect(ok, false);
+    });
+
+    test('headRef returns null on a virgin repo, then a SHA', () async {
+      await service.init();
+      // No commits yet.
+      expect(await service.headRef(), isNull);
+
+      await File('${tempDir.path}/x.txt').writeAsString('x');
+      await service.commit('x.txt', 'first');
+
+      final h1 = await service.headRef();
+      expect(h1, isNotNull);
+      expect(h1!.length, 40); // git's full SHA-1
+
+      await File('${tempDir.path}/x.txt').writeAsString('x2');
+      await service.commit('x.txt', 'second');
+
+      final h2 = await service.headRef();
+      expect(h2, isNotNull);
+      expect(h2, isNot(h1)); // moved
+    });
   });
 }

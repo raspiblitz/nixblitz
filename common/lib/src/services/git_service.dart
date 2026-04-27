@@ -130,6 +130,48 @@ class GitService {
     return commit.exitCode == 0;
   }
 
+  /// Stage [paths] (relative to [repoDir]) and commit with [message].
+  /// Useful when an automated step should commit *only* the files it
+  /// touched, leaving any unrelated working-tree edits the user may
+  /// have for their own Apply step. Returns true only when a commit
+  /// was created.
+  Future<bool> commitPaths(List<String> paths, String message) async {
+    if (paths.isEmpty) return false;
+    final add = await Process.run(
+      'git',
+      _g(['add', ...paths]),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    if (add.exitCode != 0) return false;
+    final commit = await Process.run(
+      'git',
+      _g(['commit', '-m', message]),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    return commit.exitCode == 0;
+  }
+
+  /// Returns the current `HEAD` SHA, or null if `git rev-parse` fails
+  /// (e.g. an empty repo, missing `.git`). Tests can use this to
+  /// detect commits made between two points without parsing log
+  /// output.
+  Future<String?> headRef() async {
+    try {
+      final r = await Process.run(
+        'git',
+        _g(['rev-parse', 'HEAD']),
+        workingDirectory: repoDir,
+        environment: environment,
+      );
+      if (r.exitCode != 0) return null;
+      return (r.stdout as String).trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Revert the working tree to match HEAD, wiping any uncommitted changes.
   /// Untracked files are left in place.
   Future<bool> discardAll() async {
