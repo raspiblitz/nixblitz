@@ -370,8 +370,10 @@ class _UpdateViewState extends State<UpdateView> {
       _UpdateMode.selectMode => _buildSelectMode(),
       _UpdateMode.running => _buildRunning(
           label: 'Computing update preview…',
-          hint: 'Evaluating new system. First run after a flake bump '
-              'can take 30-60s.',
+          hint: 'Building new system from binary cache. First run '
+              'after a flake bump can take a few minutes; the '
+              'subsequent rebuild on Apply will be near-instant '
+              'since everything is already in /nix/store.',
         ),
       _UpdateMode.previewing => _buildPreview(),
       _UpdateMode.applying => _buildRunning(

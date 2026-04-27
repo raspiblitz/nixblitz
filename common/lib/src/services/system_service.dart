@@ -199,16 +199,25 @@ class SystemService {
   }) previewPackageDiff({required String flakePath}) {
     final controller = StreamController<String>();
     final result = () async {
-      controller.add('> nix eval --raw .#nixosConfigurations.nixblitz'
-          '.config.system.build.toplevel');
-      controller.add('  (evaluating new system — first run after a flake'
-          ' bump can take 30-60s)');
+      controller.add('> nix build --no-link --print-out-paths '
+          '.#nixosConfigurations.nixblitz.config.system.build.toplevel');
+      controller.add('  (realizing new system — pulls from binary cache, '
+          'compiles anything not cached; first run after a flake bump '
+          'can take a few minutes)');
       controller.add('');
 
+      // `nix build --no-link --print-out-paths` realizes the
+      // derivation (mostly via binary-cache substitution) and writes
+      // the resulting store path to stdout. We need realization, not
+      // just evaluation: nvd diff fails with "Path does not exist"
+      // when the toplevel store path is just a hash prediction the
+      // store doesn't actually contain yet. Bonus: by building here,
+      // the subsequent `nixos-rebuild switch` is essentially
+      // activation-only — everything's already in the store.
       final eval = await Process.start(
         'nix',
         [
-          'eval', '--raw',
+          'build', '--no-link', '--print-out-paths',
           '$flakePath#nixosConfigurations.nixblitz.config.system.build.toplevel',
         ],
         workingDirectory: flakePath,
@@ -229,7 +238,7 @@ class SystemService {
       await stdoutDone.future;
 
       if (evalCode != 0) {
-        final msg = 'Eval failed (exit $evalCode). The new lock '
+        final msg = 'Build failed (exit $evalCode). The new lock '
             "can't build cleanly — fix the underlying error or "
             'discard the update.';
         controller.add('');
@@ -245,7 +254,7 @@ class SystemService {
       final newTop = parseToplevel(stdoutBuf.toString());
       if (newTop == null) {
         const msg = 'Could not parse new system store path from '
-            'nix-eval output.';
+            'nix-build output.';
         controller.add('');
         controller.add(msg);
         await controller.close();
@@ -294,9 +303,8 @@ class SystemService {
   }
 
   /// Pure parser: extracts a single `/nix/store/...` path from the
-  /// stdout of `nix eval --raw` (we use that instead of
-  /// `nix build --dry-run` because eval is faster on warm cache
-  /// and only needs the store path, not the closure).
+  /// stdout of `nix build --print-out-paths` (or `nix eval --raw`
+  /// for that matter — both emit a single store path).
   ///
   /// Tolerates trailing whitespace / multi-line output. Returns
   /// null if no store path is found.

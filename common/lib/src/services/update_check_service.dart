@@ -150,11 +150,15 @@ class UpdateCheckService {
         return 1;
       }
 
-      // 2. eval new toplevel.
+      // 2. build new toplevel — realizes the derivation in the
+      // store (mostly via binary-cache substitution) so nvd diff
+      // can introspect it. `nix eval --raw` would only return a
+      // hash-predicted path that doesn't exist on disk yet, and
+      // nvd would fail with "Path does not exist".
       final eval = await Process.run(
         'nix',
         [
-          'eval', '--raw',
+          'build', '--no-link', '--print-out-paths',
           '$tmpFlake#nixosConfigurations.nixblitz.config.system.build.toplevel',
         ],
         workingDirectory: tmpFlake,
@@ -163,7 +167,7 @@ class UpdateCheckService {
         _merge(HeavyCheck(
           checkedAt: now,
           ok: false,
-          error: 'nix eval failed: ${(eval.stderr as String).trim()}',
+          error: 'nix build failed: ${(eval.stderr as String).trim()}',
         ));
         return 1;
       }
@@ -172,7 +176,7 @@ class UpdateCheckService {
         _merge(HeavyCheck(
           checkedAt: now,
           ok: false,
-          error: 'eval did not return a store path: $newTop',
+          error: 'nix build did not return a store path: $newTop',
         ));
         return 1;
       }
