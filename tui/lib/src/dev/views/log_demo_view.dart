@@ -137,11 +137,17 @@ class _LogDemoViewState extends State<LogDemoView> {
               ],
             ),
             Text(
-              '[s] start/stop  [a] add one  [m] add multi-line  [c] clear  [Esc] back',
+              '[s] start/stop  [a] add one  [m] add multi-line  [c] clear  '
+              '[/] search  [Esc] back',
               style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: lines)),
+            // `focused: true` so j/k, PgUp/PgDn, and / search are wired
+            // to the log itself. Keys the log doesn't consume bubble up
+            // to the outer Focusable for s/a/m/c/Esc.
+            Expanded(
+              child: ScrollableLog(lines: lines, focused: true),
+            ),
           ],
         ),
       ),
