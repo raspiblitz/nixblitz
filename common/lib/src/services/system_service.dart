@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:common/src/models/service_status.dart';
+import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/sudo_session.dart';
 
 /// Exit code that the shell wrapper at `bin/nixblitz` interprets as
@@ -13,6 +14,69 @@ const int restartExitCode = 42;
 /// new nixblitz-bin in the store.
 const String _currentSystemBin =
     '/run/current-system/sw/bin/nixblitz-bin';
+
+/// Result of [SystemService.updateLock]: did we actually move the
+/// flake.lock forward, and (if not) why?
+class LockUpdateResult {
+  const LockUpdateResult({
+    required this.exitCode,
+    required this.committed,
+  });
+
+  /// Exit code of the underlying `nix flake update` invocation. Non-
+  /// zero means the lock-update step itself failed and the rest of
+  /// the flow should bail.
+  final int exitCode;
+
+  /// True if the new lock differed from the old AND we successfully
+  /// committed it. False means either the flake's pins didn't move
+  /// (no inputs changed) or the commit failed.
+  final bool committed;
+
+  bool get success => exitCode == 0;
+}
+
+/// Result of [SystemService.previewPackageDiff].
+class PackageDiffResult {
+  const PackageDiffResult({
+    required this.exitCode,
+    required this.diffText,
+    this.newToplevel,
+    this.errorMessage,
+  });
+
+  /// 0 on a clean preview (eval succeeded, nvd ran). Non-zero means
+  /// the eval or nvd step failed; [errorMessage] should explain.
+  final int exitCode;
+
+  /// Resolved store path of the newly-evaluated system. Null on
+  /// eval failure.
+  final String? newToplevel;
+
+  /// Formatted text from `nvd diff` — empty when [noChanges] is
+  /// true or when the eval failed before nvd could run.
+  final String diffText;
+
+  /// Short human-readable error when [exitCode] is non-zero.
+  final String? errorMessage;
+
+  bool get success => exitCode == 0;
+
+  /// True when the new toplevel store path is identical to the
+  /// currently-running system's. Saves us showing an empty diff.
+  bool get noChanges =>
+      success && newToplevel != null && _currentMatches(newToplevel!);
+
+  static bool _currentMatches(String newToplevel) {
+    try {
+      final r = Process.runSync('readlink', ['-f', '/run/current-system']);
+      if (r.exitCode != 0) return false;
+      return (r.stdout as String).trim() == newToplevel;
+    } catch (_) {
+      return false;
+    }
+  }
+}
 
 class SystemService {
   SystemService({required this.sudoSession});
@@ -49,56 +113,47 @@ class SystemService {
     return Future.wait(services.map(getServiceStatus));
   }
 
-  /// Update a single flake input and rebuild.
-  ({Stream<String> output, Future<int> exitCode}) updateInput(
-    String flakePath,
-    String inputName,
-  ) {
-    return _updateAndRebuild(
-      flakePath: flakePath,
-      updateArgs: ['flake', 'update', inputName],
-      updateLabel: '> nix flake update $inputName',
-      commitMessage: 'Update $inputName',
-    );
-  }
-
-  /// Update all flake inputs and rebuild.
-  ({Stream<String> output, Future<int> exitCode}) updateAll(String flakePath) {
-    return _updateAndRebuild(
-      flakePath: flakePath,
-      updateArgs: ['flake', 'update'],
-      updateLabel: '> nix flake update',
-      commitMessage: 'Update all flake inputs',
-    );
-  }
-
-  ({Stream<String> output, Future<int> exitCode}) _updateAndRebuild({
+  /// Phase 1 of the Update flow: run `nix flake update <inputs>` in
+  /// [flakePath], commit the new `flake.lock` if (and only if) it
+  /// actually moved, and stream the output for live display.
+  ///
+  /// Caller checks [LockUpdateResult.committed] to decide whether
+  /// to proceed to [previewPackageDiff] / [rebuild]. When
+  /// `committed` is false the flow can short-circuit ("nothing to
+  /// preview").
+  ({
+    Stream<String> output,
+    Future<LockUpdateResult> result,
+  }) updateLock({
     required String flakePath,
     required List<String> updateArgs,
-    required String updateLabel,
     required String commitMessage,
   }) {
     final controller = StreamController<String>();
-    final exitCodeFuture = () async {
-      // Step 1: run `nix flake update [input]`
-      controller.add(updateLabel);
+    final result = () async {
+      controller.add('> nix ${updateArgs.join(" ")}');
       controller.add('');
+
       final update = await Process.start(
         'nix', updateArgs,
         workingDirectory: flakePath,
       );
-      update.stdout.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
-      update.stderr.transform(const SystemEncoding().decoder).listen((data) => controller.add(data));
+      update.stdout
+          .transform(const SystemEncoding().decoder)
+          .listen(controller.add);
+      update.stderr
+          .transform(const SystemEncoding().decoder)
+          .listen(controller.add);
       final updateCode = await update.exitCode;
       if (updateCode != 0) {
-        controller.add('\nFlake update failed (exit code $updateCode).');
+        controller.add('\nFlake update failed (exit $updateCode).');
         await controller.close();
-        return updateCode;
+        return LockUpdateResult(exitCode: updateCode, committed: false);
       }
 
-      // Step 2: only commit + rebuild if flake.lock actually changed.
-      // `nix flake update` rewrites the file even when nothing moved,
-      // so we use git as the source of truth.
+      // Even when nothing moves, `nix flake update` rewrites the
+      // file with a fresh `lastModified`. Use git as the source of
+      // truth on whether the pins actually changed.
       final diff = await Process.run(
         'git', ['diff', '--quiet', '--exit-code', 'flake.lock'],
         workingDirectory: flakePath,
@@ -108,28 +163,171 @@ class SystemService {
         controller.add('');
         controller.add('No inputs changed — system already up to date.');
         await controller.close();
-        return 0;
+        return const LockUpdateResult(exitCode: 0, committed: false);
       }
 
       controller.add('');
       controller.add('> git commit flake.lock');
-      await Process.run('git', ['add', 'flake.lock'], workingDirectory: flakePath);
-      await Process.run('git', ['commit', '-m', commitMessage], workingDirectory: flakePath);
-
-      // Step 3: rebuild
-      controller.add('');
-      controller.add('> sudo nixos-rebuild switch --flake $flakePath');
-      controller.add('');
-      final (:output, :exitCode) = sudoSession.runStreaming(
-        ['nixos-rebuild', 'switch', '--flake', flakePath],
+      await Process.run('git', ['add', 'flake.lock'],
+          workingDirectory: flakePath);
+      final commit = await Process.run(
+        'git', ['commit', '-m', commitMessage],
+        workingDirectory: flakePath,
       );
-      final sub = output.listen(controller.add);
-      final rebuildCode = await exitCode;
-      await sub.cancel();
       await controller.close();
-      return rebuildCode;
+      return LockUpdateResult(
+        exitCode: 0,
+        committed: commit.exitCode == 0,
+      );
     }();
-    return (output: controller.stream, exitCode: exitCodeFuture);
+    return (output: controller.stream, result: result);
+  }
+
+  /// Phase 2 of the Update flow: evaluate the (now-updated) flake's
+  /// `nixosConfigurations.nixblitz.config.system.build.toplevel` to
+  /// resolve the *new* system store path, then run `nvd diff` against
+  /// `/run/current-system`. Streams progress (the eval is the slow
+  /// step on a freshly-bumped lock).
+  ///
+  /// On eval failure, [PackageDiffResult.exitCode] is non-zero and
+  /// [PackageDiffResult.errorMessage] holds the reason; the UI
+  /// should let the user revert the lock commit and bail out before
+  /// kicking off a doomed rebuild.
+  ({
+    Stream<String> output,
+    Future<PackageDiffResult> result,
+  }) previewPackageDiff({required String flakePath}) {
+    final controller = StreamController<String>();
+    final result = () async {
+      controller.add('> nix eval --raw .#nixosConfigurations.nixblitz'
+          '.config.system.build.toplevel');
+      controller.add('  (evaluating new system — first run after a flake'
+          ' bump can take 30-60s)');
+      controller.add('');
+
+      final eval = await Process.start(
+        'nix',
+        [
+          'eval', '--raw',
+          '$flakePath#nixosConfigurations.nixblitz.config.system.build.toplevel',
+        ],
+        workingDirectory: flakePath,
+      );
+
+      final stdoutBuf = StringBuffer();
+      final stdoutDone = Completer<void>();
+      eval.stdout.transform(const SystemEncoding().decoder).listen(
+        stdoutBuf.write,
+        onDone: () =>
+            stdoutDone.isCompleted ? null : stdoutDone.complete(),
+      );
+      eval.stderr
+          .transform(const SystemEncoding().decoder)
+          .listen(controller.add);
+
+      final evalCode = await eval.exitCode;
+      await stdoutDone.future;
+
+      if (evalCode != 0) {
+        final msg = 'Eval failed (exit $evalCode). The new lock '
+            "can't build cleanly — fix the underlying error or "
+            'discard the update.';
+        controller.add('');
+        controller.add(msg);
+        await controller.close();
+        return PackageDiffResult(
+          exitCode: evalCode,
+          diffText: '',
+          errorMessage: msg,
+        );
+      }
+
+      final newTop = parseToplevel(stdoutBuf.toString());
+      if (newTop == null) {
+        const msg = 'Could not parse new system store path from '
+            'nix-eval output.';
+        controller.add('');
+        controller.add(msg);
+        await controller.close();
+        return const PackageDiffResult(
+          exitCode: 1,
+          diffText: '',
+          errorMessage: msg,
+        );
+      }
+
+      controller.add('');
+      controller.add('> nvd diff /run/current-system $newTop');
+      controller.add('');
+
+      // nvd may not yet be on PATH — happens on the very first
+      // template refresh that *adds* it to base.nix. Treat
+      // ProcessException as a soft failure so the user still gets
+      // a preview screen and can proceed/discard.
+      try {
+        final nvd = await Process.run(
+          'nvd', ['diff', '/run/current-system', newTop],
+        );
+        final nvdOut = (nvd.stdout as String) + (nvd.stderr as String);
+        controller.add(nvdOut);
+        await controller.close();
+        return PackageDiffResult(
+          exitCode: 0,
+          diffText: nvdOut,
+          newToplevel: newTop,
+        );
+      } on ProcessException catch (e) {
+        const placeholder =
+            '(nvd not installed yet — this rebuild will install it; '
+            'per-package preview will be available on the next update)';
+        controller.add(placeholder);
+        controller.add('  spawn error: ${e.message}');
+        await controller.close();
+        return PackageDiffResult(
+          exitCode: 0,
+          diffText: placeholder,
+          newToplevel: newTop,
+        );
+      }
+    }();
+    return (output: controller.stream, result: result);
+  }
+
+  /// Pure parser: extracts a single `/nix/store/...` path from the
+  /// stdout of `nix eval --raw` (we use that instead of
+  /// `nix build --dry-run` because eval is faster on warm cache
+  /// and only needs the store path, not the closure).
+  ///
+  /// Tolerates trailing whitespace / multi-line output. Returns
+  /// null if no store path is found.
+  static String? parseToplevel(String stdout) {
+    final trimmed = stdout.trim();
+    if (trimmed.startsWith('/nix/store/') && !trimmed.contains('\n')) {
+      return trimmed;
+    }
+    final match = RegExp(r'/nix/store/[a-z0-9]+-[^\s]+').firstMatch(trimmed);
+    return match?.group(0);
+  }
+
+  /// Phase 4 (used on user [d]iscard from the preview screen):
+  /// roll back the most recent `flake.lock` commit so the working
+  /// tree returns to its pre-Update state. Idempotent.
+  Future<bool> revertLastFlakeCommit(String flakePath) async {
+    try {
+      final r = await Process.run(
+        'git', ['reset', '--hard', 'HEAD~1'],
+        workingDirectory: flakePath,
+      );
+      if (r.exitCode != 0) {
+        LogService.warn(
+          'revertLastFlakeCommit: git reset failed: ${r.stderr}',
+        );
+      }
+      return r.exitCode == 0;
+    } catch (e, st) {
+      LogService.error('revertLastFlakeCommit threw', e, st);
+      return false;
+    }
   }
 
   /// True if the binary currently targeted by the NixOS "current generation"

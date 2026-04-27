@@ -24,6 +24,11 @@ in {
       btop
       tree
       jq
+      # Used by the TUI's Update view to render a per-package
+      # version diff (`[U.] bitcoind 27.1, 27.2`) between the
+      # running system and the dry-built next generation. Tiny
+      # closure; also useful at the shell.
+      nvd
       nushell
       nixblitz.packages.${pkgs.system}.nixblitz-unwrapped
     ];

@@ -31,4 +31,36 @@ void main() {
       expect(status.state, ServiceState.activating);
     });
   });
+
+  group('SystemService.parseToplevel', () {
+    test('extracts a clean single-line store path', () {
+      const out = '/nix/store/abc123def456-nixos-system-nixblitz-25.11';
+      expect(SystemService.parseToplevel(out), out);
+    });
+
+    test('strips trailing newline', () {
+      const out =
+          '/nix/store/abc123def456-nixos-system-nixblitz-25.11\n';
+      expect(
+        SystemService.parseToplevel(out),
+        '/nix/store/abc123def456-nixos-system-nixblitz-25.11',
+      );
+    });
+
+    test('finds path embedded in noisy multi-line output', () {
+      const out =
+          'evaluating flake...\n'
+          '/nix/store/xyz789-nixos-system-nixblitz-25.11\n'
+          'done.\n';
+      expect(
+        SystemService.parseToplevel(out),
+        '/nix/store/xyz789-nixos-system-nixblitz-25.11',
+      );
+    });
+
+    test('returns null on output without a store path', () {
+      expect(SystemService.parseToplevel('error: eval failed'), isNull);
+      expect(SystemService.parseToplevel(''), isNull);
+    });
+  });
 }
