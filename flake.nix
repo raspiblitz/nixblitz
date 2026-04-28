@@ -34,6 +34,14 @@
         nixblitzUnwrapped = pkgsUnstable.callPackage ./nix/tui_pkg.nix {
           nixFilter = nix-filter.lib;
           inherit version gitHash;
+          # Augmented version goes into the derivation's name so
+          # `nvd diff` lists nixblitz as changed on every commit
+          # (otherwise nvd compares "nixblitz-0.1.0" against
+          # itself and reports "No version or selection state
+          # changes" even when the binary actually moved). Display
+          # surfaces (TUI header, --version) still see plain
+          # [version] so they don't churn on micro-changes.
+          derivationVersion = "${version}+${gitHash}";
         };
 
         # Wrap nixblitz with disko and git on PATH so `nix run` just works

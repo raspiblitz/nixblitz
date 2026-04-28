@@ -4,13 +4,24 @@
   nixFilter,
   version,
   gitHash ? "local",
+  # Version string used for the derivation's `pname-version`
+  # name. Defaults to [version], but the flake passes
+  # "${version}+${gitHash}" so nvd's package diff can detect
+  # commit-to-commit nixblitz updates (it compares by package
+  # name, not by store-path digest, so a constant `version`
+  # makes every rebuild look like a no-op even when the binary
+  # changed). Display strings still use plain [version].
+  derivationVersion ? version,
 }:
 buildDartApplication {
   pname = "nixblitz";
-  inherit version;
+  version = derivationVersion;
 
   # Bake version + git hash into the compiled binary via
   # `const String.fromEnvironment('…')`. See tui/lib/src/build_info.dart.
+  # Note: BUILD_VERSION uses the short [version] so the TUI header
+  # and `nixblitz --version` stay readable; the augmented
+  # [derivationVersion] is only for nvd's benefit.
   dartCompileFlags = [
     "--define=BUILD_VERSION=${version}"
     "--define=BUILD_GIT_HASH=${gitHash}"
@@ -79,7 +90,7 @@ buildDartApplication {
   meta = with lib; {
     description = "NixBlitz - Bitcoin/Lightning node manager TUI";
     license = licenses.mit;
-    inherit version;
+    version = derivationVersion;
     mainProgram = "nixblitz";
   };
 }
