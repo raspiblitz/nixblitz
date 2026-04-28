@@ -406,11 +406,27 @@ class _UpdateViewState extends State<UpdateView> {
     if (_started) return;
     _started = true;
     final baseDirPath = context.read(baseDirProvider);
+    final sudo = context.read(sudoSessionProvider);
+
+    // Re-ensure sudo freshness before kicking off `sudo -n`. The
+    // operator may have sat on the preview screen long enough for
+    // the cached timestamp to expire (default sudo grace is 5
+    // min); without this, `sudo -n nixos-rebuild switch` exits 1
+    // with "sudo: a password is required" in stderr and we
+    // mis-classify that as a generic "Update Failed".
     context.read(_updateModeProvider.notifier).state = _UpdateMode.applying;
     _appendUpdateLine('');
-    _appendUpdateLine('> sudo nixos-rebuild switch --flake $baseDirPath');
-    _appendUpdateLine('');
-    _runRebuild(baseDirPath);
+    _appendUpdateLine('> sudo -v (re-authorize for apply)');
+    sudo.ensureFresh().then((ok) {
+      if (!ok) {
+        _appendUpdateLine('Authorization cancelled — aborting apply.');
+        _failToDone(1);
+        return;
+      }
+      _appendUpdateLine('> sudo nixos-rebuild switch --flake $baseDirPath');
+      _appendUpdateLine('');
+      _runRebuild(baseDirPath);
+    });
   }
 
   void _discardPreview() {

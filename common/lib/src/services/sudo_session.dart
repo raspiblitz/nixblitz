@@ -69,7 +69,15 @@ class SudoSession {
   SudoSession({
     SudoAuthBackend? authBackend,
     Duration freshThreshold = const Duration(minutes: 4),
-    Duration keepaliveInterval = const Duration(minutes: 10),
+    // Must stay strictly less than the operator's sudo grace
+    // window (default 5 min in stock sudoers) — once the
+    // timestamp lapses, `sudo -n -v` fails silently and won't
+    // refresh it, so any subsequent `sudo -n <cmd>` falls into
+    // the password-required path. 3 min keeps the keepalive
+    // comfortably inside the default grace; deployments that run
+    // a tighter `timestamp_timeout` should pass an explicit
+    // override.
+    Duration keepaliveInterval = const Duration(minutes: 3),
   })  : _auth = authBackend ?? _DefaultSudoAuthBackend(),
         _freshThreshold = freshThreshold,
         _keepaliveInterval = keepaliveInterval;
