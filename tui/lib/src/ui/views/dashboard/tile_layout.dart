@@ -9,6 +9,50 @@ int columnsFor(double width) {
   return 3;
 }
 
+/// Pure column-assignment for [tileRows]. Given [n] tiles and
+/// [cols] columns, return the list of tile indices that land in
+/// each column, top-to-bottom.
+///
+/// Conceptually the layout is a `rows x cols` grid filled
+/// row-major. Strict round-robin would leave a partial last row
+/// LEFT-aligned, which strands an orphan tile alone in the bottom
+/// of the leftmost column when other columns ended earlier — reads
+/// as "something missing." Right-aligning the partial last row
+/// pushes the gap into the BOTTOM-LEFT corner(s), where it reads
+/// as the natural end of a list.
+///
+/// A naive "move the last tile to the shortest column" rule (an
+/// earlier attempt) gets cols=2 right but breaks cols=3 / N=5: it
+/// teleports the last tile across the middle column to the
+/// rightmost, leaving the middle column as a *between* gap —
+/// worse than the original. Right-aligning the entire last
+/// partial row keeps the gaps contiguous on the left.
+///
+/// Not real masonry — tiles have varying heights and we don't
+/// track them. Just count-balance with a consistent gap position.
+///
+/// Public so the layout logic can be tested without rendering;
+/// callers in the dashboard go through [tileRows] instead.
+List<List<int>> assignColumns(int n, int cols) {
+  if (n <= 0 || cols <= 0) return List.generate(cols, (_) => const []);
+  if (cols == 1) return [List.generate(n, (i) => i)];
+
+  final rows = (n + cols - 1) ~/ cols;
+  final lastRowStart = (rows - 1) * cols;
+  final lastRowCount = n - lastRowStart;
+  final shift = rows > 1 && lastRowCount < cols
+      ? cols - lastRowCount
+      : 0;
+
+  final columns = List.generate(cols, (_) => <int>[]);
+  for (var i = 0; i < n; i++) {
+    final col =
+        i < lastRowStart ? i % cols : (i - lastRowStart + shift);
+    columns[col].add(i);
+  }
+  return columns;
+}
+
 /// Lay out [tiles] in a [cols]-wide masonry: each column is a
 /// stack of tiles abutting top-to-bottom; tiles are distributed
 /// to columns by index (`tile[i] → column[i % cols]`).
@@ -42,10 +86,10 @@ List<Component> tileRows(List<Component> tiles, int cols) {
     ];
   }
 
-  final columns = List.generate(cols, (_) => <Component>[]);
-  for (var i = 0; i < tiles.length; i++) {
-    columns[i % cols].add(tiles[i]);
-  }
+  final assignments = assignColumns(tiles.length, cols);
+  final columns = [
+    for (final indices in assignments) [for (final i in indices) tiles[i]],
+  ];
 
   final rowChildren = <Component>[];
   for (var c = 0; c < cols; c++) {
