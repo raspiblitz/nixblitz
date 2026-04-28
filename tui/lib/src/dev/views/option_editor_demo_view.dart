@@ -49,8 +49,8 @@ class OptionEditorDemoView extends StatelessComponent {
             ),
             const SelectOptionEditor(
               label: 'platform',
-              value: 'pi4',
-              options: ['pi4', 'pi5', 'x86', 'vm'],
+              value: 'pi5',
+              options: ['pi5', 'x86', 'vm'],
             ),
             const SizedBox(height: 1),
             const Text('Number editors:'),

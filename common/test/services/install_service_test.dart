@@ -34,9 +34,13 @@ void main() {
         expect(InstallService.detectPlatformFromCpuinfo(cpuinfo), 'x86');
       });
 
-      test('detects pi4 from cpuinfo', () {
+      test('Pi 4 falls through to x86 (unsupported, fail loudly)', () {
+        // Pi 4 isn't a supported platform — running a Bitcoin
+        // node on 4GB RAM + SD-card I/O is a bad experience and
+        // we'd rather the rebuild bail than silently produce an
+        // image that thrashes.
         const cpuinfo = 'Hardware\t: BCM2835\nRevision\t: d03114\nModel\t: Raspberry Pi 4 Model B Rev 1.4\n';
-        expect(InstallService.detectPlatformFromCpuinfo(cpuinfo), 'pi4');
+        expect(InstallService.detectPlatformFromCpuinfo(cpuinfo), 'x86');
       });
 
       test('detects pi5 from cpuinfo', () {

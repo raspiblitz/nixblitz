@@ -32,9 +32,14 @@ class InstallService {
   }
 
   static String detectPlatformFromCpuinfo(String cpuinfo) {
+    // Pi 4 was dropped — running a Bitcoin / Lightning node on
+    // 4GB of RAM and SD-card I/O is not a deployment we want to
+    // recommend, and continuing to advertise it sets up
+    // operators for a bad experience. Older Pi models fall
+    // through to "x86" which is wrong but loud (rebuild will
+    // fail), better than silently building an unsupportable
+    // image.
     if (cpuinfo.contains('Raspberry Pi 5')) return 'pi5';
-    if (cpuinfo.contains('Raspberry Pi 4')) return 'pi4';
-    if (cpuinfo.contains('Raspberry Pi')) return 'pi4';
     return 'x86';
   }
 

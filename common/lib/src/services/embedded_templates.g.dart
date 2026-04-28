@@ -135,27 +135,6 @@ const String _flake = r'''
 }
 ''';
 
-const String _hardwarePi4 = r'''
-{
-  config,
-  lib,
-  pkgs,
-  modulesPath,
-  ...
-}: {
-  imports = [
-    (modulesPath + "/installer/sd-card/sd-image-aarch64.nix")
-  ];
-
-  boot.loader.grub.enable = false;
-  boot.loader.generic-extlinux-compatible.enable = true;
-
-  hardware.enableRedistributableFirmware = true;
-
-  boot.kernelParams = ["cma=64M"];
-}
-''';
-
 const String _hardwarePi5 = r'''
 {
   config,
@@ -1016,7 +995,6 @@ in {
 Map<String, String> _getAllTemplates() {
   return {
     'flake.nix': _flake,
-    'hardware/pi4.nix': _hardwarePi4,
     'hardware/pi5.nix': _hardwarePi5,
     'hardware/vm.nix': _hardwareVm,
     'hardware/x86.nix': _hardwareX86,

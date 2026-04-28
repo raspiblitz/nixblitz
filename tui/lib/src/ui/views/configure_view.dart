@@ -343,7 +343,7 @@ class ConfigureView extends StatelessComponent {
       case 'system':
         switch (optionIndex) {
           case 2:
-            const platforms = ['pi4', 'pi5', 'x86', 'vm'];
+            const platforms = ['pi5', 'x86', 'vm'];
             final next =
                 (platforms.indexOf(config.system.platform) + 1) %
                 platforms.length;
@@ -379,7 +379,7 @@ class ConfigureView extends StatelessComponent {
           SelectOptionEditor(
             label: 'platform',
             value: config.system.platform,
-            options: const ['pi4', 'pi5', 'x86', 'vm'],
+            options: const ['pi5', 'x86', 'vm'],
             focused: selectedIndex == 2,
           ),
           TextOptionEditor(

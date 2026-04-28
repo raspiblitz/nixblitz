@@ -179,7 +179,7 @@ Possible fixes:
 - Or: add a "zram" swap device sized from available RAM
 - Or: ship a custom installer ISO that does this automatically on boot
 
-Affects Pi4 8GB, Pi5 8GB, and any x86 node with ≤8GB RAM.
+Affects Pi5 8GB and any x86 node with ≤8GB RAM.
 
 **Status:** Not urgent (VM workaround: bump -m 16384). Implement when
 we target real hardware with less RAM.

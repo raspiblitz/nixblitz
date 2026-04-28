@@ -47,7 +47,7 @@ walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
 ## Supported platforms
 
-- Raspberry Pi 4 / 5
+- Raspberry Pi 5
 - x86_64 (bare metal, Proxmox, qemu, libvirt)
 
 ## Documentation

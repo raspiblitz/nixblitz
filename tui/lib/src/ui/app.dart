@@ -174,6 +174,12 @@ class _Shell extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
+    // Touch the FS watcher once so it instantiates and starts
+    // listening on the first build. Provider memoizes — repeated
+    // reads are no-ops; the subscription stays alive for the
+    // ProviderScope's lifetime.
+    context.read(configWatcherProvider);
+
     final helpVisible = context.watch(_helpVisibleProvider);
     final sudoPromptVisible =
         context.watch(pendingSudoPromptProvider) != null;

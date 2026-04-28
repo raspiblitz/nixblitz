@@ -280,7 +280,7 @@ class ApiDashboardSource implements DashboardDataSource {
         if (prev != null) {
           // Don't overwrite platform from BAPI_PLATFORM
           // (native_python / raspiblitz) — the seed carries the
-          // nixblitz platform (vm / x86 / pi4) which is what the
+          // nixblitz platform (vm / x86 / pi5) which is what the
           // user expects to see.
           _system = prev.copyWith(
             network: (m['chain'] as String?) ?? prev.network,
