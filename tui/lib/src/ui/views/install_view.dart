@@ -67,7 +67,20 @@ class _InstallViewState extends State<InstallView> {
     _elapsedTimer = null;
   }
 
-  void _startInstall() {
+  /// Append [lines] to both the in-memory install log (visible
+  /// in the TUI) and `~/nixblitz.log` (the on-disk record). All
+  /// install-flow narration should go through here so post-mortem
+  /// debugging from the log file isn't missing the "what was
+  /// about to happen" context.
+  void _appendInstallLog(List<String> lines) {
+    for (final line in lines) {
+      LogService.info('[install] $line');
+    }
+    final current = context.read(installLogProvider);
+    context.read(installLogProvider.notifier).state = [...current, ...lines];
+  }
+
+  Future<void> _startInstall() async {
     try {
       final baseDirPath = context.read(baseDirProvider);
       final disk = context.read(selectedDiskProvider);
@@ -107,18 +120,15 @@ class _InstallViewState extends State<InstallView> {
         ...((updateResult.stderr as String).trim().split('\n')),
         ...((updateResult.stdout as String).trim().split('\n')),
       ].where((l) => l.isNotEmpty).toList();
-      context.read(installLogProvider.notifier).state = [
-        ...context.read(installLogProvider),
+      _appendInstallLog([
         ...updateOutput,
         if (updateResult.exitCode != 0)
           'nix flake update exit=${updateResult.exitCode} (continuing anyway)',
         '',
-        '> disko-install --flake $baseDirPath#$installerAttr --disk main ${disk.path}',
+        '> sudo disko-install --flake $baseDirPath#$installerAttr '
+            '--disk main ${disk.path}',
         '',
-      ];
-      LogService.info(
-        'nix flake update nixblitz: exit=${updateResult.exitCode}',
-      );
+      ]);
 
       _startElapsedTimer();
 
@@ -164,21 +174,15 @@ class _InstallViewState extends State<InstallView> {
                     InstallStep.complete;
               } else {
                 LogService.error('Failed to copy config to target');
-                final log = context.read(installLogProvider);
-                context.read(installLogProvider.notifier).state = [
-                  ...log,
-                  '\nFailed to copy config to target.',
-                ];
+                _appendInstallLog(['', 'Failed to copy config to target.']);
                 context.read(installStepProvider.notifier).state =
                     InstallStep.failed;
               }
             } else {
               LogService.error('Installation failed with exit code $code');
-              final log = context.read(installLogProvider);
-              context.read(installLogProvider.notifier).state = [
-                ...log,
-                '\nInstallation failed (exit code $code).',
-              ];
+              _appendInstallLog(
+                ['', 'Installation failed (exit code $code).'],
+              );
               context.read(installStepProvider.notifier).state =
                   InstallStep.failed;
             }
