@@ -68,6 +68,114 @@ void main() {
     });
   });
 
+  group('parseLsblkOutput', () {
+    test('drops zram from the install-target list', () {
+      // Reproduces the symptom the operator hit: after pre-install
+      // adds zram swap, `lsblk --type disk` lists /dev/zram0 as a
+      // 6 GiB "disk", which then shows up in the picker as a
+      // tempting-but-bogus install target.
+      const output = '''
+{
+  "blockdevices": [
+    {"name": "sda", "size": 1000204886016, "model": "Samsung SSD 980", "rm": false, "type": "disk"},
+    {"name": "zram0", "size": 6442450944, "model": null, "rm": false, "type": "disk"}
+  ]
+}
+''';
+      final disks = InstallService.parseLsblkOutput(output);
+      expect(disks.map((d) => d.name).toList(), ['sda']);
+    });
+  });
+
+  group('parseMemTotalBytes', () {
+    test('extracts MemTotal from /proc/meminfo', () {
+      const content = '''
+MemTotal:        8123456 kB
+MemFree:         2200000 kB
+MemAvailable:    5500000 kB
+''';
+      // 8123456 kB → 8318418944 bytes.
+      expect(InstallService.parseMemTotalBytes(content), 8123456 * 1024);
+    });
+
+    test('returns 0 when MemTotal line is absent', () {
+      expect(InstallService.parseMemTotalBytes(''), 0);
+      expect(InstallService.parseMemTotalBytes('SwapTotal: 0 kB'), 0);
+    });
+  });
+
+  group('parseProcSwapsTotalBytes', () {
+    test('returns 0 when /proc/swaps is header-only', () {
+      const content = 'Filename\tType\t\tSize\tUsed\tPriority\n';
+      expect(InstallService.parseProcSwapsTotalBytes(content), 0);
+    });
+
+    test('sums sizes from active swap devices', () {
+      // The sizes column is in 1024-byte units per `man 5 proc`.
+      const content = '''
+Filename                                Type            Size    Used    Priority
+/dev/zram0                              partition       6291452 0       100
+/dev/sda2                               partition       1024000 12345   50
+''';
+      // 6291452 kB + 1024000 kB = 7315452 kB → 7491022848 bytes.
+      expect(
+        InstallService.parseProcSwapsTotalBytes(content),
+        (6291452 + 1024000) * 1024,
+      );
+    });
+
+    test('skips malformed rows without crashing', () {
+      const content = '''
+Filename Type Size Used Priority
+/dev/zram0 partition not-a-number 0 100
+/dev/sda2 partition 512000 0 50
+''';
+      // The malformed row is dropped; only sda2 contributes.
+      expect(
+        InstallService.parseProcSwapsTotalBytes(content),
+        512000 * 1024,
+      );
+    });
+  });
+
+  group('recommendedZramBytes', () {
+    test('returns 0 when swap already exists', () {
+      // Operator already configured swap (manual mkswap, NixOS
+      // zramSwap module, etc.) — we don't second-guess them.
+      expect(
+        InstallService.recommendedZramBytes(
+          memTotalBytes: 8 * 1024 * 1024 * 1024,
+          existingSwapBytes: 1, // any non-zero
+        ),
+        0,
+      );
+    });
+
+    test('returns 0 when RAM is unknown', () {
+      // /proc/meminfo unreadable — bail rather than guess.
+      expect(
+        InstallService.recommendedZramBytes(
+          memTotalBytes: 0,
+          existingSwapBytes: 0,
+        ),
+        0,
+      );
+    });
+
+    test('returns RAM-sized zram when no existing swap', () {
+      // 8 GB RAM, no swap → 8 GB zram. Compresses ~2-3×, so
+      // gives effective 16-24 GB of working memory headroom.
+      const eightGb = 8 * 1024 * 1024 * 1024;
+      expect(
+        InstallService.recommendedZramBytes(
+          memTotalBytes: eightGb,
+          existingSwapBytes: 0,
+        ),
+        eightGb,
+      );
+    });
+  });
+
   group('installerAttributeFor', () {
     test('pi5 → nixblitz-pi5-installer', () {
       // Pi 5 install needs the aarch64 target with vendor kernel

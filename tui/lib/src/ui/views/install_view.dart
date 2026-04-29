@@ -104,9 +104,34 @@ class _InstallViewState extends State<InstallView> {
       final installService = context.read(installServiceProvider);
       context.read(installStepProvider.notifier).state = InstallStep.installing;
       context.read(installCurrentStepLabelProvider.notifier).state = 'Starting...';
-      context.read(installLogProvider.notifier).state = [
+      // Reset the in-memory log buffer to empty, then funnel every
+      // subsequent line through `_appendInstallLog` so it lands in
+      // both the TUI buffer and `~/nixblitz.log`.
+      context.read(installLogProvider.notifier).state = const [];
+
+      // Pre-install memory check: live NixOS ISOs size root tmpfs
+      // at roughly half RAM, and the NixBlitz eval can spill over
+      // that on ≤8 GB hosts (we hit it on a stock 8 GB box —
+      // `error: writing to file: No space left on device` mid-eval).
+      // Set up zram-backed swap if none is already configured;
+      // it's lazy-allocated (no upfront RAM cost) and compresses
+      // ~2-3× on Nix store paths.
+      _appendInstallLog(['> Pre-install memory check']);
+      context.read(installCurrentStepLabelProvider.notifier).state =
+          'Checking memory...';
+      final swapResult = await installService.ensureSwapForInstall();
+      _appendInstallLog(swapResult.log);
+      if (!swapResult.succeeded) {
+        _appendInstallLog([
+          '  WARNING: zram setup failed; install may run out of memory',
+          '  if RAM is tight. Continuing anyway.',
+        ]);
+      }
+      _appendInstallLog(['']);
+
+      _appendInstallLog([
         '> nix flake update nixblitz (refresh remote cache)',
-      ];
+      ]);
 
       // Nix caches git+https inputs aggressively. Force-refresh the nixblitz
       // input so disko-install pins the *current* remote tip in flake.lock,

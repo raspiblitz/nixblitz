@@ -54,6 +54,59 @@ class InstallService {
     return 0;
   }
 
+  /// Parse `/proc/meminfo`'s `MemTotal:` line and return the
+  /// total in bytes. Returns 0 if the line is missing — caller
+  /// treats that as "RAM unknown, assume worst case".
+  static int parseMemTotalBytes(String contents) {
+    final match = RegExp(r'MemTotal:\s+(\d+)\s+kB').firstMatch(contents);
+    if (match == null) return 0;
+    return int.parse(match.group(1)!) * 1024;
+  }
+
+  /// Sum the active swap devices in `/proc/swaps`. Returns 0
+  /// when no swap is configured (header-only file). Used by the
+  /// pre-install check to decide whether the live ISO needs a
+  /// zram fallback before the heavy nix eval kicks off.
+  static int parseProcSwapsTotalBytes(String contents) {
+    // Format: header line + one row per active swap device. The
+    // size column is in 1024-byte units (man 5 proc).
+    //   Filename               Type       Size    Used  Priority
+    //   /dev/zram0             partition  6291452 0     100
+    final lines = contents.split('\n');
+    if (lines.length <= 1) return 0;
+    var totalBytes = 0;
+    for (final line in lines.skip(1)) {
+      if (line.trim().isEmpty) continue;
+      final fields = line.split(RegExp(r'\s+'));
+      if (fields.length < 3) continue;
+      final kb = int.tryParse(fields[2]);
+      if (kb == null) continue;
+      totalBytes += kb * 1024;
+    }
+    return totalBytes;
+  }
+
+  /// How much zram swap to set up before the install eval, in
+  /// bytes. Returns 0 when existing swap covers the gap or no
+  /// action is needed.
+  ///
+  /// Rationale: the live NixOS ISO sizes root tmpfs at roughly
+  /// half RAM; the Bitcoin / Lightning eval can spill over that
+  /// on machines with ≤8 GB. zram compresses ~2-3× in practice
+  /// on Nix store paths, so a RAM-sized zram device gives
+  /// effective 2-3× headroom and is lazily allocated (no actual
+  /// RAM cost until used). If the live ISO already has swap
+  /// configured (zramSwap NixOS module, manual mkswap, etc.),
+  /// don't second-guess it.
+  static int recommendedZramBytes({
+    required int memTotalBytes,
+    required int existingSwapBytes,
+  }) {
+    if (existingSwapBytes > 0) return 0;
+    if (memTotalBytes <= 0) return 0;
+    return memTotalBytes;
+  }
+
   Future<SystemInfo> detectSystem() async {
     final results = await Future.wait([detectPlatform(), getMemoryMb(), listDisks()]);
     return SystemInfo(
@@ -69,6 +122,121 @@ class InstallService {
   /// gets installed onto [diskPath]; pick it via
   /// [installerAttributeFor] from the platform detected by
   /// [detectPlatform]. Defaults to `nixblitz-installer`, the
+  /// Pre-install memory check. Reads RAM + active swap, and if
+  /// the live ISO has no swap configured, sets up zram-backed
+  /// swap sized to RAM. Returns a record with the lines the TUI
+  /// should append to its install log and a success flag — even
+  /// on failure the install continues, since plenty of RAM
+  /// makes zram unnecessary and we'd rather burn a few extra
+  /// log lines than block a healthy install.
+  ///
+  /// Idempotent: if `/proc/swaps` already has any device, this
+  /// is a no-op (logged as such).
+  Future<({bool wasNeeded, bool succeeded, List<String> log})>
+      ensureSwapForInstall() async {
+    final log = <String>[];
+    int memTotal = 0;
+    int swapTotal = 0;
+    try {
+      memTotal = parseMemTotalBytes(
+        await File('/proc/meminfo').readAsString(),
+      );
+    } catch (e) {
+      log.add('  (could not read /proc/meminfo: $e — skipping swap setup)');
+      LogService.warn('ensureSwapForInstall: meminfo unreadable: $e');
+      return (wasNeeded: false, succeeded: true, log: log);
+    }
+    try {
+      swapTotal = parseProcSwapsTotalBytes(
+        await File('/proc/swaps').readAsString(),
+      );
+    } catch (e) {
+      log.add('  (could not read /proc/swaps: $e — skipping swap setup)');
+      LogService.warn('ensureSwapForInstall: swaps unreadable: $e');
+      return (wasNeeded: false, succeeded: true, log: log);
+    }
+
+    log.add(
+      '  RAM ${_humanGiB(memTotal)} GB, '
+      'swap ${_humanGiB(swapTotal)} GB',
+    );
+
+    final zramTarget = recommendedZramBytes(
+      memTotalBytes: memTotal,
+      existingSwapBytes: swapTotal,
+    );
+    if (zramTarget == 0) {
+      log.add(
+        swapTotal > 0
+            ? '  swap already configured; skipping zram setup'
+            : '  RAM info unavailable; skipping zram setup',
+      );
+      return (wasNeeded: false, succeeded: true, log: log);
+    }
+
+    log.add(
+      '  no swap detected — enabling ${_humanGiB(zramTarget)} GB zram '
+      '(compresses ~2-3×; lazy-allocated, no upfront RAM cost)',
+    );
+    final ok = await _enableZramSwap(zramTarget, log);
+    return (wasNeeded: true, succeeded: ok, log: log);
+  }
+
+  /// Run the four-step zram setup the user would otherwise type
+  /// by hand: `modprobe zram` → write disksize to sysfs → mkswap
+  /// → swapon. Each step's failure is captured in [log] and the
+  /// caller decides whether to proceed.
+  Future<bool> _enableZramSwap(int sizeBytes, List<String> log) async {
+    final modprobe = await Process.run(
+      'sudo',
+      ['-n', 'modprobe', 'zram', 'num_devices=1'],
+    );
+    if (modprobe.exitCode != 0) {
+      log.add('  modprobe zram failed: ${(modprobe.stderr as String).trim()}');
+      return false;
+    }
+    // Write the desired disksize to sysfs via tee. echo+redirect
+    // would need a shell; piping through tee is cleaner and
+    // avoids shell-quoting concerns even though `sizeBytes` is
+    // produced by us, not the user.
+    final tee = await Process.start(
+      'sudo',
+      ['-n', 'tee', '/sys/block/zram0/disksize'],
+      mode: ProcessStartMode.normal,
+    );
+    tee.stdin.writeln('$sizeBytes');
+    await tee.stdin.close();
+    // Drain stdout/stderr so the process can exit cleanly.
+    await tee.stdout.drain<void>();
+    await tee.stderr.drain<void>();
+    final teeCode = await tee.exitCode;
+    if (teeCode != 0) {
+      log.add('  failed to set zram disksize: exit $teeCode');
+      return false;
+    }
+    final mkswap = await Process.run(
+      'sudo',
+      ['-n', 'mkswap', '/dev/zram0'],
+    );
+    if (mkswap.exitCode != 0) {
+      log.add('  mkswap failed: ${(mkswap.stderr as String).trim()}');
+      return false;
+    }
+    final swapon = await Process.run(
+      'sudo',
+      ['-n', 'swapon', '-p', '100', '/dev/zram0'],
+    );
+    if (swapon.exitCode != 0) {
+      log.add('  swapon failed: ${(swapon.stderr as String).trim()}');
+      return false;
+    }
+    log.add('  zram swap enabled (${_humanGiB(sizeBytes)} GB)');
+    return true;
+  }
+
+  static String _humanGiB(int bytes) =>
+      (bytes / (1024 * 1024 * 1024)).toStringAsFixed(1);
+
   /// x86 / VM target — picking that on an aarch64 host fails
   /// loudly, which is the right outcome.
   ({Stream<String> output, Future<int> exitCode}) diskoInstall({
