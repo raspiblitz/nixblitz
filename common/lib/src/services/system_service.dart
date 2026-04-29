@@ -355,9 +355,32 @@ class SystemService {
     }
   }
 
-  ({Stream<String> output, Future<int> exitCode}) rebuild(String flakePath) {
+  /// Run `sudo nixos-rebuild switch --flake <path>#<attr>`.
+  ///
+  /// [attribute] selects which `nixosConfigurations.<name>` target
+  /// to build; pick it via [rebuildAttributeFor] from the running
+  /// system's `config.system.platform`. Defaults to `nixblitz`,
+  /// the x86 / VM target.
+  ({Stream<String> output, Future<int> exitCode}) rebuild(
+    String flakePath, {
+    String attribute = 'nixblitz',
+  }) {
     return sudoSession.runStreaming(
-      ['nixos-rebuild', 'switch', '--flake', flakePath],
+      ['nixos-rebuild', 'switch', '--flake', '$flakePath#$attribute'],
     );
   }
 }
+
+/// Map a `system.platform` config value to the
+/// `nixosConfigurations.<attribute>` it should rebuild against.
+///
+/// Pi 5 needs vendor kernel + matched firmware which neither
+/// `nixblitz` nor `nixblitz-installer` (both x86_64-linux) provide;
+/// `nixblitz-pi5` (aarch64, layered on `nvmd/nixos-raspberrypi`)
+/// is its dedicated target. Everything else falls through to the
+/// default x86 target — fine for `vm` (qemu builds the same way as
+/// bare-metal x86) and a reasonable failure mode for unknown
+/// strings, since `nixos-rebuild` will refuse loudly if the attr
+/// is missing rather than silently producing the wrong system.
+String rebuildAttributeFor(String platform) =>
+    platform == 'pi5' ? 'nixblitz-pi5' : 'nixblitz';

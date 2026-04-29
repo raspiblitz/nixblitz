@@ -63,14 +63,25 @@ class InstallService {
     );
   }
 
+  /// Run `sudo disko-install --flake <path>#<attr> --disk main <disk>`.
+  ///
+  /// [attribute] selects which `nixosConfigurations.<name>` target
+  /// gets installed onto [diskPath]; pick it via
+  /// [installerAttributeFor] from the platform detected by
+  /// [detectPlatform]. Defaults to `nixblitz-installer`, the
+  /// x86 / VM target — picking that on an aarch64 host fails
+  /// loudly, which is the right outcome.
   ({Stream<String> output, Future<int> exitCode}) diskoInstall({
     required String flakePath,
     required String diskPath,
+    String attribute = 'nixblitz-installer',
   }) {
     final controller = StreamController<String>();
     final exitCodeFuture = () async {
       final process = await Process.start('sudo', [
-        '-n', 'disko-install', '--flake', '$flakePath#nixblitz-installer', '--disk', 'main', diskPath,
+        '-n', 'disko-install',
+        '--flake', '$flakePath#$attribute',
+        '--disk', 'main', diskPath,
       ]);
       process.stdout.transform(const SystemEncoding().decoder).transform(const LineSplitter()).listen((line) => controller.add(line));
       process.stderr.transform(const SystemEncoding().decoder).transform(const LineSplitter()).listen((line) => controller.add(line));
@@ -201,3 +212,19 @@ class InstallService {
     return null;
   }
 }
+
+/// Map a detected platform to the `nixosConfigurations.<attribute>`
+/// the install wizard's `disko-install` should target.
+///
+/// Mirrors `system_service.rebuildAttributeFor` but for the
+/// install-time path: x86 / VM operators land on
+/// `nixblitz-installer` (passwordless sudo, x86_64-linux); Pi 5
+/// operators land on `nixblitz-pi5-installer` (passwordless sudo,
+/// aarch64-linux, layered on `nvmd/nixos-raspberrypi`).
+///
+/// Unknown platforms fall through to the x86 default. That'll
+/// fail at install time when `disko-install` rejects the
+/// architecture — the right failure mode, since silently picking
+/// the wrong one would just shift the failure into a worse spot.
+String installerAttributeFor(String platform) =>
+    platform == 'pi5' ? 'nixblitz-pi5-installer' : 'nixblitz-installer';

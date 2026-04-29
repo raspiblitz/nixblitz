@@ -256,6 +256,154 @@ Inside the VM you have:
 - `nixblitz` itself — re-run the TUI any time. Same binary, same
   config.
 
+## Raspberry Pi 5
+
+NixOS upstream doesn't ship Pi 5 firmware / vendor kernel /
+matched bootloader, so NixBlitz layers on the third-party
+[`nvmd/nixos-raspberrypi`](https://github.com/nvmd/nixos-raspberrypi)
+flake (pinned to a specific tag in `templates/flake.nix`). The
+end-to-end flow mirrors the x86 walkthrough above — same
+bootstrap command, same install wizard — only the live image
+and the install target differ.
+
+### Recommended hardware
+
+- **Pi 5 8 GB**. The 4 GB will boot but is tight alongside
+  indexing tools (electrs, etc.).
+- **NVMe via the official M.2 HAT** is the supported storage
+  config. SD-only works for evaluation; not recommended for a
+  long-running node (write amplification, no power-loss
+  protection).
+- **A USB stick** to boot the live image from. ≥4 GB.
+- Passive heatsink minimum; the official active cooler is fine.
+
+### 1. Build the live image
+
+The live image is upstream's `installerImages.rpi5` — vanilla
+aarch64 NixOS with the Pi 5 vendor kernel + firmware. NixBlitz
+isn't baked in; the next step pulls the TUI via `nix run`, same
+as x86 boots a stock NixOS ISO.
+
+Upstream doesn't publish pre-built `.img` files, but they do
+maintain a Cachix binary cache for the heavy bits (vendor
+kernel, firmware, installer closure). **Enable it before
+building** — otherwise `nix build` will try to compile the
+kernel locally, which on x86 means cross-compilation or qemu
+emulation and a multi-hour wait.
+
+```bash
+# One-time, on the build machine:
+nix --experimental-features "nix-command flakes" run nixpkgs#cachix \
+  -- use nixos-raspberrypi
+```
+
+(`cachix use` writes to `~/.config/nix/nix.conf` for single-user
+installs, or to `/etc/nix/nix.conf` if you have a multi-user Nix
+daemon. Re-run with `sudo` if it complains.)
+
+Then build the image. On a machine with Nix installed
+(`x86_64-linux` works fine — the closure substitutes from the
+Cachix):
+
+```bash
+nix --experimental-features "nix-command flakes" build \
+  github:nvmd/nixos-raspberrypi/v1.20260411.0#installerImages.rpi5
+```
+
+First run downloads ~500 MB. The result is a
+`result/sd-image/<name>.img.zst` symlink. Flash it to a USB
+stick — Raspberry Pi Imager handles `.img.zst` natively; or
+shell out:
+
+```bash
+zstd -dc result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+```
+
+(Replace `/dev/sdX` with your USB stick's path. Triple-check.)
+
+> **About the upstream image's SSH keys**: the upstream's
+> `rpi5-installer` config has empty `authorizedKeys.keys`
+> placeholders. To SSH into the live image you'll either set a
+> password on the local console first, or fork the upstream and
+> drop your public key into `custom-user-config`. For an
+> on-the-VM-console install you can skip both.
+
+### 2. Boot the Pi 5
+
+Insert the USB stick. If you're installing onto NVMe via M.2,
+make sure the NVMe drive is also seated. Power on. The Pi 5
+boots from USB (default boot order priority); you land at a NixOS
+console as user `nixos` with no password set.
+
+If you want SSH access, set a password on the local console:
+
+```bash
+passwd
+ip -4 addr | grep inet     # find the Pi's IP
+```
+
+Then SSH in from your workstation.
+
+### 3. Bootstrap NixBlitz
+
+Same command as the x86 walkthrough:
+
+```bash
+nix run git+https://forge.f44.fyi/f44/nixblitz_ng \
+  --experimental-features "nix-command flakes" \
+  --no-write-lock-file --refresh
+```
+
+First run takes 1-2 minutes (the TUI binary builds from source on
+aarch64; some closures pull from cache.nixos.org).
+
+The TUI launches into **install mode** (it detects tmpfs root —
+the live image is ephemeral, same trigger as x86).
+
+### 4. Walk the install wizard
+
+Identical to x86, with one auto-detected difference:
+
+- The platform field auto-fills to `pi5` (read from
+  `/proc/cpuinfo`).
+- The wizard's disk picker shows the Pi 5's storage —
+  pick `nvme0n1` for NVMe, or `mmcblk0` for SD.
+- On confirm, the TUI runs:
+  ```
+  sudo disko-install --flake $base#nixblitz-pi5-installer \
+    --disk main /dev/nvme0n1
+  ```
+  (`installerAttributeFor` in `install_service.dart` picks the
+  Pi 5 target automatically when the detected platform is
+  `pi5`.)
+
+`disko-install` partitions the target disk per
+`templates/modules/system/disko-pi5.nix` (1 GB FAT firmware
+partition + ext4 root), copies the closure, and the upstream
+bootloader activation script populates `/boot/firmware`.
+
+### 5. Reboot into the installed system
+
+Power off the Pi 5. Pull the USB stick. Power on. The Pi 5 boots
+from the NVMe / SD you installed onto.
+
+First-boot setup runs the same as on x86: change the admin
+password, services come up under `nixos-rebuild switch --flake
+.#nixblitz-pi5` (the TUI picks the right rebuild target
+automatically per `rebuildAttributeFor`), dashboard appears.
+
+### What runs where
+
+| Step | Flake target | Architecture |
+| --- | --- | --- |
+| Live image (USB stick) | `nvmd/nixos-raspberrypi#installerImages.rpi5` | aarch64-linux |
+| `disko-install` (lays down the installed system) | `<repo>#nixblitz-pi5-installer` | aarch64-linux |
+| Post-first-boot rebuilds (Apply, Update) | `<repo>#nixblitz-pi5` | aarch64-linux |
+
+The `installer` target only differs from the installed target in
+its passwordless sudo override; same kernel, firmware, and disko
+layout.
+
 ## What's next
 
 - **Make changes**: see [dev-loop.md](dev-loop.md) for the

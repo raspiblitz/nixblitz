@@ -81,12 +81,16 @@ class _SetupViewState extends State<SetupView> {
 
       context.read(configProvider.notifier).updateConfig(updated);
 
+      final attr = rebuildAttributeFor(updated.system.platform);
       _appendBuildLog('');
-      _appendBuildLog('> sudo nixos-rebuild switch --flake $baseDirPath');
+      _appendBuildLog(
+        '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
+      );
       _appendBuildLog('');
 
       final systemService = context.read(systemServiceProvider);
-      final (:output, :exitCode) = systemService.rebuild(baseDirPath);
+      final (:output, :exitCode) =
+          systemService.rebuild(baseDirPath, attribute: attr);
 
       _buildServicesSub = output.listen(
         (line) {

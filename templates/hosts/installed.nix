@@ -30,6 +30,7 @@ in {
 
   # Disk layout — enable the appropriate disko config for the platform
   features.system.disko-vm.enable = sys.platform == "vm" || sys.platform == "x86";
+  features.system.disko-pi5.enable = sys.platform == "pi5";
 
   features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
   features.apps.bitcoind.network = cfg.bitcoind.network;

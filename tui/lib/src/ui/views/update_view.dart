@@ -423,7 +423,16 @@ class _UpdateViewState extends State<UpdateView> {
         _failToDone(1);
         return;
       }
-      _appendUpdateLine('> sudo nixos-rebuild switch --flake $baseDirPath');
+      final platform = context
+              .read(configProvider)
+              .value
+              ?.system
+              .platform ??
+          'x86';
+      final attr = rebuildAttributeFor(platform);
+      _appendUpdateLine(
+        '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
+      );
       _appendUpdateLine('');
       _runRebuild(baseDirPath);
     });
@@ -457,7 +466,11 @@ class _UpdateViewState extends State<UpdateView> {
           _UpdateMode.applying;
     }
 
-    final (:output, :exitCode) = systemService.rebuild(baseDirPath);
+    final platform =
+        context.read(configProvider).value?.system.platform ?? 'x86';
+    final attr = rebuildAttributeFor(platform);
+    final (:output, :exitCode) =
+        systemService.rebuild(baseDirPath, attribute: attr);
     _outputSub = output.listen(
       _appendUpdateLine,
       onError: (e, st) {

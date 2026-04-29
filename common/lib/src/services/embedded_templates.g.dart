@@ -29,6 +29,13 @@ const String _flake = r'''
       # can point at github:raspiblitz/raspiblitz-web directly.
       url = "github:fusion44/raspiblitz-web";
     };
+    # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
+    # come from this third-party flake. Pinned to a tag so refreshes
+    # are explicit; bump deliberately rather than tracking `main`.
+    nixos-raspberrypi = {
+      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -39,6 +46,7 @@ const String _flake = r'''
     nixblitz,
     blitz-api,
     blitz-web,
+    nixos-raspberrypi,
   }: let
     inherit (nixpkgs) lib;
 
@@ -131,26 +139,37 @@ const String _flake = r'''
         self.nixosModules.default
       ];
     };
+
+    # Pi 5 build target. Use `nixos-raspberrypi.lib.nixosSystem`
+    # (not `nixpkgs.lib.nixosSystem`) so the upstream's bootloader
+    # / vendor-kernel / vendor-firmware / kernel-and-firmware
+    # overlays are auto-applied. The opt-in `pkgs` overlay
+    # (ffmpeg, kodi, etc.) is NOT applied — `nixosSystem` is the
+    # node-friendly variant; `nixosSystemFull` would pull in the
+    # media stack, which is wasted on a headless node.
+    nixosConfigurations.nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
+      specialArgs = {inherit nixblitz nixos-raspberrypi;};
+      modules = [
+        ./hosts/installed-pi5.nix
+        self.nixosModules.default
+      ];
+    };
+
+    # Pi 5 install target. Used by
+    # `disko-install --flake .#nixblitz-pi5-installer` from inside
+    # the live image (typically the upstream
+    # `nvmd/nixos-raspberrypi#installerImages.rpi5` flashed to a
+    # USB stick). Differs from `nixblitz-pi5` only in
+    # `installer-pi5.nix`'s passwordless sudo override; same
+    # bootloader / kernel / firmware / disko layout.
+    nixosConfigurations.nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
+      specialArgs = {inherit nixblitz nixos-raspberrypi;};
+      modules = [
+        ./hosts/installer-pi5.nix
+        self.nixosModules.default
+      ];
+    };
   };
-}
-''';
-
-const String _hardwarePi5 = r'''
-{
-  config,
-  lib,
-  pkgs,
-  modulesPath,
-  ...
-}: {
-  imports = [
-    (modulesPath + "/installer/sd-card/sd-image-aarch64.nix")
-  ];
-
-  boot.loader.grub.enable = false;
-  boot.loader.generic-extlinux-compatible.enable = true;
-
-  hardware.enableRedistributableFirmware = true;
 }
 ''';
 
@@ -255,6 +274,37 @@ const String _hostsDefault = r'''
 }
 ''';
 
+const String _hostsInstalledPi5 = r'''
+{
+  config,
+  lib,
+  pkgs,
+  nixos-raspberrypi,
+  ...
+}: {
+  imports = [
+    # Pi 5 vendor kernel + matched firmware. Comes from
+    # `nvmd/nixos-raspberrypi`; the per-Pi attribute set is
+    # documented at github.com/nvmd/nixos-raspberrypi.
+    nixos-raspberrypi.nixosModules.raspberry-pi-5.base
+    # bcm2712 (Pi 5 SoC) supports 16K page sizes; the upstream
+    # README recommends enabling this for the jemalloc / glibc
+    # tuning that goes with it.
+    nixos-raspberrypi.nixosModules.raspberry-pi-5.page-size-16k
+    # All the NixBlitz feature toggles, hostname, services, etc.
+    # x86 and Pi 5 only differ in bootloader / kernel / firmware;
+    # everything from `installed.nix` upward is platform-agnostic.
+    ./installed.nix
+  ];
+
+  # Migrate off the legacy `kernelboot` default — the new
+  # generational `kernel` bootloader supports rollback to a prior
+  # generation via the boot menu, matching the experience x86
+  # operators already have via systemd-boot.
+  boot.loader.raspberry-pi.bootloader = "kernel";
+}
+''';
+
 const String _hostsInstalled = r'''
 {
   config,
@@ -288,6 +338,7 @@ in {
 
   # Disk layout — enable the appropriate disko config for the platform
   features.system.disko-vm.enable = sys.platform == "vm" || sys.platform == "x86";
+  features.system.disko-pi5.enable = sys.platform == "pi5";
 
   features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
   features.apps.bitcoind.network = cfg.bitcoind.network;
@@ -330,6 +381,27 @@ in {
   services.openssh.enable = true;
 
   system.stateVersion = "25.11";
+}
+''';
+
+const String _hostsInstallerPi5 = r'''
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: {
+  # Live-image host config for Pi 5, used by
+  # `disko-install --flake .#nixblitz-pi5-installer`. Mirrors
+  # `installer.nix`: identical to the installed system except for
+  # passwordless sudo so the install wizard's privileged steps
+  # (disko-install, nixos-generate-config, mount, cp, …) run
+  # non-interactively. The booted live image is ephemeral; the
+  # installed system inherits NixOS's `wheelNeedsPassword=true`
+  # default.
+  imports = [./installed-pi5.nix];
+
+  security.sudo.wheelNeedsPassword = false;
 }
 ''';
 
@@ -612,6 +684,67 @@ in {
     ];
 
     users.defaultUserShell = pkgs.nushell;
+  };
+}
+''';
+
+const String _modulesSystemDiskoPi5 = r'''
+{
+  config,
+  lib,
+  ...
+}: let
+  cfg = config.features.system.disko-pi5;
+in {
+  options.features.system.disko-pi5.enable =
+    lib.mkEnableOption "Pi 5 disk layout (GPT, FAT firmware + ext4 root)";
+
+  config = lib.mkIf cfg.enable {
+    # Pi 5 boot path needs a FAT partition for vendor firmware,
+    # device-tree blobs, overlays, and (with the `kernel`
+    # bootloader from nvmd/nixos-raspberrypi) per-generation
+    # kernel images. Mount point matches the upstream module's
+    # default `boot.loader.raspberry-pi.firmwarePath` so we don't
+    # have to wire that through here.
+    #
+    # Default device targets NVMe (the supported configuration
+    # via the official M.2 HAT) but `disko-install --disk main
+    # <path>` overrides this at install time, so the user can
+    # pick SD / USB / NVMe at the wizard step regardless.
+    disko.devices.disk.main = {
+      device = lib.mkDefault "/dev/nvme0n1";
+      type = "disk";
+      content = {
+        type = "gpt";
+        partitions = {
+          firmware = {
+            # 1 GB headroom matches the upstream installer
+            # image's `sdImage.firmwareSize = 1024` so multiple
+            # NixOS generations + their kernels fit alongside the
+            # vendor firmware blobs.
+            size = "1024M";
+            type = "EF00";
+            content = {
+              type = "filesystem";
+              format = "vfat";
+              mountpoint = "/boot/firmware";
+              # 0077 keeps the firmware partition root-owned —
+              # nothing should be reading kernel images from
+              # here at runtime.
+              mountOptions = ["umask=0077"];
+            };
+          };
+          root = {
+            size = "100%";
+            content = {
+              type = "filesystem";
+              format = "ext4";
+              mountpoint = "/";
+            };
+          };
+        };
+      };
+    };
   };
 }
 ''';
@@ -995,11 +1128,12 @@ in {
 Map<String, String> _getAllTemplates() {
   return {
     'flake.nix': _flake,
-    'hardware/pi5.nix': _hardwarePi5,
     'hardware/vm.nix': _hardwareVm,
     'hardware/x86.nix': _hardwareX86,
     'hosts/default.nix': _hostsDefault,
+    'hosts/installed-pi5.nix': _hostsInstalledPi5,
     'hosts/installed.nix': _hostsInstalled,
+    'hosts/installer-pi5.nix': _hostsInstallerPi5,
     'hosts/installer.nix': _hostsInstaller,
     'modules/apps/bitcoind.nix': _modulesAppsBitcoind,
     'modules/apps/blitz-api.nix': _modulesAppsBlitzApi,
@@ -1007,6 +1141,7 @@ Map<String, String> _getAllTemplates() {
     'modules/apps/cln.nix': _modulesAppsCln,
     'modules/apps/lnd.nix': _modulesAppsLnd,
     'modules/system/base.nix': _modulesSystemBase,
+    'modules/system/disko-pi5.nix': _modulesSystemDiskoPi5,
     'modules/system/disko-vm.nix': _modulesSystemDiskoVm,
     'modules/system/operator.nix': _modulesSystemOperator,
     'modules/system/test-lnd.nix': _modulesSystemTestLnd,

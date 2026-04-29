@@ -76,8 +76,17 @@ class _InstallViewState extends State<InstallView> {
         return;
       }
 
+      // Use the auto-detected platform to pick the install
+      // target — pi5 lands on `nixblitz-pi5-installer` (aarch64,
+      // upstream Pi 5 modules + our disko-pi5 layout), everything
+      // else falls through to the x86 `nixblitz-installer`.
+      final platform =
+          context.read(systemInfoProvider).value?.platform ?? 'x86';
+      final installerAttr = installerAttributeFor(platform);
+
       LogService.info(
-        'Starting install: disk=${disk.path}, flake=$baseDirPath',
+        'Starting install: disk=${disk.path}, flake=$baseDirPath, '
+        'platform=$platform, attribute=$installerAttr',
       );
       final installService = context.read(installServiceProvider);
       context.read(installStepProvider.notifier).state = InstallStep.installing;
@@ -104,7 +113,7 @@ class _InstallViewState extends State<InstallView> {
         if (updateResult.exitCode != 0)
           'nix flake update exit=${updateResult.exitCode} (continuing anyway)',
         '',
-        '> disko-install --flake $baseDirPath#nixblitz --disk main ${disk.path}',
+        '> disko-install --flake $baseDirPath#$installerAttr --disk main ${disk.path}',
         '',
       ];
       LogService.info(
@@ -116,6 +125,7 @@ class _InstallViewState extends State<InstallView> {
       final (:output, :exitCode) = installService.diskoInstall(
         flakePath: baseDirPath,
         diskPath: disk.path,
+        attribute: installerAttr,
       );
 
       _outputSub = output.listen(

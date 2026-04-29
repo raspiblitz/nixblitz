@@ -23,6 +23,13 @@
       # can point at github:raspiblitz/raspiblitz-web directly.
       url = "github:fusion44/raspiblitz-web";
     };
+    # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
+    # come from this third-party flake. Pinned to a tag so refreshes
+    # are explicit; bump deliberately rather than tracking `main`.
+    nixos-raspberrypi = {
+      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
@@ -33,6 +40,7 @@
     nixblitz,
     blitz-api,
     blitz-web,
+    nixos-raspberrypi,
   }: let
     inherit (nixpkgs) lib;
 
@@ -122,6 +130,36 @@
       specialArgs = {inherit nixblitz;};
       modules = [
         ./hosts/installer.nix
+        self.nixosModules.default
+      ];
+    };
+
+    # Pi 5 build target. Use `nixos-raspberrypi.lib.nixosSystem`
+    # (not `nixpkgs.lib.nixosSystem`) so the upstream's bootloader
+    # / vendor-kernel / vendor-firmware / kernel-and-firmware
+    # overlays are auto-applied. The opt-in `pkgs` overlay
+    # (ffmpeg, kodi, etc.) is NOT applied — `nixosSystem` is the
+    # node-friendly variant; `nixosSystemFull` would pull in the
+    # media stack, which is wasted on a headless node.
+    nixosConfigurations.nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
+      specialArgs = {inherit nixblitz nixos-raspberrypi;};
+      modules = [
+        ./hosts/installed-pi5.nix
+        self.nixosModules.default
+      ];
+    };
+
+    # Pi 5 install target. Used by
+    # `disko-install --flake .#nixblitz-pi5-installer` from inside
+    # the live image (typically the upstream
+    # `nvmd/nixos-raspberrypi#installerImages.rpi5` flashed to a
+    # USB stick). Differs from `nixblitz-pi5` only in
+    # `installer-pi5.nix`'s passwordless sudo override; same
+    # bootloader / kernel / firmware / disko layout.
+    nixosConfigurations.nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
+      specialArgs = {inherit nixblitz nixos-raspberrypi;};
+      modules = [
+        ./hosts/installer-pi5.nix
         self.nixosModules.default
       ];
     };

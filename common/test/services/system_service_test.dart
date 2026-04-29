@@ -63,4 +63,27 @@ void main() {
       expect(SystemService.parseToplevel(''), isNull);
     });
   });
+
+  group('rebuildAttributeFor', () {
+    test('pi5 → nixblitz-pi5', () {
+      // Pi 5 needs the aarch64 build with vendor kernel +
+      // matched firmware from nvmd/nixos-raspberrypi; fronting
+      // the wrong attribute would land an x86_64 closure on an
+      // aarch64 host (and fail loudly, but with a confusing
+      // error). Pinning this in tests so a future refactor
+      // doesn't accidentally swap it.
+      expect(rebuildAttributeFor('pi5'), 'nixblitz-pi5');
+    });
+
+    test('x86 / vm / unknown → nixblitz', () {
+      expect(rebuildAttributeFor('x86'), 'nixblitz');
+      expect(rebuildAttributeFor('vm'), 'nixblitz');
+      // Unknown strings fall through to the default. Better than
+      // throwing — nixos-rebuild will refuse a missing attribute
+      // loudly enough on its own, no need to crash the TUI before
+      // the user even sees the rebuild output.
+      expect(rebuildAttributeFor(''), 'nixblitz');
+      expect(rebuildAttributeFor('martian'), 'nixblitz');
+    });
+  });
 }

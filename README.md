@@ -47,8 +47,13 @@ walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
 ## Supported platforms
 
-- Raspberry Pi 5
-- x86_64 (bare metal, Proxmox, qemu, libvirt)
+- x86_64 (bare metal, Proxmox, qemu, libvirt) — boot a stock
+  NixOS ISO, run the bootstrap, the TUI takes over.
+- Raspberry Pi 5 — boot the upstream
+  [`nvmd/nixos-raspberrypi`](https://github.com/nvmd/nixos-raspberrypi)
+  installer image, run the same bootstrap. NixBlitz layers on
+  the upstream's vendor kernel + matched firmware.
+  [Walkthrough](docs/getting-started.md#raspberry-pi-5).
 
 ## Documentation
 

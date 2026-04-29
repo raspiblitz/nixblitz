@@ -67,4 +67,25 @@ void main() {
       });
     });
   });
+
+  group('installerAttributeFor', () {
+    test('pi5 → nixblitz-pi5-installer', () {
+      // Pi 5 install needs the aarch64 target with vendor kernel
+      // + matched firmware from nvmd/nixos-raspberrypi; landing
+      // x86_64 disko-install onto a Pi 5 fails at copy, with a
+      // confusing error. Pin this so a future refactor doesn't
+      // accidentally swap the mapping.
+      expect(installerAttributeFor('pi5'), 'nixblitz-pi5-installer');
+    });
+
+    test('x86 / vm / unknown → nixblitz-installer', () {
+      expect(installerAttributeFor('x86'), 'nixblitz-installer');
+      expect(installerAttributeFor('vm'), 'nixblitz-installer');
+      // Unknown strings fall through to the x86 default; better
+      // than throwing, since `disko-install` rejects a missing
+      // attribute or wrong arch loudly enough on its own.
+      expect(installerAttributeFor(''), 'nixblitz-installer');
+      expect(installerAttributeFor('martian'), 'nixblitz-installer');
+    });
+  });
 }

@@ -146,11 +146,25 @@ class _ApplyViewState extends State<ApplyView> {
         _append(
           committed ? 'Committed.' : 'Nothing staged (no changes to commit).',
         );
+        // Pick the rebuild attribute from the just-applied
+        // platform; the config notifier holds the up-to-date
+        // copy because the Configure view updated it before we
+        // got here.
+        final platform = context
+                .read(configProvider)
+                .value
+                ?.system
+                .platform ??
+            'x86';
+        final attr = rebuildAttributeFor(platform);
         _append('');
-        _append('> sudo nixos-rebuild switch --flake $baseDirPath');
+        _append(
+          '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
+        );
         _append('');
 
-        final (:output, :exitCode) = systemService.rebuild(baseDirPath);
+        final (:output, :exitCode) =
+            systemService.rebuild(baseDirPath, attribute: attr);
         _outputSub = output.listen(
           (line) {
             LogService.info('[apply] $line');
