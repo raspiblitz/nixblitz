@@ -223,7 +223,12 @@ class _SetupViewState extends State<SetupView> {
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: logLines)),
+            Expanded(child: ScrollableLog(lines: logLines, focused: true)),
+            const SizedBox(height: 1),
+            const Text(
+              '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [/] search',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
           ],
         ),
       );
@@ -261,9 +266,13 @@ class _SetupViewState extends State<SetupView> {
               ),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: logLines)),
+            Expanded(child: ScrollableLog(lines: logLines, focused: true)),
             const SizedBox(height: 1),
-            const Text('Press Enter to retry, Esc to go to dashboard.'),
+            const Text(
+              '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [/] search   '
+              '[Enter] retry   [Esc] dashboard',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
           ],
         ),
       ),

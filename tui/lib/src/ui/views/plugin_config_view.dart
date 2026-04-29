@@ -465,7 +465,12 @@ class _PluginConfigViewState extends State<PluginConfigView> {
               style: TextStyle(color: headerColor, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: List.unmodifiable(_actionOutput))),
+            Expanded(
+              child: ScrollableLog(
+                lines: List.unmodifiable(_actionOutput),
+                focused: true,
+              ),
+            ),
             const SizedBox(height: 1),
             if (!isDone)
               Spinner(label: 'Working…')

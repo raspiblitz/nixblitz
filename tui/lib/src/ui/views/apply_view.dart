@@ -334,7 +334,12 @@ class _ApplyViewState extends State<ApplyView> {
             style: TextStyle(color: Color.fromRGB(150, 150, 180)),
           ),
           const SizedBox(height: 1),
-          Expanded(child: ScrollableLog(lines: outputLines)),
+          Expanded(child: ScrollableLog(lines: outputLines, focused: true)),
+          const SizedBox(height: 1),
+          const Text(
+            '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [/] search',
+            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+          ),
         ],
       ),
     );
@@ -374,7 +379,7 @@ class _ApplyViewState extends State<ApplyView> {
             const SizedBox(height: 1),
             if (result.outcome == RebuildOutcome.partial)
               rebuildFailedUnitsBanner(result.failedUnits),
-            Expanded(child: ScrollableLog(lines: outputLines)),
+            Expanded(child: ScrollableLog(lines: outputLines, focused: true)),
             const SizedBox(height: 1),
             if (binaryUpdated)
               const Text(

@@ -105,11 +105,12 @@ class _ServiceHealthViewState extends State<ServiceHealthView> {
               child: ScrollableLog(
                 lines: lines,
                 lineColor: _stateColor,
+                focused: true,
               ),
             ),
             const SizedBox(height: 1),
             const Text(
-              '[r] refresh   [Esc] back',
+              '[↑/↓ j/k] scroll   [/] search   [r] refresh   [Esc] back',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],

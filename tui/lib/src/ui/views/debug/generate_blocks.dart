@@ -321,10 +321,10 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
               ),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: lines)),
+            Expanded(child: ScrollableLog(lines: lines, focused: true)),
             const SizedBox(height: 1),
             const Text(
-              '[Esc] cancel',
+              '[↑/↓ j/k] scroll   [/] search   [Esc] cancel',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],

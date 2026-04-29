@@ -78,7 +78,12 @@ class ConfigTooNewView extends StatelessComponent {
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
             const SizedBox(height: 1),
-            Expanded(child: ScrollableLog(lines: rawConfig.split('\n'))),
+            Expanded(
+              child: ScrollableLog(
+                lines: rawConfig.split('\n'),
+                focused: true,
+              ),
+            ),
             const SizedBox(height: 1),
             const Text(
               '[c] Continue anyway   [q] Quit',
