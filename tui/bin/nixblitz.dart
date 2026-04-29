@@ -36,10 +36,7 @@ void main(List<String> arguments) async {
             ..addFlag('insecure', negatable: false),
         )
         ..addCommand('remove', ArgParser())
-        ..addCommand(
-          'list',
-          ArgParser()..addFlag('all', negatable: false),
-        )
+        ..addCommand('list', ArgParser()..addFlag('all', negatable: false))
         ..addCommand(
           'refresh',
           ArgParser()

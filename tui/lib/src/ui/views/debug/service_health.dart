@@ -42,11 +42,10 @@ class _ServiceHealthViewState extends State<ServiceHealthView> {
       for (final unit in _kUnits) {
         String state;
         try {
-          final r = await Process.run(
-            'systemctl',
-            ['is-active', unit],
-            runInShell: false,
-          );
+          final r = await Process.run('systemctl', [
+            'is-active',
+            unit,
+          ], runInShell: false);
           state = (r.stdout as String).trim();
           if (state.isEmpty) state = '(unknown)';
         } catch (e) {

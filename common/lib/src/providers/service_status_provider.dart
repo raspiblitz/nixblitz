@@ -7,8 +7,7 @@ final systemServiceProvider = Provider<SystemService>((ref) {
   return SystemService(sudoSession: ref.watch(sudoSessionProvider));
 });
 
-final serviceStatusProvider =
-    FutureProvider<List<ServiceStatus>>((ref) async {
+final serviceStatusProvider = FutureProvider<List<ServiceStatus>>((ref) async {
   final service = ref.watch(systemServiceProvider);
   return service.getAllServiceStatuses();
 });

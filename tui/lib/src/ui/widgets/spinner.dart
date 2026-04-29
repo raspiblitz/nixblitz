@@ -48,7 +48,10 @@ class SpinnerState extends State<Spinner> {
       return Row(
         children: [
           Text(_frames[_index], style: TextStyle(color: color)),
-          Text(' $label', style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+          Text(
+            ' $label',
+            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          ),
         ],
       );
     }

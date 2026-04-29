@@ -31,18 +31,20 @@ const Map<String, String> hermeticGitEnv = {
 /// a per-repo `.git/config` we didn't write), these flags keep
 /// signing and other surprises off.
 const List<String> hermeticGitConfigArgs = [
-  '-c', 'commit.gpgsign=false',
-  '-c', 'tag.gpgsign=false',
+  '-c',
+  'commit.gpgsign=false',
+  '-c',
+  'tag.gpgsign=false',
 ];
 
 /// Construct a GitService wired for tests: hermetic env + the
 /// `-c` overrides above. Use this anywhere a test would otherwise
 /// instantiate `GitService(repoDir: …)` directly.
 GitService hermeticGitService(String repoDir) => GitService(
-      repoDir: repoDir,
-      environment: hermeticGitEnv,
-      extraConfigArgs: hermeticGitConfigArgs,
-    );
+  repoDir: repoDir,
+  environment: hermeticGitEnv,
+  extraConfigArgs: hermeticGitConfigArgs,
+);
 
 /// Direct `git` invocation for tests that don't go through
 /// GitService — typically fixture-setup helpers seeding a "remote"
@@ -50,10 +52,9 @@ GitService hermeticGitService(String repoDir) => GitService(
 Future<ProcessResult> testGit(
   List<String> args, {
   required String workingDirectory,
-}) =>
-    Process.run(
-      'git',
-      [...hermeticGitConfigArgs, ...args],
-      workingDirectory: workingDirectory,
-      environment: hermeticGitEnv,
-    );
+}) => Process.run(
+  'git',
+  [...hermeticGitConfigArgs, ...args],
+  workingDirectory: workingDirectory,
+  environment: hermeticGitEnv,
+);

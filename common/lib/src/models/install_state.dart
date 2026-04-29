@@ -27,12 +27,12 @@ class DiskInfo {
   String get displayName => '$name ($sizeGb GB) $model';
 
   factory DiskInfo.fromLsblkJson(Map<String, dynamic> json) => DiskInfo(
-        name: json['name'] as String,
-        path: '/dev/${json['name']}',
-        sizeBytes: (json['size'] as num).toInt(),
-        model: (json['model'] as String?)?.trim() ?? '',
-        removable: json['rm'] == true,
-      );
+    name: json['name'] as String,
+    path: '/dev/${json['name']}',
+    sizeBytes: (json['size'] as num).toInt(),
+    model: (json['model'] as String?)?.trim() ?? '',
+    removable: json['rm'] == true,
+  );
 }
 
 class SystemInfo {

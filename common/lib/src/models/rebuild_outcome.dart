@@ -33,10 +33,7 @@ class RebuildResult {
   /// such line was observed.
   final List<String> failedUnits;
 
-  const RebuildResult({
-    required this.outcome,
-    required this.failedUnits,
-  });
+  const RebuildResult({required this.outcome, required this.failedUnits});
 
   /// Classify from the captured rebuild output + exit code.
   static RebuildResult classify(List<String> outputLines, int exitCode) {

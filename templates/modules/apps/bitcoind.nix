@@ -33,7 +33,10 @@ in {
       enable = true;
       dataDir = "/mnt/data/bitcoind";
       regtest = cfg.network == "regtest";
-      prune = if cfg.pruned then cfg.pruneSizeGb * 1000 else 0;
+      prune =
+        if cfg.pruned
+        then cfg.pruneSizeGb * 1000
+        else 0;
       # nix-bitcoin writes `[regtest]` and the regtest-scoped options
       # before our extraConfig, so anything here lands inside the
       # regtest section.

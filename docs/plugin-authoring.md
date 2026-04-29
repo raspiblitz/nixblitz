@@ -86,7 +86,7 @@ _module.args.pluginCfg' is defined multiple times
 ```
 
 The two-stage shape sidesteps this by passing `pluginCfg` to the
-*outer* function as a closure argument. The inner module function
+_outer_ function as a closure argument. The inner module function
 never sees `pluginCfg` as a named arg, so no `_module.args`
 collision.
 
@@ -115,12 +115,12 @@ entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
 }
 ```
 
-| Field            | Required | Meaning                                                 |
-| ---------------- | -------- | ------------------------------------------------------- |
-| `schema_version` | yes      | Manifest schema your plugin targets. v2 is current.    |
-| `min_tui_version`| yes      | Lowest TUI version that can render this plugin safely. |
-| `name`           | yes      | Human-readable display name shown in Configure → plugins. Keep it short and properly capitalized (`"Tailscale"`, `"LNBits"`) — *not* an identifier-style slug. |
-| `description`    | no       | Long-form description shown at install time.           |
+| Field             | Required | Meaning                                                                                                                                                        |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`  | yes      | Manifest schema your plugin targets. v2 is current.                                                                                                            |
+| `min_tui_version` | yes      | Lowest TUI version that can render this plugin safely.                                                                                                         |
+| `name`            | yes      | Human-readable display name shown in Configure → plugins. Keep it short and properly capitalized (`"Tailscale"`, `"LNBits"`) — _not_ an identifier-style slug. |
+| `description`     | no       | Long-form description shown at install time.                                                                                                                   |
 
 A TUI loading a manifest with `min_tui_version >
 currentPluginManifestVersion` refuses to install with a clear
@@ -199,14 +199,14 @@ is set:
 }
 ```
 
-| Field             | Default | Meaning                                                |
-| ----------------- | ------- | ------------------------------------------------------ |
-| `label`           | —       | Menu entry text.                                       |
-| `description`     | `""`    | Shown in the y/N confirmation overlay.                 |
-| `command`         | —       | Shell command, runs as admin via `bash -c`. *Mutually exclusive with `unit`.* |
-| `unit`            | —       | Type=oneshot systemd service name. Dispatched as root via SudoSession. *Mutually exclusive with `command`.* |
-| `confirm`         | `true`  | Show y/N before launching.                             |
-| `timeout_seconds` | `300`   | Watchdog SIGTERM at this limit; SIGKILL after grace.   |
+| Field             | Default | Meaning                                                                                                     |
+| ----------------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `label`           | —       | Menu entry text.                                                                                            |
+| `description`     | `""`    | Shown in the y/N confirmation overlay.                                                                      |
+| `command`         | —       | Shell command, runs as admin via `bash -c`. _Mutually exclusive with `unit`._                               |
+| `unit`            | —       | Type=oneshot systemd service name. Dispatched as root via SudoSession. _Mutually exclusive with `command`._ |
+| `confirm`         | `true`  | Show y/N before launching.                                                                                  |
+| `timeout_seconds` | `300`   | Watchdog SIGTERM at this limit; SIGKILL after grace.                                                        |
 
 Exactly one of `command` / `unit` per action. The discrimination
 matters:
@@ -240,13 +240,13 @@ A polled tile rendered alongside the core dashboard tiles.
 }
 ```
 
-| Field                   | Default     | Meaning                                       |
-| ----------------------- | ----------- | --------------------------------------------- |
-| `title`                 | —           | Tile heading.                                 |
-| `accent_color`          | `#888899`   | Hex `#rrggbb` for the title + top rule.       |
-| `command`               | —           | Polled command. Runs as admin user.           |
-| `poll_interval_seconds` | `30`        | How often to poll. Floor: 5s.                 |
-| `timeout_seconds`       | `5`         | SIGTERM at this limit; tile shows "timed out". |
+| Field                   | Default   | Meaning                                        |
+| ----------------------- | --------- | ---------------------------------------------- |
+| `title`                 | —         | Tile heading.                                  |
+| `accent_color`          | `#888899` | Hex `#rrggbb` for the title + top rule.        |
+| `command`               | —         | Polled command. Runs as admin user.            |
+| `poll_interval_seconds` | `30`      | How often to poll. Floor: 5s.                  |
+| `timeout_seconds`       | `5`       | SIGTERM at this limit; tile shows "timed out". |
 
 Tile commands always run as the admin user — no `run_as_root`,
 no sudo. Tile polls fire on a 30s timer; surfacing a sudo modal
@@ -271,12 +271,12 @@ key/value pair becomes a `(label, value)` row in declared order
 }
 ```
 
-| Reserved key      | Effect                                                              |
-| ----------------- | ------------------------------------------------------------------- |
-| `_status_label`   | Short text rendered next to the title.                              |
-| `_status_color`   | `"ok"` (green) / `"warn"` (amber) / `"error"` (red).                |
-| `_footer`         | Text rendered under the last row.                                   |
-| `_footer_color`   | Same scheme as `_status_color`.                                     |
+| Reserved key    | Effect                                               |
+| --------------- | ---------------------------------------------------- |
+| `_status_label` | Short text rendered next to the title.               |
+| `_status_color` | `"ok"` (green) / `"warn"` (amber) / `"error"` (red). |
+| `_footer`       | Text rendered under the last row.                    |
+| `_footer_color` | Same scheme as `_status_color`.                      |
 
 Failure modes (handled by the runner, you don't need to):
 
@@ -391,8 +391,8 @@ in {
 }
 ```
 
-`config.services.X.*` is keyed off the option *as the upstream
-module declares it* — usually `services.<name>` for nix-bitcoin
+`config.services.X.*` is keyed off the option _as the upstream
+module declares it_ — usually `services.<name>` for nix-bitcoin
 modules. Look at
 [nix-bitcoin's modules](https://github.com/fort-nix/nix-bitcoin/tree/master/modules)
 for the canonical names.
@@ -438,10 +438,10 @@ entirely.
 
 There are two kinds of plugin update:
 
-| Change                       | Propagated by                                        | When applied                       |
-| ---------------------------- | ---------------------------------------------------- | ---------------------------------- |
-| Manifest edit (new field, bumped tile poll interval, new action) | `nixblitz plugin refresh <id>` or implicit during `Update entire system` | Immediately after refresh          |
-| `plugin.nix` change (new systemd unit, env var, hardening tweak) | Same — the new file lands on disk during refresh    | Next `nixos-rebuild switch` (Apply) |
+| Change                                                           | Propagated by                                                            | When applied                        |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------- |
+| Manifest edit (new field, bumped tile poll interval, new action) | `nixblitz plugin refresh <id>` or implicit during `Update entire system` | Immediately after refresh           |
+| `plugin.nix` change (new systemd unit, env var, hardening tweak) | Same — the new file lands on disk during refresh                         | Next `nixos-rebuild switch` (Apply) |
 
 Manifest changes affect how the TUI renders the plugin (config
 form, action menu, tile). They take effect as soon as the new

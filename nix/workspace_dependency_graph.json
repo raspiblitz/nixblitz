@@ -1,9 +1,6 @@
 {
   "packages": {
-    "_fe_analyzer_shared": [
-      "meta",
-      "source_span"
-    ],
+    "_fe_analyzer_shared": ["meta", "source_span"],
     "analyzer": [
       "_fe_analyzer_shared",
       "collection",
@@ -18,37 +15,17 @@
       "watcher",
       "yaml"
     ],
-    "ansi_escape_codes": [
-      "meta"
-    ],
-    "archive": [
-      "path",
-      "posix"
-    ],
+    "ansi_escape_codes": ["meta"],
+    "archive": ["path", "posix"],
     "args": [],
-    "async": [
-      "collection",
-      "meta"
-    ],
-    "boolean_selector": [
-      "source_span",
-      "string_scanner"
-    ],
+    "async": ["collection", "meta"],
+    "boolean_selector": ["source_span", "string_scanner"],
     "characters": [],
-    "cli_config": [
-      "args",
-      "yaml"
-    ],
+    "cli_config": ["args", "yaml"],
     "clock": [],
     "collection": [],
-    "common": [
-      "riverpod",
-      "path",
-      "http"
-    ],
-    "convert": [
-      "typed_data"
-    ],
+    "common": ["riverpod", "path", "http"],
+    "convert": ["typed_data"],
     "coverage": [
       "args",
       "cli_config",
@@ -62,29 +39,12 @@
       "vm_service",
       "yaml"
     ],
-    "crypto": [
-      "typed_data"
-    ],
-    "equatable": [
-      "collection",
-      "meta"
-    ],
+    "crypto": ["typed_data"],
+    "equatable": ["collection", "meta"],
     "ffi": [],
-    "file": [
-      "meta",
-      "path"
-    ],
-    "frontend_server_client": [
-      "async",
-      "path"
-    ],
-    "glob": [
-      "async",
-      "collection",
-      "file",
-      "path",
-      "string_scanner"
-    ],
+    "file": ["meta", "path"],
+    "frontend_server_client": ["async", "path"],
+    "glob": ["async", "collection", "file", "path", "string_scanner"],
     "hotreloader": [
       "logging",
       "path",
@@ -92,44 +52,20 @@
       "vm_service",
       "watcher"
     ],
-    "http": [
-      "async",
-      "http_parser",
-      "meta",
-      "web"
-    ],
-    "http_multi_server": [
-      "async"
-    ],
+    "http": ["async", "http_parser", "meta", "web"],
+    "http_multi_server": ["async"],
     "http_parser": [
       "collection",
       "source_span",
       "string_scanner",
       "typed_data"
     ],
-    "image": [
-      "archive",
-      "meta",
-      "xml"
-    ],
-    "io": [
-      "meta",
-      "path",
-      "string_scanner"
-    ],
+    "image": ["archive", "meta", "xml"],
+    "io": ["meta", "path", "string_scanner"],
     "lints": [],
     "logging": [],
-    "markdown": [
-      "args",
-      "meta"
-    ],
-    "matcher": [
-      "async",
-      "meta",
-      "stack_trace",
-      "term_glyph",
-      "test_api"
-    ],
+    "markdown": ["args", "meta"],
+    "matcher": ["async", "meta", "stack_trace", "term_glyph", "test_api"],
     "meta": [],
     "mime": [],
     "nixblitz_workspace": [],
@@ -149,35 +85,15 @@
       "equatable",
       "zmodem"
     ],
-    "nocterm_riverpod": [
-      "nocterm",
-      "riverpod",
-      "meta"
-    ],
+    "nocterm_riverpod": ["nocterm", "riverpod", "meta"],
     "node_preamble": [],
-    "package_config": [
-      "path"
-    ],
+    "package_config": ["path"],
     "path": [],
-    "petitparser": [
-      "meta",
-      "collection"
-    ],
-    "pool": [
-      "async",
-      "stack_trace"
-    ],
-    "posix": [
-      "ffi",
-      "meta",
-      "path"
-    ],
-    "pub_semver": [
-      "collection"
-    ],
-    "quiver": [
-      "matcher"
-    ],
+    "petitparser": ["meta", "collection"],
+    "pool": ["async", "stack_trace"],
+    "posix": ["ffi", "meta", "path"],
+    "pub_semver": ["collection"],
+    "quiver": ["matcher"],
     "riverpod": [
       "async",
       "clock",
@@ -194,49 +110,17 @@
       "stack_trace",
       "stream_channel"
     ],
-    "shelf_packages_handler": [
-      "path",
-      "shelf",
-      "shelf_static"
-    ],
-    "shelf_static": [
-      "convert",
-      "http_parser",
-      "mime",
-      "path",
-      "shelf"
-    ],
-    "shelf_web_socket": [
-      "shelf",
-      "stream_channel",
-      "web_socket_channel"
-    ],
-    "source_map_stack_trace": [
-      "path",
-      "source_maps",
-      "stack_trace"
-    ],
-    "source_maps": [
-      "source_span"
-    ],
-    "source_span": [
-      "collection",
-      "path",
-      "term_glyph"
-    ],
-    "stack_trace": [
-      "path"
-    ],
-    "state_notifier": [
-      "meta"
-    ],
-    "stream_channel": [
-      "async"
-    ],
+    "shelf_packages_handler": ["path", "shelf", "shelf_static"],
+    "shelf_static": ["convert", "http_parser", "mime", "path", "shelf"],
+    "shelf_web_socket": ["shelf", "stream_channel", "web_socket_channel"],
+    "source_map_stack_trace": ["path", "source_maps", "stack_trace"],
+    "source_maps": ["source_span"],
+    "source_span": ["collection", "path", "term_glyph"],
+    "stack_trace": ["path"],
+    "state_notifier": ["meta"],
+    "stream_channel": ["async"],
     "stream_transform": [],
-    "string_scanner": [
-      "source_span"
-    ],
+    "string_scanner": ["source_span"],
     "term_glyph": [],
     "test": [
       "analyzer",
@@ -299,25 +183,12 @@
       "vm_service",
       "yaml"
     ],
-    "tui": [
-      "args",
-      "riverpod",
-      "nocterm",
-      "nocterm_riverpod",
-      "common"
-    ],
-    "typed_data": [
-      "collection"
-    ],
+    "tui": ["args", "riverpod", "nocterm", "nocterm_riverpod", "common"],
+    "typed_data": ["collection"],
     "vm_service": [],
-    "watcher": [
-      "async",
-      "path"
-    ],
+    "watcher": ["async", "path"],
     "web": [],
-    "web_socket": [
-      "web"
-    ],
+    "web_socket": ["web"],
     "web_socket_channel": [
       "async",
       "crypto",
@@ -325,48 +196,19 @@
       "web",
       "web_socket"
     ],
-    "webkit_inspection_protocol": [
-      "logging"
-    ],
-    "xml": [
-      "collection",
-      "meta",
-      "petitparser"
-    ],
-    "yaml": [
-      "collection",
-      "source_span",
-      "string_scanner"
-    ],
-    "zmodem": [
-      "async",
-      "convert"
-    ]
+    "webkit_inspection_protocol": ["logging"],
+    "xml": ["collection", "meta", "petitparser"],
+    "yaml": ["collection", "source_span", "string_scanner"],
+    "zmodem": ["async", "convert"]
   },
   "roots": {
     "common": {
-      "dev": [
-        "lints",
-        "test"
-      ],
-      "main": [
-        "riverpod",
-        "path",
-        "http"
-      ]
+      "dev": ["lints", "test"],
+      "main": ["riverpod", "path", "http"]
     },
     "tui": {
-      "dev": [
-        "lints",
-        "test"
-      ],
-      "main": [
-        "args",
-        "riverpod",
-        "nocterm",
-        "nocterm_riverpod",
-        "common"
-      ]
+      "dev": ["lints", "test"],
+      "main": ["args", "riverpod", "nocterm", "nocterm_riverpod", "common"]
     }
   },
   "version": 1,

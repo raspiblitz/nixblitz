@@ -49,9 +49,7 @@ class HelpPopupDemoView extends StatelessComponent {
                   ),
                 ),
                 const SizedBox(height: 1),
-                const Text(
-                  'The popup should overlay this page.',
-                ),
+                const Text('The popup should overlay this page.'),
                 const Text(
                   '[?] show popup  [Esc] close popup / back to menu',
                   style: TextStyle(color: Color.fromRGB(150, 150, 180)),

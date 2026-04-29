@@ -23,11 +23,7 @@ void _seedPluginWithTileCommand(
   File('${dir.path}/plugin.nix').writeAsStringSync('{}\n');
   File('${dir.path}/manifest.json').writeAsStringSync(
     jsonEncode({
-      'manifest': {
-        'schema_version': 2,
-        'min_tui_version': 1,
-        'name': dirName,
-      },
+      'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': dirName},
       'dashboard': {
         'title': dirName,
         'command': tileCommand,
@@ -107,8 +103,7 @@ void main() {
 
     tearDown(() => home.deleteSync(recursive: true));
 
-    test('polls a plugin tile command and parses JSON output',
-        () async {
+    test('polls a plugin tile command and parses JSON output', () async {
       _seedPluginWithTileCommand(
         home,
         'demo',
@@ -133,8 +128,7 @@ void main() {
       expect(snap.footer, isNull);
     });
 
-    test('non-zero exit produces failure snapshot with stderr tail',
-        () async {
+    test('non-zero exit produces failure snapshot with stderr tail', () async {
       _seedPluginWithTileCommand(
         home,
         'demo',
@@ -154,44 +148,42 @@ void main() {
       expect(snap.footerColor, PluginTileStatus.error);
     });
 
-    test('exit 127 (command-not-found) renders as a yellow pending tile',
-        () async {
-      // Regression: before the fix, a freshly-installed plugin
-      // whose tile-state script wasn't on PATH yet (because the
-      // operator hadn't run Apply) rendered as a red runtime
-      // error. The right shape is a soft "pending" tile pointing
-      // them at Apply.
-      //
-      // Use the literal exit-127 from `bash -c <missing>` rather
-      // than spelling it out so the test mirrors what bash itself
-      // produces when a script is missing from PATH.
-      _seedPluginWithTileCommand(
-        home,
-        'demo',
-        tileCommand: 'definitely-not-a-real-binary-aiyf',
-      );
-      _writeMainConfig(home, ['demo']);
+    test(
+      'exit 127 (command-not-found) renders as a yellow pending tile',
+      () async {
+        // Regression: before the fix, a freshly-installed plugin
+        // whose tile-state script wasn't on PATH yet (because the
+        // operator hadn't run Apply) rendered as a red runtime
+        // error. The right shape is a soft "pending" tile pointing
+        // them at Apply.
+        //
+        // Use the literal exit-127 from `bash -c <missing>` rather
+        // than spelling it out so the test mirrors what bash itself
+        // produces when a script is missing from PATH.
+        _seedPluginWithTileCommand(
+          home,
+          'demo',
+          tileCommand: 'definitely-not-a-real-binary-aiyf',
+        );
+        _writeMainConfig(home, ['demo']);
 
-      final container = _makeContainer(home);
-      addTearDown(container.dispose);
-      final svc = container.read(pluginDashboardServiceProvider);
-      addTearDown(svc.dispose);
+        final container = _makeContainer(home);
+        addTearDown(container.dispose);
+        final svc = container.read(pluginDashboardServiceProvider);
+        addTearDown(svc.dispose);
 
-      final snap = await _waitForSnapshot(container, 'demo');
-      expect(snap, isNotNull);
-      expect(snap!.statusLabel, 'pending');
-      expect(snap.statusColor, PluginTileStatus.warn);
-      expect(snap.footerColor, PluginTileStatus.warn);
-      expect(snap.footer, contains('awaiting Apply'));
-      expect(snap.footer, contains('definitely-not-a-real-binary-aiyf'));
-    });
+        final snap = await _waitForSnapshot(container, 'demo');
+        expect(snap, isNotNull);
+        expect(snap!.statusLabel, 'pending');
+        expect(snap.statusColor, PluginTileStatus.warn);
+        expect(snap.footerColor, PluginTileStatus.warn);
+        expect(snap.footer, contains('awaiting Apply'));
+        expect(snap.footer, contains('definitely-not-a-real-binary-aiyf'));
+      },
+    );
 
     test('invalid JSON output produces failure snapshot', () async {
-      _seedPluginWithTileCommand(
-        home,
-        'demo',
-        tileCommand: r'echo "not json"',
-      );
+      _seedPluginWithTileCommand(home, 'demo', tileCommand: r'echo "not json"');
       _writeMainConfig(home, ['demo']);
 
       final container = _makeContainer(home);
@@ -210,7 +202,9 @@ void main() {
       // not poll it. We use a separate minimal seed since
       // _seedPluginWithTileCommand always adds a dashboard.
       Directory('${home.path}/plugins/headless').createSync(recursive: true);
-      File('${home.path}/plugins/headless/plugin.nix').writeAsStringSync('{}\n');
+      File(
+        '${home.path}/plugins/headless/plugin.nix',
+      ).writeAsStringSync('{}\n');
       File('${home.path}/plugins/headless/manifest.json').writeAsStringSync(
         jsonEncode({
           'manifest': {
@@ -220,7 +214,9 @@ void main() {
           },
         }),
       );
-      File('${home.path}/plugins/headless/config.json').writeAsStringSync('{}\n');
+      File(
+        '${home.path}/plugins/headless/config.json',
+      ).writeAsStringSync('{}\n');
       _writeMainConfig(home, ['headless']);
 
       final container = _makeContainer(home);

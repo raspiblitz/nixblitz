@@ -88,10 +88,8 @@ Future<_StepResult> _ensureWallet(void Function(String) append) async {
   return _btc(append, ['createwallet', _kDebugWallet]);
 }
 
-Future<_StepResult> _lncli(
-  void Function(String) append,
-  List<String> args,
-) => _step(append: append, bin: 'lncli', args: args);
+Future<_StepResult> _lncli(void Function(String) append, List<String> args) =>
+    _step(append: append, bin: 'lncli', args: args);
 
 Future<_StepResult> _lncliTest(
   void Function(String) append,
@@ -287,11 +285,7 @@ class TestLnFundView extends StatelessComponent {
             append('! could not get a bitcoind address');
             return;
           }
-          await _btc(append, [
-            'generatetoaddress',
-            '101',
-            addr.stdout.trim(),
-          ]);
+          await _btc(append, ['generatetoaddress', '101', addr.stdout.trim()]);
         }
 
         // Fund primary LND.
@@ -320,11 +314,7 @@ class TestLnFundView extends StatelessComponent {
         append('');
         append('Mining 6 blocks to confirm…');
         final confAddr = await _btcw(append, ['getnewaddress']);
-        await _btc(append, [
-          'generatetoaddress',
-          '6',
-          confAddr.stdout.trim(),
-        ]);
+        await _btc(append, ['generatetoaddress', '6', confAddr.stdout.trim()]);
 
         // Final balances.
         append('');
@@ -351,9 +341,8 @@ class TestLnChannelView extends StatelessComponent {
         // 1. Precondition: primary must have > channel capacity on-chain.
         const capacitySat = 1000000;
         final bal = await _lncli(append, ['walletbalance']);
-        final confirmed = int.tryParse(
-              _jsonField(bal.stdout, 'confirmed_balance') ?? '',
-            ) ??
+        final confirmed =
+            int.tryParse(_jsonField(bal.stdout, 'confirmed_balance') ?? '') ??
             0;
         append('');
         append('primary confirmed balance: $confirmed sat');
@@ -410,11 +399,7 @@ class TestLnChannelView extends StatelessComponent {
           return;
         }
         final confAddr = await _btcw(append, ['getnewaddress']);
-        await _btc(append, [
-          'generatetoaddress',
-          '6',
-          confAddr.stdout.trim(),
-        ]);
+        await _btc(append, ['generatetoaddress', '6', confAddr.stdout.trim()]);
 
         // 6. Show the channel.
         append('');
@@ -442,13 +427,12 @@ class TestLnPayView extends StatelessComponent {
           append('! could not query primary channels');
           return;
         }
-        final hasChannel = channels.stdout.contains('"active": true') ||
+        final hasChannel =
+            channels.stdout.contains('"active": true') ||
             channels.stdout.contains('"active":true');
         if (!hasChannel) {
           append('');
-          append(
-            "! no active channels — run 'Test LN: open channel' first.",
-          );
+          append("! no active channels — run 'Test LN: open channel' first.");
           return;
         }
 

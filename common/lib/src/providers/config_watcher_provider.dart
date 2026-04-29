@@ -41,9 +41,7 @@ import 'package:common/src/services/log_service.dart';
 /// nicety.
 final configWatcherProvider = Provider<void>((ref) {
   if (!Platform.isLinux) {
-    LogService.info(
-      'configWatcherProvider: not Linux, skipping FS watcher',
-    );
+    LogService.info('configWatcherProvider: not Linux, skipping FS watcher');
     return;
   }
 
@@ -54,9 +52,7 @@ final configWatcherProvider = Provider<void>((ref) {
     // until that changes. The watcher would be re-instantiated
     // on the next provider invalidation; we trust the surrounding
     // app to handle the bootstrap path explicitly.
-    LogService.warn(
-      'configWatcherProvider: $baseDir does not exist, skipping',
-    );
+    LogService.warn('configWatcherProvider: $baseDir does not exist, skipping');
     return;
   }
 
@@ -64,31 +60,33 @@ final configWatcherProvider = Provider<void>((ref) {
   StreamSubscription<FileSystemEvent>? sub;
 
   try {
-    sub = dir.watch(recursive: true).listen(
-      (event) {
-        if (!_isRelevant(event.path, baseDir)) return;
-        // Debounce so a burst of writes from a single CLI
-        // operation (`plugin add` does several mkdir + writeFile
-        // in sequence) collapses to one reload. 250 ms is
-        // comfortably longer than the typical write burst on a
-        // local disk, well below human-perceptible latency.
-        debounce?.cancel();
-        debounce = Timer(const Duration(milliseconds: 250), () {
-          LogService.info(
-            'configWatcherProvider: ${event.path} changed, '
-            'reloading config',
-          );
-          ref.read(configProvider.notifier).reload();
-        });
-      },
-      onError: (e, st) {
-        LogService.error(
-          'configWatcherProvider: watch stream errored',
-          e,
-          st,
+    sub = dir
+        .watch(recursive: true)
+        .listen(
+          (event) {
+            if (!_isRelevant(event.path, baseDir)) return;
+            // Debounce so a burst of writes from a single CLI
+            // operation (`plugin add` does several mkdir + writeFile
+            // in sequence) collapses to one reload. 250 ms is
+            // comfortably longer than the typical write burst on a
+            // local disk, well below human-perceptible latency.
+            debounce?.cancel();
+            debounce = Timer(const Duration(milliseconds: 250), () {
+              LogService.info(
+                'configWatcherProvider: ${event.path} changed, '
+                'reloading config',
+              );
+              ref.read(configProvider.notifier).reload();
+            });
+          },
+          onError: (e, st) {
+            LogService.error(
+              'configWatcherProvider: watch stream errored',
+              e,
+              st,
+            );
+          },
         );
-      },
-    );
   } catch (e, st) {
     LogService.error(
       'configWatcherProvider: failed to start watching $baseDir',

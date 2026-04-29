@@ -18,11 +18,8 @@ class HardwareTile extends StatelessComponent {
         accent: _accent,
         rows: [TileRow('status', 'waiting for event…')],
       ),
-      error: (e, _) => const Tile(
-        title: 'Hardware',
-        accent: _accent,
-        footer: 'unreachable',
-      ),
+      error: (e, _) =>
+          const Tile(title: 'Hardware', accent: _accent, footer: 'unreachable'),
       data: (s) {
         if (s == null) {
           return const Tile(

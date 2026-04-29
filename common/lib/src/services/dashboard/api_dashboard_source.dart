@@ -49,11 +49,9 @@ class ApiDashboardSource implements DashboardDataSource {
   /// (usually hostname/platform/network from config.json) so we can
   /// render the System tile before the first `system_info` SSE event
   /// lands.
-  ApiDashboardSource({
-    BlitzApiClient? client,
-    SystemSnapshot? seedSystem,
-  })  : _client = client ?? BlitzApiClient(),
-        _ownsClient = client == null {
+  ApiDashboardSource({BlitzApiClient? client, SystemSnapshot? seedSystem})
+    : _client = client ?? BlitzApiClient(),
+      _ownsClient = client == null {
     _system = seedSystem;
     _start();
   }
@@ -96,21 +94,24 @@ class ApiDashboardSource implements DashboardDataSource {
     if (_system != null) _systemCtrl.add(_system);
 
     _sub = _client.events.listen(_onEvent);
-    unawaited(_client.start().catchError((e, st) {
-      LogService.error('ApiDashboardSource failed to start', e, st);
-    }));
+    unawaited(
+      _client.start().catchError((e, st) {
+        LogService.error('ApiDashboardSource failed to start', e, st);
+      }),
+    );
 
     // Systemd status for ancillary services isn't on the SSE stream;
     // poll locally and merge into the SystemSnapshot.
     _pollServices();
-    _serviceTimer = Timer.periodic(_kServicePollInterval, (_) => _pollServices());
+    _serviceTimer = Timer.periodic(
+      _kServicePollInterval,
+      (_) => _pollServices(),
+    );
   }
 
   Future<void> _pollServices() async {
     try {
-      final results = await Future.wait(
-        _kAncillaryServices.map(_checkService),
-      );
+      final results = await Future.wait(_kAncillaryServices.map(_checkService));
       final map = Map<String, ServiceState>.fromEntries(results);
       final prev = _system;
       if (prev != null) {
@@ -236,24 +237,28 @@ class ApiDashboardSource implements DashboardDataSource {
         }
       case 'btc_network_status':
         // connections_in/out in case btc_info hasn't landed yet.
-        final peers = ((m['connections_in'] as num?)?.toInt() ?? 0) +
+        final peers =
+            ((m['connections_in'] as num?)?.toInt() ?? 0) +
             ((m['connections_out'] as num?)?.toInt() ?? 0);
-        _btc = (_btc ?? BtcSnapshot.fromBtcInfo(const {}))
-            .copyWith(peers: peers);
+        _btc = (_btc ?? BtcSnapshot.fromBtcInfo(const {})).copyWith(
+          peers: peers,
+        );
         _btcCtrl.add(_btc);
       case 'ln_info':
         _ln = LnSnapshot.fromLnInfo(m, prev: _ln);
         _lnCtrl.add(_ln);
       case 'wallet_balance':
-        final onChain = (m['onchain_confirmed_balance'] as num?)?.toInt() ??
+        final onChain =
+            (m['onchain_confirmed_balance'] as num?)?.toInt() ??
             _ln?.onChainSats ??
             0;
         // API reports channel balances in msat.
-        final localMsat =
-            (m['channel_local_balance'] as num?)?.toInt() ?? 0;
+        final localMsat = (m['channel_local_balance'] as num?)?.toInt() ?? 0;
         final channelSats = localMsat ~/ 1000;
-        _ln = (_ln ?? LnSnapshot.fromLnInfo(const {}))
-            .copyWith(onChainSats: onChain, channelSats: channelSats);
+        _ln = (_ln ?? LnSnapshot.fromLnInfo(const {})).copyWith(
+          onChainSats: onChain,
+          channelSats: channelSats,
+        );
         _lnCtrl.add(_ln);
       case 'hardware_info':
         _hardware = HardwareSnapshot.fromApi(m);

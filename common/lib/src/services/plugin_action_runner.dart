@@ -38,8 +38,7 @@ class PluginActionRunner {
   ///
   /// `/run/current-system/sw/bin` — system-level packages.
   /// `/run/wrappers/bin` — setuid wrappers.
-  static const _systemPath =
-      '/run/current-system/sw/bin:/run/wrappers/bin';
+  static const _systemPath = '/run/current-system/sw/bin:/run/wrappers/bin';
 
   ({Stream<String> output, Future<int> exitCode}) run(PluginAction action) {
     if (action.unit != null) {
@@ -49,13 +48,13 @@ class PluginActionRunner {
   }
 
   ({Stream<String> output, Future<int> exitCode}) _runCommand(
-      PluginAction action) {
+    PluginAction action,
+  ) {
     final controller = StreamController<String>();
 
     final exitCodeFuture = () async {
       final wrappedCommand =
-          r'export PATH="' + _systemPath + r':${PATH:-}"; ' +
-              action.command!;
+          r'export PATH="' + _systemPath + r':${PATH:-}"; ' + action.command!;
       final timeout = Duration(seconds: action.timeoutSeconds);
 
       controller.add('> bash -c "${action.command}"\n');
@@ -92,16 +91,18 @@ class PluginActionRunner {
 
       final stdoutDone = Completer<void>();
       final stderrDone = Completer<void>();
-      process.stdout.transform(const SystemEncoding().decoder).listen(
+      process.stdout
+          .transform(const SystemEncoding().decoder)
+          .listen(
             controller.add,
-            onDone: () =>
-                stdoutDone.isCompleted ? null : stdoutDone.complete(),
+            onDone: () => stdoutDone.isCompleted ? null : stdoutDone.complete(),
             cancelOnError: true,
           );
-      process.stderr.transform(const SystemEncoding().decoder).listen(
+      process.stderr
+          .transform(const SystemEncoding().decoder)
+          .listen(
             controller.add,
-            onDone: () =>
-                stderrDone.isCompleted ? null : stderrDone.complete(),
+            onDone: () => stderrDone.isCompleted ? null : stderrDone.complete(),
             cancelOnError: true,
           );
 
@@ -130,7 +131,8 @@ class PluginActionRunner {
   /// first sudo call inside this method will fail with exit ≠ 0
   /// and the action surfaces as failed.
   ({Stream<String> output, Future<int> exitCode}) _runUnit(
-      PluginAction action) {
+    PluginAction action,
+  ) {
     final controller = StreamController<String>();
     final unit = action.unit!;
 
@@ -138,28 +140,30 @@ class PluginActionRunner {
       final timeout = Duration(seconds: action.timeoutSeconds);
       // 2-second backdate so journalctl picks up startup messages
       // emitted right at the unit-start moment.
-      final sinceUnix =
-          (DateTime.now().millisecondsSinceEpoch ~/ 1000) - 2;
+      final sinceUnix = (DateTime.now().millisecondsSinceEpoch ~/ 1000) - 2;
 
       controller.add('> sudo systemctl start --wait $unit\n');
-      final start = await sudoSession.runOneShot(
-        ['systemctl', 'start', '--wait', unit],
-        timeout: timeout,
-      );
+      final start = await sudoSession.runOneShot([
+        'systemctl',
+        'start',
+        '--wait',
+        unit,
+      ], timeout: timeout);
       if (start.stderr.isNotEmpty) {
         controller.add(start.stderr);
         if (!start.stderr.endsWith('\n')) controller.add('\n');
       }
 
       controller.add('--- journalctl -u $unit ---\n');
-      final logRes = await sudoSession.runOneShot(
-        [
-          'journalctl', '-u', unit,
-          '--since', '@$sinceUnix',
-          '--no-pager', '--output=cat',
-        ],
-        timeout: const Duration(seconds: 10),
-      );
+      final logRes = await sudoSession.runOneShot([
+        'journalctl',
+        '-u',
+        unit,
+        '--since',
+        '@$sinceUnix',
+        '--no-pager',
+        '--output=cat',
+      ], timeout: const Duration(seconds: 10));
       if (logRes.stdout.isNotEmpty) {
         controller.add(logRes.stdout);
         if (!logRes.stdout.endsWith('\n')) controller.add('\n');
@@ -189,8 +193,7 @@ class PluginActionRunner {
     required String command,
     Duration timeout = const Duration(seconds: 5),
   }) async {
-    final wrapped =
-        r'export PATH="' + _systemPath + r':${PATH:-}"; ' + command;
+    final wrapped = r'export PATH="' + _systemPath + r':${PATH:-}"; ' + command;
 
     Process process;
     try {
@@ -204,16 +207,18 @@ class PluginActionRunner {
     final stderrBuf = StringBuffer();
     final stdoutDone = Completer<void>();
     final stderrDone = Completer<void>();
-    process.stdout.transform(const SystemEncoding().decoder).listen(
+    process.stdout
+        .transform(const SystemEncoding().decoder)
+        .listen(
           stdoutBuf.write,
-          onDone: () =>
-              stdoutDone.isCompleted ? null : stdoutDone.complete(),
+          onDone: () => stdoutDone.isCompleted ? null : stdoutDone.complete(),
           cancelOnError: true,
         );
-    process.stderr.transform(const SystemEncoding().decoder).listen(
+    process.stderr
+        .transform(const SystemEncoding().decoder)
+        .listen(
           stderrBuf.write,
-          onDone: () =>
-              stderrDone.isCompleted ? null : stderrDone.complete(),
+          onDone: () => stderrDone.isCompleted ? null : stderrDone.complete(),
           cancelOnError: true,
         );
 

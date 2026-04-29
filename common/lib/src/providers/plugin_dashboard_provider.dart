@@ -22,6 +22,6 @@ Stream<Map<String, PluginTileSnapshot?>> _withSeed(
 
 final pluginTileSnapshotsProvider =
     StreamProvider<Map<String, PluginTileSnapshot?>>((ref) {
-  final svc = ref.watch(pluginDashboardServiceProvider);
-  return _withSeed(svc.seed, svc.snapshots);
-});
+      final svc = ref.watch(pluginDashboardServiceProvider);
+      return _withSeed(svc.seed, svc.snapshots);
+    });

@@ -53,19 +53,21 @@ class UpdateCheckService {
 
     final lockFile = File('$flakePath/flake.lock');
     if (!lockFile.existsSync()) {
-      _merge(LightCheck(
-        checkedAt: now,
-        ok: false,
-        error: 'flake.lock not found at $flakePath',
-      ));
+      _merge(
+        LightCheck(
+          checkedAt: now,
+          ok: false,
+          error: 'flake.lock not found at $flakePath',
+        ),
+      );
       return 1;
     }
 
     final List<InputAhead> ahead = [];
     final List<String> errors = [];
     try {
-      final lock = jsonDecode(lockFile.readAsStringSync())
-          as Map<String, dynamic>;
+      final lock =
+          jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
       final inputs = parseRootInputs(lock);
       for (final entry in inputs) {
         try {
@@ -75,35 +77,44 @@ class UpdateCheckService {
             continue;
           }
           if (upstream != entry.lockedRev) {
-            ahead.add(InputAhead(
-              name: entry.name,
-              currentRev: entry.lockedRev,
-              upstreamRev: upstream,
-              url: entry.urlForDisplay,
-            ));
+            ahead.add(
+              InputAhead(
+                name: entry.name,
+                currentRev: entry.lockedRev,
+                upstreamRev: upstream,
+                url: entry.urlForDisplay,
+              ),
+            );
           }
         } catch (e, st) {
           LogService.error(
-              'UpdateCheckService: input ${entry.name} threw', e, st);
+            'UpdateCheckService: input ${entry.name} threw',
+            e,
+            st,
+          );
           errors.add('${entry.name}: $e');
         }
       }
     } catch (e, st) {
       LogService.error('UpdateCheckService.runLightweight failed', e, st);
-      _merge(LightCheck(
-        checkedAt: now,
-        ok: false,
-        error: 'flake.lock parse failed: $e',
-      ));
+      _merge(
+        LightCheck(
+          checkedAt: now,
+          ok: false,
+          error: 'flake.lock parse failed: $e',
+        ),
+      );
       return 1;
     }
 
-    _merge(LightCheck(
-      checkedAt: now,
-      ok: true,
-      inputsAhead: ahead,
-      error: errors.isEmpty ? null : errors.join('; '),
-    ));
+    _merge(
+      LightCheck(
+        checkedAt: now,
+        ok: true,
+        inputsAhead: ahead,
+        error: errors.isEmpty ? null : errors.join('; '),
+      ),
+    );
     LogService.info(
       'UpdateCheckService.runLightweight: ${ahead.length} inputs ahead, '
       '${errors.length} errors',
@@ -122,31 +133,33 @@ class UpdateCheckService {
 
       // Copy just enough for an eval: flake.{nix,lock}, hosts/,
       // modules/, plugins/, hardware-configuration.nix, config.json.
-      final cp = await Process.run(
-        'cp',
-        ['-aT', flakePath, tmpFlake],
-      );
+      final cp = await Process.run('cp', ['-aT', flakePath, tmpFlake]);
       if (cp.exitCode != 0) {
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'cp failed: ${cp.stderr}',
-        ));
+        _merge(
+          HeavyCheck(
+            checkedAt: now,
+            ok: false,
+            error: 'cp failed: ${cp.stderr}',
+          ),
+        );
         return 1;
       }
 
       // 1. flake update.
-      final upd = await Process.run(
-        'nix', ['flake', 'update'],
-        workingDirectory: tmpFlake,
-      );
+      final upd = await Process.run('nix', [
+        'flake',
+        'update',
+      ], workingDirectory: tmpFlake);
       if (upd.exitCode != 0) {
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'nix flake update failed (exit ${upd.exitCode}): '
-              '${(upd.stderr as String).trim()}',
-        ));
+        _merge(
+          HeavyCheck(
+            checkedAt: now,
+            ok: false,
+            error:
+                'nix flake update failed (exit ${upd.exitCode}): '
+                '${(upd.stderr as String).trim()}',
+          ),
+        );
         return 1;
       }
 
@@ -155,71 +168,68 @@ class UpdateCheckService {
       // can introspect it. `nix eval --raw` would only return a
       // hash-predicted path that doesn't exist on disk yet, and
       // nvd would fail with "Path does not exist".
-      final eval = await Process.run(
-        'nix',
-        [
-          'build', '--no-link', '--print-out-paths',
-          '$tmpFlake#nixosConfigurations.nixblitz.config.system.build.toplevel',
-        ],
-        workingDirectory: tmpFlake,
-      );
+      final eval = await Process.run('nix', [
+        'build',
+        '--no-link',
+        '--print-out-paths',
+        '$tmpFlake#nixosConfigurations.nixblitz.config.system.build.toplevel',
+      ], workingDirectory: tmpFlake);
       if (eval.exitCode != 0) {
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'nix build failed: ${(eval.stderr as String).trim()}',
-        ));
+        _merge(
+          HeavyCheck(
+            checkedAt: now,
+            ok: false,
+            error: 'nix build failed: ${(eval.stderr as String).trim()}',
+          ),
+        );
         return 1;
       }
       final newTop = (eval.stdout as String).trim();
       if (!newTop.startsWith('/nix/store/')) {
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'nix build did not return a store path: $newTop',
-        ));
+        _merge(
+          HeavyCheck(
+            checkedAt: now,
+            ok: false,
+            error: 'nix build did not return a store path: $newTop',
+          ),
+        );
         return 1;
       }
 
       // 3. compare to current.
-      final readlink = await Process.run('readlink', ['-f', '/run/current-system']);
+      final readlink = await Process.run('readlink', [
+        '-f',
+        '/run/current-system',
+      ]);
       final currentTop = (readlink.stdout as String).trim();
       if (currentTop == newTop) {
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: true,
-          noChanges: true,
-        ));
+        _merge(HeavyCheck(checkedAt: now, ok: true, noChanges: true));
         return 0;
       }
 
       // 4. nvd diff.
       try {
-        final nvd = await Process.run(
-          'nvd', ['diff', '/run/current-system', newTop],
-        );
+        final nvd = await Process.run('nvd', [
+          'diff',
+          '/run/current-system',
+          newTop,
+        ]);
         final diff = (nvd.stdout as String) + (nvd.stderr as String);
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: true,
-          diffText: diff,
-        ));
+        _merge(HeavyCheck(checkedAt: now, ok: true, diffText: diff));
         return 0;
       } on ProcessException catch (e) {
-        _merge(HeavyCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'nvd not on PATH: ${e.message}',
-        ));
+        _merge(
+          HeavyCheck(
+            checkedAt: now,
+            ok: false,
+            error: 'nvd not on PATH: ${e.message}',
+          ),
+        );
         return 1;
       }
     } catch (e, st) {
       LogService.error('UpdateCheckService.runHeavy failed', e, st);
-      _merge(HeavyCheck(
-        checkedAt: now,
-        ok: false,
-        error: '$e',
-      ));
+      _merge(HeavyCheck(checkedAt: now, ok: false, error: '$e'));
       return 1;
     } finally {
       if (tmp != null) {
@@ -239,8 +249,7 @@ class UpdateCheckService {
       final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
       return UpdateStatus.fromJson(j);
     } catch (e, st) {
-      LogService.error(
-          'UpdateCheckService.readStatus: parse failed', e, st);
+      LogService.error('UpdateCheckService.readStatus: parse failed', e, st);
       return UpdateStatus.empty();
     }
   }
@@ -265,8 +274,7 @@ class UpdateCheckService {
       final api = ref == null
           ? 'https://api.github.com/repos/${entry.owner}/${entry.repo}/commits?per_page=1'
           : 'https://api.github.com/repos/${entry.owner}/${entry.repo}/commits/$ref';
-      final resp =
-          await _http.get(Uri.parse(api)).timeout(_httpTimeout);
+      final resp = await _http.get(Uri.parse(api)).timeout(_httpTimeout);
       if (resp.statusCode != 200) {
         throw StateError('GitHub API ${resp.statusCode}: ${resp.body}');
       }
@@ -281,8 +289,7 @@ class UpdateCheckService {
       final api =
           'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'
           '/branches/$ref';
-      final resp =
-          await _http.get(Uri.parse(api)).timeout(_httpTimeout);
+      final resp = await _http.get(Uri.parse(api)).timeout(_httpTimeout);
       if (resp.statusCode != 200) {
         throw StateError('Forgejo API ${resp.statusCode}: ${resp.body}');
       }
@@ -339,16 +346,18 @@ class UpdateCheckService {
 
       if (owner == null || repo == null) continue;
 
-      out.add(LockedInput(
-        name: e.key,
-        type: type!,
-        owner: owner,
-        repo: repo,
-        host: host,
-        ref: original?['ref'] as String?,
-        lockedRev: rev,
-        urlForDisplay: urlField ?? 'github:$owner/$repo',
-      ));
+      out.add(
+        LockedInput(
+          name: e.key,
+          type: type!,
+          owner: owner,
+          repo: repo,
+          host: host,
+          ref: original?['ref'] as String?,
+          lockedRev: rev,
+          urlForDisplay: urlField ?? 'github:$owner/$repo',
+        ),
+      );
     }
     return out;
   }
@@ -363,9 +372,7 @@ class UpdateCheckService {
     final uri = Uri.tryParse(clean);
     if (uri == null) return null;
     if (uri.host.isEmpty) return null;
-    final segments = uri.pathSegments
-        .where((s) => s.isNotEmpty)
-        .toList();
+    final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
     if (segments.length < 2) return null;
     var repo = segments[1];
     if (repo.endsWith('.git')) {

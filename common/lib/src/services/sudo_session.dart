@@ -78,9 +78,9 @@ class SudoSession {
     // a tighter `timestamp_timeout` should pass an explicit
     // override.
     Duration keepaliveInterval = const Duration(minutes: 3),
-  })  : _auth = authBackend ?? _DefaultSudoAuthBackend(),
-        _freshThreshold = freshThreshold,
-        _keepaliveInterval = keepaliveInterval;
+  }) : _auth = authBackend ?? _DefaultSudoAuthBackend(),
+       _freshThreshold = freshThreshold,
+       _keepaliveInterval = keepaliveInterval;
 
   final SudoAuthBackend _auth;
   final Duration _freshThreshold;
@@ -157,9 +157,7 @@ class SudoSession {
         pw.fillRange(0, pw.length, 0);
       }
     }
-    LogService.error(
-      'SudoSession.ensureFresh: all 3 password attempts failed',
-    );
+    LogService.error('SudoSession.ensureFresh: all 3 password attempts failed');
     return false;
   }
 
@@ -233,16 +231,18 @@ class SudoSession {
     final stderrBuf = StringBuffer();
     final stdoutDone = Completer<void>();
     final stderrDone = Completer<void>();
-    proc.stdout.transform(const SystemEncoding().decoder).listen(
+    proc.stdout
+        .transform(const SystemEncoding().decoder)
+        .listen(
           stdoutBuf.write,
-          onDone: () =>
-              stdoutDone.isCompleted ? null : stdoutDone.complete(),
+          onDone: () => stdoutDone.isCompleted ? null : stdoutDone.complete(),
           cancelOnError: true,
         );
-    proc.stderr.transform(const SystemEncoding().decoder).listen(
+    proc.stderr
+        .transform(const SystemEncoding().decoder)
+        .listen(
           stderrBuf.write,
-          onDone: () =>
-              stderrDone.isCompleted ? null : stderrDone.complete(),
+          onDone: () => stderrDone.isCompleted ? null : stderrDone.complete(),
           cancelOnError: true,
         );
 
@@ -291,8 +291,7 @@ class SudoSession {
           .transform(const LineSplitter())
           .listen(
             (line) => controller.add('$line\n'),
-            onDone: () =>
-                stdoutDone.isCompleted ? null : stdoutDone.complete(),
+            onDone: () => stdoutDone.isCompleted ? null : stdoutDone.complete(),
             cancelOnError: true,
           );
       proc.stderr
@@ -300,8 +299,7 @@ class SudoSession {
           .transform(const LineSplitter())
           .listen(
             (line) => controller.add('$line\n'),
-            onDone: () =>
-                stderrDone.isCompleted ? null : stderrDone.complete(),
+            onDone: () => stderrDone.isCompleted ? null : stderrDone.complete(),
             cancelOnError: true,
           );
 

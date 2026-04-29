@@ -39,15 +39,19 @@ class _DashboardViewState extends State<DashboardView> {
         final manifest = svc.readManifest(p.dirName);
         final spec = manifest.dashboard;
         if (spec == null) continue;
-        entries.add(
-          (dirName: p.dirName, title: spec.title, accent: spec.accentColorHex),
-        );
+        entries.add((
+          dirName: p.dirName,
+          title: spec.title,
+          accent: spec.accentColorHex,
+        ));
       } catch (e, st) {
         LogService.warn('dashboard: skipping plugin ${p.dirName}: $e');
         LogService.error('manifest read', e, st);
       }
     }
-    entries.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    entries.sort(
+      (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+    );
     return [
       for (final e in entries)
         PluginTile(
@@ -73,30 +77,36 @@ class _DashboardViewState extends State<DashboardView> {
       final names = light.inputsAhead.map((e) => e.name).take(3).join(', ');
       final more = n > 3 ? ' (+${n - 3} more)' : '';
       final ago = _humanizeAge(light.checkedAt);
-      lines.add(Container(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Text(
-          'updates available: $names$more — '
-          'checked $ago — press [u] Update',
-          style: const TextStyle(color: Color.fromRGB(120, 200, 220)),
+      lines.add(
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Text(
+            'updates available: $names$more — '
+            'checked $ago — press [u] Update',
+            style: const TextStyle(color: Color.fromRGB(120, 200, 220)),
+          ),
         ),
-      ));
+      );
     }
 
     final heavy = status.heavy;
-    if (heavy != null && heavy.ok &&
-        !heavy.noChanges && heavy.diffText.trim().isNotEmpty) {
+    if (heavy != null &&
+        heavy.ok &&
+        !heavy.noChanges &&
+        heavy.diffText.trim().isNotEmpty) {
       final firstLine = heavy.diffText
           .split('\n')
           .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
       final ago = _humanizeAge(heavy.checkedAt);
-      lines.add(Container(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Text(
-          'preview ($ago): $firstLine',
-          style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+      lines.add(
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Text(
+            'preview ($ago): $firstLine',
+            style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+          ),
         ),
-      ));
+      );
     }
 
     return lines;
@@ -170,9 +180,7 @@ class _DashboardViewState extends State<DashboardView> {
                   ),
                   Text(
                     '${config.system.platform} | ${config.bitcoind.network}',
-                    style: const TextStyle(
-                      color: Color.fromRGB(150, 150, 180),
-                    ),
+                    style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
                   ),
                 ],
               ),

@@ -9,6 +9,7 @@
 **Tech Stack:** Dart 3.11+, nocterm (TUI framework), Riverpod (state management), Nix flakes, dendritic NixOS module pattern
 
 **Reference examples:**
+
 - `examples_redesign/port_surgeon/` — Dart TUI patterns
 - `examples_redesign/folio/` — Dendritic NixOS module pattern
 - `examples_redesign/radrss/frontend/` — Dart workspace structure
@@ -19,10 +20,12 @@
 ## File Map
 
 ### Dart Workspace Root
+
 - Create: `pubspec.yaml` — workspace definition
 - Create: `analysis_options.yaml` — shared lint rules
 
 ### common package
+
 - Create: `common/pubspec.yaml`
 - Create: `common/lib/common.dart` — barrel export
 - Create: `common/lib/src/models/nixblitz_config.dart` — typed config model
@@ -34,6 +37,7 @@
 - Create: `common/lib/src/providers/service_status_provider.dart` — Riverpod provider for service status
 
 ### tui package
+
 - Create: `tui/pubspec.yaml`
 - Create: `tui/bin/nixblitz.dart` — entry point
 - Create: `tui/lib/src/ui/app.dart` — root NoctermApp + Shell
@@ -45,6 +49,7 @@
 - Create: `tui/lib/src/providers/ui_state_provider.dart` — navigation, selection, focus state
 
 ### NixOS templates (scaffolded to ~/nixblitz/ at install time)
+
 - Create: `templates/flake.nix` — flake with findModules auto-discovery
 - Create: `templates/hosts/default.nix` — reads config.json, maps to features
 - Create: `templates/modules/system/base.nix` — core system config
@@ -59,10 +64,12 @@
 - Create: `templates/hardware/vm.nix` — QEMU VM hardware config
 
 ### Nix build
+
 - Create: `flake.nix` — builds TUI, exposes as nix package
 - Create: `nix/tui_pkg.nix` — Dart application build
 
 ### Tests
+
 - Create: `common/test/models/nixblitz_config_test.dart`
 - Create: `common/test/services/config_service_test.dart`
 - Create: `common/test/services/git_service_test.dart`
@@ -73,6 +80,7 @@
 ## Task 1: Dart Workspace Scaffold
 
 **Files:**
+
 - Create: `pubspec.yaml`
 - Create: `analysis_options.yaml`
 - Create: `common/pubspec.yaml`
@@ -319,6 +327,7 @@ git commit -m "feat: scaffold Dart workspace with common and tui packages"
 ## Task 2: Config Model + JSON Serialization
 
 **Files:**
+
 - Create: `common/lib/src/models/nixblitz_config.dart`
 - Create: `common/test/models/nixblitz_config_test.dart`
 - Modify: `common/lib/common.dart`
@@ -722,6 +731,7 @@ git commit -m "feat: add NixblitzConfig model with JSON serialization and diff"
 ## Task 3: Config Service (JSON read/write + file operations)
 
 **Files:**
+
 - Create: `common/lib/src/services/config_service.dart`
 - Create: `common/test/services/config_service_test.dart`
 - Modify: `common/lib/common.dart`
@@ -848,6 +858,7 @@ git commit -m "feat: add ConfigService for config.json read/write"
 ## Task 4: Git Service
 
 **Files:**
+
 - Create: `common/lib/src/services/git_service.dart`
 - Create: `common/test/services/git_service_test.dart`
 - Modify: `common/lib/common.dart`
@@ -1008,6 +1019,7 @@ git commit -m "feat: add GitService for git init, commit, revert, and log"
 ## Task 5: System Service (nixos-rebuild, systemctl)
 
 **Files:**
+
 - Create: `common/lib/src/services/system_service.dart`
 - Create: `common/lib/src/models/service_status.dart`
 - Create: `common/test/services/system_service_test.dart`
@@ -1202,6 +1214,7 @@ git commit -m "feat: add SystemService and ServiceStatus for systemctl and nixos
 ## Task 6: Riverpod Providers
 
 **Files:**
+
 - Create: `common/lib/src/providers/config_provider.dart`
 - Create: `common/lib/src/providers/service_status_provider.dart`
 - Create: `tui/lib/src/providers/ui_state_provider.dart`
@@ -1325,6 +1338,7 @@ git commit -m "feat: add Riverpod providers for config, service status, and UI s
 ## Task 7: Dashboard View
 
 **Files:**
+
 - Create: `tui/lib/src/ui/views/dashboard_view.dart`
 - Create: `tui/lib/src/ui/widgets/service_card.dart`
 - Modify: `tui/lib/src/ui/app.dart`
@@ -1515,6 +1529,7 @@ class DashboardView extends StatelessComponent {
 Replace the placeholder `Expanded` center content in `tui/lib/src/ui/app.dart` `_Shell.build()`:
 
 Replace:
+
 ```dart
             const Expanded(
               child: Center(
@@ -1524,11 +1539,13 @@ Replace:
 ```
 
 With:
+
 ```dart
             const Expanded(child: DashboardView()),
 ```
 
 Add import at top of `app.dart`:
+
 ```dart
 import 'views/dashboard_view.dart';
 ```
@@ -1552,6 +1569,7 @@ git commit -m "feat: add dashboard view with service status cards"
 ## Task 8: Configure View
 
 **Files:**
+
 - Create: `tui/lib/src/ui/views/configure_view.dart`
 - Create: `tui/lib/src/ui/widgets/option_editor.dart`
 - Modify: `tui/lib/src/ui/app.dart`
@@ -1863,11 +1881,13 @@ class ConfigureView extends StatelessComponent {
 Update `_Shell.build()` in `tui/lib/src/ui/app.dart` to swap views based on `currentViewProvider`:
 
 Replace:
+
 ```dart
             const Expanded(child: DashboardView()),
 ```
 
 With:
+
 ```dart
             Expanded(
               child: switch (context.watch(currentViewProvider)) {
@@ -1879,12 +1899,14 @@ With:
 ```
 
 Add imports:
+
 ```dart
 import 'views/configure_view.dart';
 import '../providers/ui_state_provider.dart';
 ```
 
 Add `c` key handler in the `_Shell` `Focusable.onKeyEvent`:
+
 ```dart
         if (event.logicalKey == LogicalKey.keyC) {
           context.read(currentViewProvider.notifier).state = AppView.configure;
@@ -1909,6 +1931,7 @@ git commit -m "feat: add configure view with option editors and view switching"
 ## Task 9: Apply View (nixos-rebuild progress)
 
 **Files:**
+
 - Create: `tui/lib/src/ui/views/apply_view.dart`
 - Modify: `tui/lib/src/ui/app.dart`
 
@@ -2031,16 +2054,19 @@ class _ApplyViewState extends State<ApplyView> {
 - [ ] **Step 2: Wire apply view into app.dart**
 
 Replace the placeholder in the view switch:
+
 ```dart
                 AppView.apply => const Center(child: Text('Applying...')),
 ```
 
 With:
+
 ```dart
                 AppView.apply => const ApplyView(),
 ```
 
 Add import:
+
 ```dart
 import 'views/apply_view.dart';
 ```
@@ -2062,6 +2088,7 @@ git commit -m "feat: add apply view with streaming nixos-rebuild output"
 ## Task 10: NixOS Template Flake (Dendritic Pattern)
 
 **Files:**
+
 - Create: `templates/flake.nix`
 - Create: `templates/hosts/default.nix`
 
@@ -2173,6 +2200,7 @@ git commit -m "feat: add NixOS template flake with dendritic module auto-discove
 ## Task 11: NixOS System Module
 
 **Files:**
+
 - Create: `templates/modules/system/base.nix`
 
 - [ ] **Step 1: Create base system module**
@@ -2222,6 +2250,7 @@ git commit -m "feat: add base NixOS system module"
 ## Task 12: NixOS App Modules (bitcoind, lnd, cln, blitz-api, blitz-web)
 
 **Files:**
+
 - Create: `templates/modules/apps/bitcoind.nix`
 - Create: `templates/modules/apps/lnd.nix`
 - Create: `templates/modules/apps/cln.nix`
@@ -2409,6 +2438,7 @@ git commit -m "feat: add NixOS app modules for bitcoind, lnd, cln, blitz-api, bl
 ## Task 13: Hardware Configs
 
 **Files:**
+
 - Create: `templates/hardware/pi4.nix`
 - Create: `templates/hardware/pi5.nix`
 - Create: `templates/hardware/x86.nix`
@@ -2525,6 +2555,7 @@ git commit -m "feat: add hardware configs for pi4, pi5, x86, and vm"
 ## Task 14: Nix Flake for Building the TUI
 
 **Files:**
+
 - Create: `flake.nix`
 - Create: `nix/tui_pkg.nix`
 
@@ -2636,6 +2667,7 @@ git commit -m "feat: add Nix flake for building nixblitz TUI"
 ## Task 15: Scaffold Service (install-time ~/nixblitz/ generation)
 
 **Files:**
+
 - Create: `common/lib/src/services/scaffold_service.dart`
 - Create: `common/test/services/scaffold_service_test.dart`
 - Modify: `common/lib/common.dart`
@@ -2816,6 +2848,7 @@ Expected: `nixblitz version: 0.1.0`
 - [ ] **Step 5: Commit any fixes**
 
 If any issues were found and fixed, commit them:
+
 ```bash
 git add -A
 git commit -m "fix: address issues found during final verification"
@@ -2828,14 +2861,18 @@ git commit -m "fix: address issues found during final verification"
 The following spec requirements are **not covered** in this plan and require their own implementation plans once the foundation above is complete:
 
 ### Install Mode (TUI)
+
 The guided installer flow: system check, disk selection, disko partitioning, nixos-install, scaffold ~/nixblitz/, and reboot. This depends on Tasks 1-15 being complete. It requires:
+
 - An `InstallService` in `common` wrapping `disko` and `nixos-install` via `Process.start()`
 - An `InstallView` in `tui` with a multi-step wizard UI
 - Integration with `ScaffoldService`, `ConfigService`, and `GitService`
 - The `nix flake run` entry point (add `apps.default` to `flake.nix`)
 
 ### First Boot Setup Mode
+
 The post-install initialization: setting passwords, initializing bitcoin wallet, generating lightning seed, API credentials. This depends on Install Mode being complete. It requires:
+
 - A `SetupService` in `common` wrapping wallet/credential initialization commands
 - A `SetupView` in `tui` with sequential steps that wait for service readiness
 - Service health polling (wait for bitcoind to be ready before LND setup)

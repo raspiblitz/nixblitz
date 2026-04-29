@@ -61,76 +61,77 @@ class ConfigTooNewException implements Exception {
 
 /// Map of source version → migration function.
 /// Each migration transforms the JSON from version N to N+1.
-final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations = {
-  // v1 → v2: bitcoind network enum narrowed from
-  // ["mainnet", "testnet", "signet"] to ["mainnet", "regtest"] after
-  // nix-bitcoin's module turned out not to support section-aware config
-  // generation needed for testnet/signet. Fall back to mainnet so the
-  // rebuild doesn't choke on an invalid enum value.
-  1: (json) {
-    final bitcoind = json['bitcoind'];
-    if (bitcoind is Map<String, dynamic>) {
-      final network = bitcoind['network'];
-      if (network == 'testnet' || network == 'signet') {
-        bitcoind['network'] = 'mainnet';
-      }
-    }
-    return json;
-  },
-  // v2 → v3: no schema change; template contents bumped (blitz-api
-  // and blitz-web modules wired to upstream flakes, hosts/default.nix
-  // gates blitz-api on lnd). Existing TUIs need to refresh on-disk
-  // templates; the migration runner bumps the version field so the
-  // startup auto-refresh picks it up.
-  2: (json) => json,
-  // v3 → v4: no schema change; templates' blitz-web flake input now
-  // points at fusion44/raspiblitz-web fork and the module targets
-  // services.raspiblitz-web (upstream renamed). Template-only bump.
-  3: (json) => json,
-  // v4 → v5: no schema change; features.apps.blitz-api now enables a
-  // local redis instance (upstream blitz-api needs one on :6379).
-  4: (json) => json,
-  // v5 → v6: no schema change; blitz-api now passes rootPath = "/api"
-  // so the ASGI app knows its external mount point.
-  5: (json) => json,
-  // v6 → v7: no schema change; new test-lnd feature module (auto-enabled
-  // on regtest) ships a secondary LND instance + lncli-test wrapper.
-  6: (json) => json,
-  // v7 → v8: no schema change; test-lnd now creates its wallet
-  // headlessly via lndinit (LND doesn't self-bootstrap from a password
-  // file alone).
-  7: (json) => json,
-  // v8 → v9: no schema change; test-lnd preStart gained shell tracing
-  // + explicit log lines so first-boot wallet init failures surface
-  // in the journal instead of vanishing.
-  8: (json) => json,
-  // v9 → v10: no schema change; test-lnd preStart now uses a
-  // .wallet-initialized marker (instead of wallet.db existence) to
-  // decide whether to run lndinit. A half-init from a previous
-  // broken attempt can no longer trick us into skipping the real init.
-  9: (json) => json,
-  // v10 → v11: no schema change; test-lnd's networkDir dropped the
-  // bogus `data/` prefix — LND's chain/ lives directly under dataDir.
-  // Existing test-lnd installs need to wipe /var/lib/lnd-test so the
-  // wallet is recreated in the right place.
-  10: (json) => json,
-  // v11 → v12: no schema change; bitcoind on regtest now sets
-  // fallbackfee=0.0002 so sendtoaddress doesn't refuse for lack of
-  // fee estimation data on a fresh chain.
-  11: (json) => json,
-  // v12 → v13: additive — plugins[] array is new (defaults to empty
-  // and handled by fromJson). The bump exists so existing installs
-  // auto-refresh templates: flake.nix now also scans ./plugins/ for
-  // nix modules, and without that change plugins added via
-  // `nixblitz plugin add` wouldn't be imported by the generated flake.
-  12: (json) => json,
-  // v13 → v14: no schema change; template-refresh only. flake.nix
-  // now wraps each plugin module with `_module.args.pluginCfg =
-  // fromJSON(readFile plugins/<dir>/config.json)` so plugin.nix
-  // can declare `pluginCfg` as a module arg and read its own config
-  // without `builtins.readFile` (see plugins.md D14).
-  13: (json) => json,
-};
+final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
+    {
+      // v1 → v2: bitcoind network enum narrowed from
+      // ["mainnet", "testnet", "signet"] to ["mainnet", "regtest"] after
+      // nix-bitcoin's module turned out not to support section-aware config
+      // generation needed for testnet/signet. Fall back to mainnet so the
+      // rebuild doesn't choke on an invalid enum value.
+      1: (json) {
+        final bitcoind = json['bitcoind'];
+        if (bitcoind is Map<String, dynamic>) {
+          final network = bitcoind['network'];
+          if (network == 'testnet' || network == 'signet') {
+            bitcoind['network'] = 'mainnet';
+          }
+        }
+        return json;
+      },
+      // v2 → v3: no schema change; template contents bumped (blitz-api
+      // and blitz-web modules wired to upstream flakes, hosts/default.nix
+      // gates blitz-api on lnd). Existing TUIs need to refresh on-disk
+      // templates; the migration runner bumps the version field so the
+      // startup auto-refresh picks it up.
+      2: (json) => json,
+      // v3 → v4: no schema change; templates' blitz-web flake input now
+      // points at fusion44/raspiblitz-web fork and the module targets
+      // services.raspiblitz-web (upstream renamed). Template-only bump.
+      3: (json) => json,
+      // v4 → v5: no schema change; features.apps.blitz-api now enables a
+      // local redis instance (upstream blitz-api needs one on :6379).
+      4: (json) => json,
+      // v5 → v6: no schema change; blitz-api now passes rootPath = "/api"
+      // so the ASGI app knows its external mount point.
+      5: (json) => json,
+      // v6 → v7: no schema change; new test-lnd feature module (auto-enabled
+      // on regtest) ships a secondary LND instance + lncli-test wrapper.
+      6: (json) => json,
+      // v7 → v8: no schema change; test-lnd now creates its wallet
+      // headlessly via lndinit (LND doesn't self-bootstrap from a password
+      // file alone).
+      7: (json) => json,
+      // v8 → v9: no schema change; test-lnd preStart gained shell tracing
+      // + explicit log lines so first-boot wallet init failures surface
+      // in the journal instead of vanishing.
+      8: (json) => json,
+      // v9 → v10: no schema change; test-lnd preStart now uses a
+      // .wallet-initialized marker (instead of wallet.db existence) to
+      // decide whether to run lndinit. A half-init from a previous
+      // broken attempt can no longer trick us into skipping the real init.
+      9: (json) => json,
+      // v10 → v11: no schema change; test-lnd's networkDir dropped the
+      // bogus `data/` prefix — LND's chain/ lives directly under dataDir.
+      // Existing test-lnd installs need to wipe /var/lib/lnd-test so the
+      // wallet is recreated in the right place.
+      10: (json) => json,
+      // v11 → v12: no schema change; bitcoind on regtest now sets
+      // fallbackfee=0.0002 so sendtoaddress doesn't refuse for lack of
+      // fee estimation data on a fresh chain.
+      11: (json) => json,
+      // v12 → v13: additive — plugins[] array is new (defaults to empty
+      // and handled by fromJson). The bump exists so existing installs
+      // auto-refresh templates: flake.nix now also scans ./plugins/ for
+      // nix modules, and without that change plugins added via
+      // `nixblitz plugin add` wouldn't be imported by the generated flake.
+      12: (json) => json,
+      // v13 → v14: no schema change; template-refresh only. flake.nix
+      // now wraps each plugin module with `_module.args.pluginCfg =
+      // fromJSON(readFile plugins/<dir>/config.json)` so plugin.nix
+      // can declare `pluginCfg` as a module arg and read its own config
+      // without `builtins.readFile` (see plugins.md D14).
+      13: (json) => json,
+    };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].
 /// Returns the migrated JSON. Does not mutate the input.

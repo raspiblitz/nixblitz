@@ -55,18 +55,18 @@ class UpdateStatus {
   final HeavyCheck? heavy;
 
   factory UpdateStatus.fromJson(Map<String, dynamic> json) => UpdateStatus(
-        lightweight: json['lightweight'] is Map<String, dynamic>
-            ? LightCheck.fromJson(json['lightweight'] as Map<String, dynamic>)
-            : null,
-        heavy: json['heavy'] is Map<String, dynamic>
-            ? HeavyCheck.fromJson(json['heavy'] as Map<String, dynamic>)
-            : null,
-      );
+    lightweight: json['lightweight'] is Map<String, dynamic>
+        ? LightCheck.fromJson(json['lightweight'] as Map<String, dynamic>)
+        : null,
+    heavy: json['heavy'] is Map<String, dynamic>
+        ? HeavyCheck.fromJson(json['heavy'] as Map<String, dynamic>)
+        : null,
+  );
 
   Map<String, dynamic> toJson() => {
-        if (lightweight != null) 'lightweight': lightweight!.toJson(),
-        if (heavy != null) 'heavy': heavy!.toJson(),
-      };
+    if (lightweight != null) 'lightweight': lightweight!.toJson(),
+    if (heavy != null) 'heavy': heavy!.toJson(),
+  };
 
   UpdateStatus copyWith({LightCheck? lightweight, HeavyCheck? heavy}) =>
       UpdateStatus(
@@ -99,20 +99,20 @@ class LightCheck {
   final List<InputAhead> inputsAhead;
 
   factory LightCheck.fromJson(Map<String, dynamic> j) => LightCheck(
-        checkedAt: DateTime.parse(j['checked_at'] as String),
-        ok: j['ok'] as bool? ?? true,
-        error: j['error'] as String?,
-        inputsAhead: ((j['inputs_ahead'] as List?) ?? const [])
-            .map((e) => InputAhead.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
+    checkedAt: DateTime.parse(j['checked_at'] as String),
+    ok: j['ok'] as bool? ?? true,
+    error: j['error'] as String?,
+    inputsAhead: ((j['inputs_ahead'] as List?) ?? const [])
+        .map((e) => InputAhead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+  );
 
   Map<String, dynamic> toJson() => {
-        'checked_at': checkedAt.toIso8601String(),
-        'ok': ok,
-        if (error != null) 'error': error,
-        'inputs_ahead': inputsAhead.map((e) => e.toJson()).toList(),
-      };
+    'checked_at': checkedAt.toIso8601String(),
+    'ok': ok,
+    if (error != null) 'error': error,
+    'inputs_ahead': inputsAhead.map((e) => e.toJson()).toList(),
+  };
 }
 
 /// One flake input whose upstream HEAD differs from our locked rev.
@@ -138,18 +138,18 @@ class InputAhead {
   final String url;
 
   factory InputAhead.fromJson(Map<String, dynamic> j) => InputAhead(
-        name: j['name'] as String,
-        currentRev: j['current_rev'] as String,
-        upstreamRev: j['upstream_rev'] as String,
-        url: j['url'] as String? ?? '',
-      );
+    name: j['name'] as String,
+    currentRev: j['current_rev'] as String,
+    upstreamRev: j['upstream_rev'] as String,
+    url: j['url'] as String? ?? '',
+  );
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'current_rev': currentRev,
-        'upstream_rev': upstreamRev,
-        'url': url,
-      };
+    'name': name,
+    'current_rev': currentRev,
+    'upstream_rev': upstreamRev,
+    'url': url,
+  };
 }
 
 class HeavyCheck {
@@ -179,18 +179,18 @@ class HeavyCheck {
   final bool noChanges;
 
   factory HeavyCheck.fromJson(Map<String, dynamic> j) => HeavyCheck(
-        checkedAt: DateTime.parse(j['checked_at'] as String),
-        ok: j['ok'] as bool? ?? true,
-        error: j['error'] as String?,
-        diffText: j['diff_text'] as String? ?? '',
-        noChanges: j['no_changes'] as bool? ?? false,
-      );
+    checkedAt: DateTime.parse(j['checked_at'] as String),
+    ok: j['ok'] as bool? ?? true,
+    error: j['error'] as String?,
+    diffText: j['diff_text'] as String? ?? '',
+    noChanges: j['no_changes'] as bool? ?? false,
+  );
 
   Map<String, dynamic> toJson() => {
-        'checked_at': checkedAt.toIso8601String(),
-        'ok': ok,
-        if (error != null) 'error': error,
-        'diff_text': diffText,
-        'no_changes': noChanges,
-      };
+    'checked_at': checkedAt.toIso8601String(),
+    'ok': ok,
+    if (error != null) 'error': error,
+    'diff_text': diffText,
+    'no_changes': noChanges,
+  };
 }

@@ -16,8 +16,7 @@ final _statusMessageProvider = StateProvider<String>((ref) => '');
 /// When non-null, the Configure view delegates to [PluginConfigView]
 /// for the plugin with this `dirName`. `null` means the main tabbed
 /// view is showing.
-final _editingPluginDirNameProvider =
-    StateProvider<String?>((ref) => null);
+final _editingPluginDirNameProvider = StateProvider<String?>((ref) => null);
 
 class ConfigureView extends StatelessComponent {
   const ConfigureView({super.key});
@@ -36,11 +35,8 @@ class ConfigureView extends StatelessComponent {
           // sudo timestamp is already fresh (we ran ensureFresh before
           // entering this view), so chpasswd runs silently.
           final session = context.read(sudoSessionProvider);
-          final stdin =
-              Uint8List.fromList(utf8.encode('admin:$password\n'));
-          session
-              .runOneShot(['chpasswd'], stdinBytes: stdin)
-              .then((res) {
+          final stdin = Uint8List.fromList(utf8.encode('admin:$password\n'));
+          session.runOneShot(['chpasswd'], stdinBytes: stdin).then((res) {
             if (res.exitCode != 0) {
               LogService.error(
                 'chpasswd failed: exit=${res.exitCode} '
@@ -53,8 +49,7 @@ class ConfigureView extends StatelessComponent {
               context.read(_statusMessageProvider.notifier).state =
                   'Password changed successfully.';
             }
-            context.read(_changingPasswordProvider.notifier).state =
-                false;
+            context.read(_changingPasswordProvider.notifier).state = false;
           });
         },
         onCancel: () {
@@ -77,8 +72,9 @@ class ConfigureView extends StatelessComponent {
         // drilled into one — bypasses the tab grid key handling.
         if (editingPluginDir != null) {
           final entry = config.plugins
-              .where((p) => p.dirName == editingPluginDir &&
-                  p.uninstalledAt == null)
+              .where(
+                (p) => p.dirName == editingPluginDir && p.uninstalledAt == null,
+              )
               .firstOrNull;
           if (entry == null) {
             // Stale selection (plugin removed in a race). Drop it.
@@ -86,9 +82,9 @@ class ConfigureView extends StatelessComponent {
           } else {
             return PluginConfigView(
               entry: entry,
-              onDismiss: () => context
-                  .read(_editingPluginDirNameProvider.notifier)
-                  .state = null,
+              onDismiss: () =>
+                  context.read(_editingPluginDirNameProvider.notifier).state =
+                      null,
             );
           }
         }
@@ -162,9 +158,8 @@ class ConfigureView extends StatelessComponent {
                   final session = context.read(sudoSessionProvider);
                   session.ensureFresh().then((ok) {
                     if (ok) {
-                      context
-                          .read(_changingPasswordProvider.notifier)
-                          .state = true;
+                      context.read(_changingPasswordProvider.notifier).state =
+                          true;
                     } else {
                       context.read(_statusMessageProvider.notifier).state =
                           'sudo authorization required to change password.';
@@ -179,9 +174,7 @@ class ConfigureView extends StatelessComponent {
                       .where((p) => p.uninstalledAt == null)
                       .toList();
                   if (selectedOption < active.length) {
-                    context
-                            .read(_editingPluginDirNameProvider.notifier)
-                            .state =
+                    context.read(_editingPluginDirNameProvider.notifier).state =
                         active[selectedOption].dirName;
                   }
                   return true;

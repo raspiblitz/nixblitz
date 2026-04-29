@@ -101,9 +101,11 @@ void main() {
           final lengths = result.map((c) => c.length).toList();
           final hi = lengths.reduce((a, b) => a > b ? a : b);
           final lo = lengths.reduce((a, b) => a < b ? a : b);
-          expect(hi - lo, lessThanOrEqualTo(1),
-              reason:
-                  'imbalanced columns for n=$n cols=$cols: $lengths');
+          expect(
+            hi - lo,
+            lessThanOrEqualTo(1),
+            reason: 'imbalanced columns for n=$n cols=$cols: $lengths',
+          );
         }
       }
     });
@@ -116,9 +118,11 @@ void main() {
         for (var n = 0; n <= 12; n++) {
           for (final col in assignColumns(n, cols)) {
             for (var k = 1; k < col.length; k++) {
-              expect(col[k], greaterThan(col[k - 1]),
-                  reason:
-                      'column out of order for n=$n cols=$cols: $col');
+              expect(
+                col[k],
+                greaterThan(col[k - 1]),
+                reason: 'column out of order for n=$n cols=$cols: $col',
+              );
             }
           }
         }

@@ -4,8 +4,8 @@
 
 When the user runs **Update entire system** today, the TUI streams
 `nix flake update` and then `nixos-rebuild switch` output, but
-there's no human-readable answer to *"what versions am I about to
-deploy?"* — by the time the rebuild starts the operator has
+there's no human-readable answer to _"what versions am I about to
+deploy?"_ — by the time the rebuild starts the operator has
 already committed to the change.
 
 The Nix-side primitives to surface this exist:
@@ -22,8 +22,8 @@ The Nix-side primitives to surface this exist:
   Closure size: 1234.5MiB → 1235.0MiB (+0.5MiB).
   ```
 
-We slot the preview between *"flake.lock has new pins"* and
-*"start the rebuild"*. The user reviews; on `[a]` we proceed; on
+We slot the preview between _"flake.lock has new pins"_ and
+_"start the rebuild"_. The user reviews; on `[a]` we proceed; on
 `[d]` we revert the lock commit and bail.
 
 ## Recommended approach
@@ -101,8 +101,8 @@ Transitions:
 - `selectMode` → `running`: existing entry points (`_startUpdate`,
   `_refreshTemplates`).
 - `running` → `previewing`: when `LockUpdateResult.committed`
-  + `PackageDiffResult.noChanges == false`. Empty-diff case
-  short-circuits straight to `applying` (nothing to review).
+  - `PackageDiffResult.noChanges == false`. Empty-diff case
+    short-circuits straight to `applying` (nothing to review).
 - `previewing` → `applying`: user pressed `[a]`.
 - `previewing` → `selectMode`: user pressed `[d]`. Service runs
   `revertLastFlakeCommit`; output appended; state resets.
@@ -123,6 +123,7 @@ preview/applying split.
 Add a `_previewDiffProvider = StateProvider<String?>((ref) => null)`
 that the `previewing` view watches. Reuse `ScrollableLog` (already
 used in apply/update views) to render the diff with line coloring:
+
 - `[U.]` lines → orange (version change)
 - `[A.]` lines → green (added)
 - `[R.]` lines → red (removed)
@@ -152,9 +153,9 @@ computed it.
   back-compat wrappers (used today only by update_view.dart, so
   could also be removed).
 - `tui/lib/src/ui/views/update_view.dart` — add `previewing`
-  + `applying` modes; rewire `_startUpdate` /
-  `_refreshPluginsThenUpdate` / `_startSystemUpdate` /
-  `_refreshTemplates` into the new flow.
+  - `applying` modes; rewire `_startUpdate` /
+    `_refreshPluginsThenUpdate` / `_startSystemUpdate` /
+    `_refreshTemplates` into the new flow.
 - `templates/modules/system/base.nix` — add `pkgs.nvd` to
   `environment.systemPackages`.
 - `common/lib/src/models/rebuild_outcome.dart` — optional, only if
@@ -185,14 +186,14 @@ computed it.
 ## Out of scope (separate tickets)
 
 - **Apply view preview.** The Apply flow's current diff is the
-  user's *config* changes; package diffs are usually a no-op for
+  user's _config_ changes; package diffs are usually a no-op for
   Apply (config flips don't change pinned versions). Adding the
   preview there is straightforward later but lower value.
 - **Per-generation SBOM CSV history.** `nvd`-based diffing answers
   the "what did this rebuild change" question without producing a
   tracked artifact. If the operator wants persistent
   generation-by-generation history later, `nix-env --list-
-  generations --profile /nix/var/nix/profiles/system` plus
+generations --profile /nix/var/nix/profiles/system` plus
   pairwise nvd-diff produces it on demand.
 - **Pre-eval cache invalidation hint.** When the user runs
   `nix flake update`, we know the eval will be slow; could surface

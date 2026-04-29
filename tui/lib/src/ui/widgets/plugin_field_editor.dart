@@ -172,15 +172,14 @@ class _PluginTextOverlayState extends State<PluginTextOverlay> {
     final comp = component;
     final spec = comp.spec;
     final label = spec.label.isNotEmpty ? spec.label : comp.fieldKey;
-    final display = _isSecret && !_reveal
-        ? '*' * _buffer.length
-        : _buffer;
+    final display = _isSecret && !_reveal ? '*' * _buffer.length : _buffer;
 
-    final hint = _error ??
+    final hint =
+        _error ??
         (_isList
             ? 'Comma-separated values. Enter to save, Esc to cancel.'
             : 'Enter to save, Esc to cancel.'
-                '${_isSecret ? '  [Tab] reveal' : ''}');
+                  '${_isSecret ? '  [Tab] reveal' : ''}');
     final hintColor = _error != null
         ? const Color.fromRGB(255, 80, 80)
         : const Color.fromRGB(150, 150, 180);
@@ -242,10 +241,7 @@ class _PluginTextOverlayState extends State<PluginTextOverlay> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            Text(
-              '(${spec.type})',
-              style: const TextStyle(color: _faint),
-            ),
+            Text('(${spec.type})', style: const TextStyle(color: _faint)),
             const SizedBox(height: 1),
             Text('$label: $display'),
             const SizedBox(height: 1),

@@ -93,18 +93,21 @@ class GitService {
 
   Future<bool> init() async {
     final result = await Process.run(
-      'git', _g(['init']),
+      'git',
+      _g(['init']),
       workingDirectory: repoDir,
       environment: environment,
     );
     if (result.exitCode != 0) return false;
     await Process.run(
-      'git', _g(['config', 'user.email', 'nixblitz@localhost']),
+      'git',
+      _g(['config', 'user.email', 'nixblitz@localhost']),
       workingDirectory: repoDir,
       environment: environment,
     );
     await Process.run(
-      'git', _g(['config', 'user.name', 'NixBlitz']),
+      'git',
+      _g(['config', 'user.name', 'NixBlitz']),
       workingDirectory: repoDir,
       environment: environment,
     );
@@ -113,13 +116,15 @@ class GitService {
 
   Future<bool> commit(String filePath, String message) async {
     final add = await Process.run(
-      'git', _g(['add', filePath]),
+      'git',
+      _g(['add', filePath]),
       workingDirectory: repoDir,
       environment: environment,
     );
     if (add.exitCode != 0) return false;
     final commit = await Process.run(
-      'git', _g(['commit', '-m', message]),
+      'git',
+      _g(['commit', '-m', message]),
       workingDirectory: repoDir,
       environment: environment,
     );
@@ -128,7 +133,8 @@ class GitService {
 
   Future<bool> revertLast() async {
     final result = await Process.run(
-      'git', _g(['revert', '--no-edit', 'HEAD']),
+      'git',
+      _g(['revert', '--no-edit', 'HEAD']),
       workingDirectory: repoDir,
       environment: environment,
     );
@@ -137,7 +143,8 @@ class GitService {
 
   Future<String> log({int count = 10}) async {
     final result = await Process.run(
-      'git', _g(['log', '--oneline', '-$count']),
+      'git',
+      _g(['log', '--oneline', '-$count']),
       workingDirectory: repoDir,
       environment: environment,
     );
@@ -150,7 +157,8 @@ class GitService {
   Future<String> diff({String? path}) async {
     final args = ['diff', '--no-color', ?path];
     final result = await Process.run(
-      'git', _g(args),
+      'git',
+      _g(args),
       workingDirectory: repoDir,
       environment: environment,
     );

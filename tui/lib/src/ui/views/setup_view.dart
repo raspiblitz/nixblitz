@@ -64,33 +64,32 @@ class _SetupViewState extends State<SetupView> {
       LogService.info('BuildServices: wrote initialized=true');
 
       _appendBuildLog('> git add + commit');
-      final gitAdd = Process.runSync(
-        'git',
-        ['add', 'config.json'],
-        workingDirectory: baseDirPath,
-      );
+      final gitAdd = Process.runSync('git', [
+        'add',
+        'config.json',
+      ], workingDirectory: baseDirPath);
       if (gitAdd.exitCode != 0) {
         _appendBuildLog('git add failed: ${gitAdd.stderr}');
       }
-      final gitCommit = Process.runSync(
-        'git',
-        ['commit', '-m', 'Enable services (first boot)'],
-        workingDirectory: baseDirPath,
-      );
+      final gitCommit = Process.runSync('git', [
+        'commit',
+        '-m',
+        'Enable services (first boot)',
+      ], workingDirectory: baseDirPath);
       _appendBuildLog('git commit exit=${gitCommit.exitCode}');
 
       context.read(configProvider.notifier).updateConfig(updated);
 
       final attr = rebuildAttributeFor(updated.system.platform);
       _appendBuildLog('');
-      _appendBuildLog(
-        '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
-      );
+      _appendBuildLog('> sudo nixos-rebuild switch --flake $baseDirPath#$attr');
       _appendBuildLog('');
 
       final systemService = context.read(systemServiceProvider);
-      final (:output, :exitCode) =
-          systemService.rebuild(baseDirPath, attribute: attr);
+      final (:output, :exitCode) = systemService.rebuild(
+        baseDirPath,
+        attribute: attr,
+      );
 
       _buildServicesSub = output.listen(
         (line) {
@@ -167,10 +166,8 @@ class _SetupViewState extends State<SetupView> {
             // Stay on the password step so the user can retry.
             return;
           }
-          final stdin =
-              Uint8List.fromList(utf8.encode('admin:$password\n'));
-          final res =
-              await session.runOneShot(['chpasswd'], stdinBytes: stdin);
+          final stdin = Uint8List.fromList(utf8.encode('admin:$password\n'));
+          final res = await session.runOneShot(['chpasswd'], stdinBytes: stdin);
           if (res.exitCode != 0) {
             LogService.error(
               'chpasswd failed: exit=${res.exitCode} '
@@ -213,11 +210,7 @@ class _SetupViewState extends State<SetupView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Spinner(label: 'Building services'),
-              ],
-            ),
+            Row(children: [Spinner(label: 'Building services')]),
             const Text(
               'Running nixos-rebuild. This may take several minutes.',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),

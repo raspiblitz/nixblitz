@@ -185,16 +185,19 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
       switch (focused) {
         case _GbField.blocks:
           final n = (bIdx + delta) % _kBlocksPresets.length;
-          context.read(_gbBlocksIdx.notifier).state =
-              n < 0 ? n + _kBlocksPresets.length : n;
+          context.read(_gbBlocksIdx.notifier).state = n < 0
+              ? n + _kBlocksPresets.length
+              : n;
         case _GbField.initialDelay:
           final n = (dIdx + delta) % _kDelayPresets.length;
-          context.read(_gbDelayIdx.notifier).state =
-              n < 0 ? n + _kDelayPresets.length : n;
+          context.read(_gbDelayIdx.notifier).state = n < 0
+              ? n + _kDelayPresets.length
+              : n;
         case _GbField.interval:
           final n = (iIdx + delta) % _kIntervalPresets.length;
-          context.read(_gbIntervalIdx.notifier).state =
-              n < 0 ? n + _kIntervalPresets.length : n;
+          context.read(_gbIntervalIdx.notifier).state = n < 0
+              ? n + _kIntervalPresets.length
+              : n;
       }
     }
 

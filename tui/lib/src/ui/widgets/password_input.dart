@@ -175,12 +175,14 @@ class _PasswordInputState extends State<PasswordInput> {
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 1),
-              Text(subtitle, style: const TextStyle(color: Color.fromRGB(200, 200, 200))),
+              Text(
+                subtitle,
+                style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
             ],
             const SizedBox(height: 1),
             Text('Password: $displayPassword'),
-            if (_confirming)
-              Text('Confirm:  $displayConfirm'),
+            if (_confirming) Text('Confirm:  $displayConfirm'),
             const SizedBox(height: 1),
             Text(hint, style: TextStyle(color: hintColor)),
             const SizedBox(height: 1),

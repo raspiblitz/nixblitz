@@ -111,11 +111,11 @@ enum PluginTileStatus {
   error;
 
   static PluginTileStatus? tryParse(String? raw) => switch (raw) {
-        'ok' => PluginTileStatus.ok,
-        'warn' => PluginTileStatus.warn,
-        'error' => PluginTileStatus.error,
-        _ => null,
-      };
+    'ok' => PluginTileStatus.ok,
+    'warn' => PluginTileStatus.warn,
+    'error' => PluginTileStatus.error,
+    _ => null,
+  };
 }
 
 /// Runtime tile state, emitted by `PluginDashboardService` after

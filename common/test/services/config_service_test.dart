@@ -21,14 +21,17 @@ void main() {
       expect(service.configExists(), false);
     });
 
-    test('writeConfig creates config.json and readConfig restores it', () async {
-      final config = NixblitzConfig.defaults();
-      await service.writeConfig(config);
-      expect(service.configExists(), true);
-      final restored = await service.readConfig();
-      expect(restored.system.hostname, config.system.hostname);
-      expect(restored.bitcoind.network, config.bitcoind.network);
-    });
+    test(
+      'writeConfig creates config.json and readConfig restores it',
+      () async {
+        final config = NixblitzConfig.defaults();
+        await service.writeConfig(config);
+        expect(service.configExists(), true);
+        final restored = await service.readConfig();
+        expect(restored.system.hostname, config.system.hostname);
+        expect(restored.bitcoind.network, config.bitcoind.network);
+      },
+    );
 
     test('readConfig returns initialized state correctly', () async {
       final config = NixblitzConfig.defaults().copyWith(initialized: true);

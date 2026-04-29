@@ -86,56 +86,62 @@ void main() {
       expect(modified.version, currentConfigVersion);
     });
 
-    test('should throw ConfigTooNewException when min_compatible_version is higher', () {
-      final tooNewMin = currentConfigVersion + 2;
-      final json = {
-        'version': tooNewMin + 2,
-        'min_compatible_version': tooNewMin,
-        'initialized': false,
-        'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
-        'bitcoind': {
-          'enabled': true,
-          'network': 'mainnet',
-          'pruned': true,
-          'prune_size_gb': 550,
-        },
-        'lnd': {'enabled': false, 'alias': ''},
-        'cln': {'enabled': false},
-        'blitz_api': {'enabled': false},
-        'blitz_web': {'enabled': false},
-      };
-      expect(
-        () => NixblitzConfig.fromJson(json),
-        throwsA(isA<ConfigTooNewException>()),
-      );
-    });
+    test(
+      'should throw ConfigTooNewException when min_compatible_version is higher',
+      () {
+        final tooNewMin = currentConfigVersion + 2;
+        final json = {
+          'version': tooNewMin + 2,
+          'min_compatible_version': tooNewMin,
+          'initialized': false,
+          'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
+          'bitcoind': {
+            'enabled': true,
+            'network': 'mainnet',
+            'pruned': true,
+            'prune_size_gb': 550,
+          },
+          'lnd': {'enabled': false, 'alias': ''},
+          'cln': {'enabled': false},
+          'blitz_api': {'enabled': false},
+          'blitz_web': {'enabled': false},
+        };
+        expect(
+          () => NixblitzConfig.fromJson(json),
+          throwsA(isA<ConfigTooNewException>()),
+        );
+      },
+    );
 
-    test('should preserve configMinCompatibleVersion from file on write-back', () {
-      // Newer TUI wrote a config with its own min_compatible_version. An
-      // older TUI at the same version reads it, modifies it, writes it
-      // back — the min should survive the round-trip unchanged.
-      final json = {
-        'version': currentConfigVersion,
-        'min_compatible_version': minCompatibleVersion,
-        'initialized': true,
-        'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
-        'bitcoind': {
-          'enabled': true,
-          'network': 'mainnet',
-          'pruned': true,
-          'prune_size_gb': 550,
-        },
-        'lnd': {'enabled': false, 'alias': ''},
-        'cln': {'enabled': false},
-        'blitz_api': {'enabled': false},
-        'blitz_web': {'enabled': false},
-      };
-      final config = NixblitzConfig.fromJson(json);
-      expect(config.configMinCompatibleVersion, minCompatibleVersion);
-      final written = config.toJson();
-      expect(written['min_compatible_version'], minCompatibleVersion);
-      expect(written['version'], currentConfigVersion);
-    });
+    test(
+      'should preserve configMinCompatibleVersion from file on write-back',
+      () {
+        // Newer TUI wrote a config with its own min_compatible_version. An
+        // older TUI at the same version reads it, modifies it, writes it
+        // back — the min should survive the round-trip unchanged.
+        final json = {
+          'version': currentConfigVersion,
+          'min_compatible_version': minCompatibleVersion,
+          'initialized': true,
+          'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
+          'bitcoind': {
+            'enabled': true,
+            'network': 'mainnet',
+            'pruned': true,
+            'prune_size_gb': 550,
+          },
+          'lnd': {'enabled': false, 'alias': ''},
+          'cln': {'enabled': false},
+          'blitz_api': {'enabled': false},
+          'blitz_web': {'enabled': false},
+        };
+        final config = NixblitzConfig.fromJson(json);
+        expect(config.configMinCompatibleVersion, minCompatibleVersion);
+        final written = config.toJson();
+        expect(written['min_compatible_version'], minCompatibleVersion);
+        expect(written['version'], currentConfigVersion);
+      },
+    );
 
     test('should write current minCompatibleVersion for fresh configs', () {
       final config = NixblitzConfig.defaults();
@@ -159,11 +165,7 @@ void main() {
         final newerJson = {
           'version': 999,
           'initialized': true,
-          'system': {
-            'hostname': 'host',
-            'timezone': 'UTC',
-            'platform': 'x86',
-          },
+          'system': {'hostname': 'host', 'timezone': 'UTC', 'platform': 'x86'},
           'bitcoind': {
             'enabled': true,
             'network': 'mainnet',
@@ -198,10 +200,7 @@ void main() {
         expect(written['version'], 999);
 
         // Modified field is updated
-        expect(
-          (written['bitcoind'] as Map)['network'],
-          'testnet',
-        );
+        expect((written['bitcoind'] as Map)['network'], 'testnet');
       },
     );
 
@@ -229,7 +228,12 @@ void main() {
       final json = {
         'initialized': false,
         'system': {'hostname': 'test', 'timezone': 'UTC', 'platform': 'x86'},
-        'bitcoind': {'enabled': true, 'network': 'mainnet', 'pruned': false, 'prune_size_gb': 550},
+        'bitcoind': {
+          'enabled': true,
+          'network': 'mainnet',
+          'pruned': false,
+          'prune_size_gb': 550,
+        },
         'lnd': {'enabled': false, 'alias': ''},
         'cln': {'enabled': false},
         'blitz_api': {'enabled': false},

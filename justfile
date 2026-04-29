@@ -26,9 +26,25 @@ analyze:
   cd common; dart analyze
   cd ../tui; dart analyze
 
-# Format all Dart code
+# Format Dart, Nix, and Markdown/YAML/JSON (skips ./examples_redesign + dev dirs)
 format:
-  dart format .
+  #!/usr/bin/env nu
+  do -c {
+    print "Formatting Dart code..."
+    let dirs = ["common", "tui"]
+    for dir in $dirs {
+      if ($dir | path exists) {
+        print $"Formatting ($dir)..."
+        cd $dir
+        dart format .
+        cd ..
+      }
+    }
+  }
+  print "Formatting Nix code..."
+  alejandra . --exclude ./examples_redesign --exclude ./.devenv --exclude ./.direnv --exclude ./.claude
+  print "Formatting markdown / yaml / json..."
+  prettier -w . --log-level warn
 
 # Run the TUI
 run:

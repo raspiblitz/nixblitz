@@ -181,13 +181,9 @@ class PluginManifest {
       if (description.isNotEmpty) 'description': description,
     },
     if (config.isNotEmpty)
-      'config': {
-        for (final e in config.entries) e.key: e.value.toJson(),
-      },
+      'config': {for (final e in config.entries) e.key: e.value.toJson()},
     if (actions.isNotEmpty)
-      'actions': {
-        for (final e in actions.entries) e.key: e.value.toJson(),
-      },
+      'actions': {for (final e in actions.entries) e.key: e.value.toJson()},
     if (!permissions.isEmpty) 'permissions': permissions.toJson(),
     if (dashboard != null) 'dashboard': dashboard!.toJson(),
   };

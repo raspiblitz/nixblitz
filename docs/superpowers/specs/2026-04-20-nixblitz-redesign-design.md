@@ -73,11 +73,13 @@ The TUI never calls system commands directly. All system interaction goes throug
 ### Entry Points
 
 **New installation** (from any NixOS ISO):
+
 ```bash
 nix flake run github:user/nixblitz
 ```
 
 **Existing system** (SSH in):
+
 ```bash
 nixblitz
 ```
@@ -305,6 +307,7 @@ The TUI has four modes, determined by system state on launch:
 **Triggers when:** booted from live ISO, no `~/nixblitz/` exists.
 
 Steps:
+
 1. **System check** — detect platform (pi4/pi5/x86/vm), RAM, available disks
 2. **Disk selection** — user picks target disk, confirms destructive operation
 3. **Initial configuration** — hostname, timezone, network (mainnet/testnet), which services to enable
@@ -321,6 +324,7 @@ All privileged operations are abstracted behind `common`'s service layer (which 
 This runs once after the first boot of the installed system. Services are running but not yet initialized.
 
 Steps:
+
 1. **System password** — set user password for SSH access
 2. **Bitcoin wallet** — wait for bitcoind readiness, initialize wallet
 3. **Lightning wallet** — generate or restore seed, set unlock password
@@ -373,14 +377,14 @@ Shows live service status by polling `systemctl`. Vim-style navigation.
 
 Feature parity with current Rust implementation, with reduced option exposure:
 
-| Service | Key Options (TUI) | Everything Else |
-|---------|-------------------|-----------------|
-| bitcoind | enabled, network (mainnet/testnet/signet), pruned, prune_size_gb | sensible defaults in NixOS module |
-| lnd | enabled, alias | sensible defaults |
-| cln | enabled | sensible defaults |
-| blitz-api | enabled | sensible defaults |
-| blitz-web | enabled | sensible defaults |
-| system | hostname, timezone, platform | sensible defaults |
+| Service   | Key Options (TUI)                                                | Everything Else                   |
+| --------- | ---------------------------------------------------------------- | --------------------------------- |
+| bitcoind  | enabled, network (mainnet/testnet/signet), pruned, prune_size_gb | sensible defaults in NixOS module |
+| lnd       | enabled, alias                                                   | sensible defaults                 |
+| cln       | enabled                                                          | sensible defaults                 |
+| blitz-api | enabled                                                          | sensible defaults                 |
+| blitz-web | enabled                                                          | sensible defaults                 |
+| system    | hostname, timezone, platform                                     | sensible defaults                 |
 
 Advanced users who need more control edit `config.json` directly. The NixOS modules can expose additional options that aren't surfaced in the TUI.
 
@@ -396,6 +400,7 @@ Platform is auto-detected during install and stored in `config.json`. Hardware-s
 ## What Gets Deleted
 
 The entire current Rust codebase:
+
 - `nixblitz-cli/crates/` — all 6 crates (nixblitz_cli, nixblitz_core, nixblitz_system, nixblitz_installer_engine, nixblitz_system_engine, nixblitz_norupo)
 - `nixblitz-cli/justfile`, `Cargo.toml`, workspace config
 - `nixblitz-installer/` — replaced by the TUI's install mode

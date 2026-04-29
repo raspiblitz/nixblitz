@@ -5,11 +5,7 @@ class ServiceCard extends StatelessComponent {
   final ServiceStatus status;
   final bool isDisabled;
 
-  const ServiceCard({
-    super.key,
-    required this.status,
-    this.isDisabled = false,
-  });
+  const ServiceCard({super.key, required this.status, this.isDisabled = false});
 
   @override
   Component build(BuildContext context) {
@@ -47,10 +43,7 @@ class ServiceCard extends StatelessComponent {
             style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
           ),
         ),
-        Text(
-          '$stateIcon $label',
-          style: TextStyle(color: stateColor),
-        ),
+        Text('$stateIcon $label', style: TextStyle(color: stateColor)),
       ],
     );
   }

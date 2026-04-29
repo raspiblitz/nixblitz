@@ -20,17 +20,19 @@ final pluginConfigServiceProvider = Provider<PluginConfigService>((ref) {
 /// A separate notifier instance per [dirName] lets the Configure view
 /// watch the one plugin the user is editing without churning unrelated
 /// forms.
-final pluginConfigProvider = StateNotifierProvider.family<
-    PluginConfigNotifier, AsyncValue<Map<String, dynamic>>, String>(
-  (ref, dirName) {
-    return PluginConfigNotifier(
-      ref: ref,
-      configService: ref.watch(pluginConfigServiceProvider),
-      pluginService: ref.watch(pluginServiceProvider),
-      dirName: dirName,
-    );
-  },
-);
+final pluginConfigProvider =
+    StateNotifierProvider.family<
+      PluginConfigNotifier,
+      AsyncValue<Map<String, dynamic>>,
+      String
+    >((ref, dirName) {
+      return PluginConfigNotifier(
+        ref: ref,
+        configService: ref.watch(pluginConfigServiceProvider),
+        pluginService: ref.watch(pluginServiceProvider),
+        dirName: dirName,
+      );
+    });
 
 class PluginConfigNotifier
     extends StateNotifier<AsyncValue<Map<String, dynamic>>> {
@@ -44,11 +46,11 @@ class PluginConfigNotifier
     required PluginConfigService configService,
     required PluginService pluginService,
     required String dirName,
-  })  : _ref = ref,
-        _configService = configService,
-        _pluginService = pluginService,
-        _dirName = dirName,
-        super(const AsyncValue.loading()) {
+  }) : _ref = ref,
+       _configService = configService,
+       _pluginService = pluginService,
+       _dirName = dirName,
+       super(const AsyncValue.loading()) {
     _load();
   }
 
@@ -56,11 +58,7 @@ class PluginConfigNotifier
     try {
       state = AsyncValue.data(_configService.read(_dirName));
     } catch (e, st) {
-      LogService.error(
-        'Failed to load plugin config for $_dirName',
-        e,
-        st,
-      );
+      LogService.error('Failed to load plugin config for $_dirName', e, st);
       state = AsyncValue.error(e, st);
     }
   }
@@ -76,15 +74,11 @@ class PluginConfigNotifier
     final manifest = _pluginService.readManifest(_dirName);
     final spec = manifest.config[key];
     if (spec == null) {
-      throw StateError(
-        'Plugin `$_dirName` has no config field `$key`.',
-      );
+      throw StateError('Plugin `$_dirName` has no config field `$key`.');
     }
     final err = spec.validate(value);
     if (err != null) {
-      throw FormatException(
-        'Invalid value for `$key` (${spec.type}): $err',
-      );
+      throw FormatException('Invalid value for `$key` (${spec.type}): $err');
     }
     final next = <String, dynamic>{...current, key: value};
     await _configService.write(_dirName, next);

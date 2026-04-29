@@ -72,10 +72,10 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
       confirm: yes
           ? null
           : (preview) => _askConsent(
-                preview,
-                requestedSubdir: subdir,
-                insecure: insecure,
-              ),
+              preview,
+              requestedSubdir: subdir,
+              insecure: insecure,
+            ),
     );
     stdout.writeln('installed ${entry.id}');
     stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
@@ -195,9 +195,7 @@ Future<int> _runRemove(PluginService svc, ArgResults args) async {
   final id = rest.first;
   await svc.remove(id);
   stdout.writeln('removed $id (tombstoned)');
-  stdout.writeln(
-    'Run the Apply view (`a` in the TUI) to commit and rebuild.',
-  );
+  stdout.writeln('Run the Apply view (`a` in the TUI) to commit and rebuild.');
   return 0;
 }
 
@@ -232,9 +230,7 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
 
   if (all) {
     if (rest.isNotEmpty) {
-      stderr.writeln(
-        'Either pass --all OR a plugin id, not both.',
-      );
+      stderr.writeln('Either pass --all OR a plugin id, not both.');
       return 2;
     }
     final result = await svc.refreshAll(allowInsecure: insecure);
@@ -298,9 +294,7 @@ void _printSignatureMismatch(PluginSignatureMismatch e) {
   );
   stderr.writeln('  nixblitz plugin remove ${e.pluginId}');
   stderr.writeln('  nixblitz plugin add    ${e.pluginId}');
-  stderr.writeln(
-    'and re-affirm the new fingerprint at the consent prompt.',
-  );
+  stderr.writeln('and re-affirm the new fingerprint at the consent prompt.');
 }
 
 Future<int> _runPin(
@@ -310,9 +304,7 @@ Future<int> _runPin(
 }) async {
   final rest = args.rest;
   if (rest.isEmpty) {
-    stderr.writeln(
-      'Usage: nixblitz plugin ${pin ? "pin" : "unpin"} <id>',
-    );
+    stderr.writeln('Usage: nixblitz plugin ${pin ? "pin" : "unpin"} <id>');
     return 2;
   }
   final id = rest.first;

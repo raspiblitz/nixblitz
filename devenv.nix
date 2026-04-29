@@ -36,6 +36,7 @@ in {
     pkgs.tailwindcss-language-server
     pkgs-unstable.forgejo-cli
     pkgs.sshpass
+    pkgs.prettier
   ];
 
   android = {

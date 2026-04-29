@@ -21,11 +21,7 @@ void _seedPlugin(
   File('${dir.path}/plugin.nix').writeAsStringSync('{}\n');
   File('${dir.path}/manifest.json').writeAsStringSync(
     jsonEncode({
-      'manifest': {
-        'schema_version': 2,
-        'min_tui_version': 1,
-        'name': dirName,
-      },
+      'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': dirName},
       if (configFields.isNotEmpty) 'config': configFields,
     }),
   );
@@ -100,9 +96,13 @@ void main() {
       final state = container.read(pluginConfigProvider('demo'));
       expect(state.value!['exit_node'], true);
 
-      final onDisk = jsonDecode(
-        File('${home.path}/plugins/demo/config.json').readAsStringSync(),
-      ) as Map<String, dynamic>;
+      final onDisk =
+          jsonDecode(
+                File(
+                  '${home.path}/plugins/demo/config.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, dynamic>;
       expect(onDisk['exit_node'], true);
     });
 
@@ -112,8 +112,7 @@ void main() {
       addTearDown(container.dispose);
       await Future<void>.delayed(Duration.zero);
 
-      final notifier =
-          container.read(pluginConfigProvider('demo').notifier);
+      final notifier = container.read(pluginConfigProvider('demo').notifier);
       await expectLater(
         () => notifier.updateField('not_declared', 1),
         throwsA(isA<StateError>()),
@@ -132,8 +131,7 @@ void main() {
       addTearDown(container.dispose);
       await Future<void>.delayed(Duration.zero);
 
-      final notifier =
-          container.read(pluginConfigProvider('demo').notifier);
+      final notifier = container.read(pluginConfigProvider('demo').notifier);
       await expectLater(
         () => notifier.updateField('exit_node', 'not a bool'),
         throwsA(isA<FormatException>()),
@@ -152,13 +150,12 @@ void main() {
       addTearDown(container.dispose);
       await Future<void>.delayed(Duration.zero);
 
-      final notifier =
-          container.read(pluginConfigProvider('demo').notifier);
+      final notifier = container.read(pluginConfigProvider('demo').notifier);
       await notifier.updateField('tags', ['a', 'b']);
-      expect(
-        container.read(pluginConfigProvider('demo')).value!['tags'],
-        ['a', 'b'],
-      );
+      expect(container.read(pluginConfigProvider('demo')).value!['tags'], [
+        'a',
+        'b',
+      ]);
 
       await expectLater(
         () => notifier.updateField('tags', ['a', 1]),

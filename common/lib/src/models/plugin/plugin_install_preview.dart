@@ -108,6 +108,5 @@ class PluginSignatureMismatch implements Exception {
 /// Signature of the consent callback `PluginService.install` invokes
 /// after fetching the manifest. Return `true` to proceed, `false` to
 /// abort (the install method then throws [PluginInstallCancelled]).
-typedef PluginInstallConfirm = Future<bool> Function(
-  PluginInstallPreview preview,
-);
+typedef PluginInstallConfirm =
+    Future<bool> Function(PluginInstallPreview preview);

@@ -4,10 +4,7 @@ import 'package:common/src/services/sudo_session.dart';
 import 'package:test/test.dart';
 
 class _FakeAuth implements SudoAuthBackend {
-  _FakeAuth({
-    required this.silentExit,
-    this.passwordExits = const [],
-  });
+  _FakeAuth({required this.silentExit, this.passwordExits = const []});
 
   /// Exit code returned by `sudo -n -v`.
   int silentExit;
@@ -166,8 +163,7 @@ void main() {
   });
 
   group('SudoSession freshness threshold', () {
-    test('expires after freshThreshold and re-verifies silently',
-        () async {
+    test('expires after freshThreshold and re-verifies silently', () async {
       final auth = _FakeAuth(silentExit: 0);
       final s = SudoSession(
         authBackend: auth,
@@ -213,8 +209,7 @@ void main() {
       expect(auth.silentCalls, lessThan(6));
     });
 
-    test('failing silent verify in keepalive does not prompt',
-        () async {
+    test('failing silent verify in keepalive does not prompt', () async {
       final auth = _FakeAuth(silentExit: 1);
       final s = SudoSession(
         authBackend: auth,

@@ -39,8 +39,7 @@ void main() {
     });
 
     test('strips trailing newline', () {
-      const out =
-          '/nix/store/abc123def456-nixos-system-nixblitz-25.11\n';
+      const out = '/nix/store/abc123def456-nixos-system-nixblitz-25.11\n';
       expect(
         SystemService.parseToplevel(out),
         '/nix/store/abc123def456-nixos-system-nixblitz-25.11',

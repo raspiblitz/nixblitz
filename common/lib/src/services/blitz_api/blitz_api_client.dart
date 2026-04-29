@@ -124,8 +124,8 @@ class BlitzApiClient {
         if (e.toString().contains('401')) _jwt = null;
       }
       if (_disposed) return;
-      final wait = _backoffSeconds[
-          attempt.clamp(0, _backoffSeconds.length - 1)];
+      final wait =
+          _backoffSeconds[attempt.clamp(0, _backoffSeconds.length - 1)];
       attempt++;
       await Future.delayed(Duration(seconds: wait));
     }
@@ -140,9 +140,7 @@ class BlitzApiClient {
 
     final resp = await _httpClient.send(req);
     if (resp.statusCode != 200) {
-      throw StateError(
-        'SSE subscribe returned ${resp.statusCode}',
-      );
+      throw StateError('SSE subscribe returned ${resp.statusCode}');
     }
 
     LogService.info('BlitzApiClient: SSE connected');

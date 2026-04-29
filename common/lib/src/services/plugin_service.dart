@@ -28,7 +28,7 @@ class PluginService {
   static const _cloneTimeout = Duration(seconds: 60);
 
   PluginService({required this.baseDir})
-      : configService = ConfigService(baseDir: baseDir);
+    : configService = ConfigService(baseDir: baseDir);
 
   String get pluginsDir => '$baseDir/plugins';
 
@@ -125,8 +125,7 @@ class PluginService {
       // it inherits the operator's gpg / SSH config — the hermetic
       // test env explicitly disables signing, but production code
       // wants the real keyring visible.
-      final signature =
-          await GitService(repoDir: tmpDir.path).verifyCommit();
+      final signature = await GitService(repoDir: tmpDir.path).verifyCommit();
 
       // Consent gate (D14). Hand the manifest metadata + signature
       // to the caller's prompt; if it returns false, abort cleanly
@@ -158,7 +157,8 @@ class PluginService {
       final tombstone = config.plugins.firstWhereOrNull(
         (p) => p.id == parsed.canonical && p.uninstalledAt != null,
       );
-      final dirName = tombstone?.dirName ??
+      final dirName =
+          tombstone?.dirName ??
           _resolveDirName(config.plugins, parsed.deriveDirName());
 
       final pluginsDirObj = Directory(pluginsDir);
@@ -195,8 +195,9 @@ class PluginService {
         dirName: dirName,
         installedAt: now,
         lastUpdatedAt: now,
-        signatureFingerprint:
-            signature.fingerprint.isEmpty ? null : signature.fingerprint,
+        signatureFingerprint: signature.fingerprint.isEmpty
+            ? null
+            : signature.fingerprint,
       );
 
       // Mark the new plugin files as intent-to-add (git add -N) so
@@ -216,9 +217,7 @@ class PluginService {
       } else {
         updatedPlugins.add(entry);
       }
-      await configService.writeConfig(
-        config.copyWith(plugins: updatedPlugins),
-      );
+      await configService.writeConfig(config.copyWith(plugins: updatedPlugins));
 
       LogService.info(
         'PluginService: installed ${parsed.canonical} '
@@ -281,10 +280,7 @@ class PluginService {
   /// all stay the same; only `pinnedRev` and `lastUpdatedAt` are
   /// updated. Leaves the working tree dirty — next Apply commits
   /// the refreshed files alongside any other staged changes.
-  Future<PluginEntry> refresh(
-    String id, {
-    bool allowInsecure = false,
-  }) async {
+  Future<PluginEntry> refresh(String id, {bool allowInsecure = false}) async {
     final config = await configService.readConfig();
     final idx = config.plugins.indexWhere(
       (p) => p.id == id && p.uninstalledAt == null,
@@ -293,10 +289,7 @@ class PluginService {
       throw StateError('Plugin not installed: $id');
     }
     final existing = config.plugins[idx];
-    final parsed = PluginUrl.parse(
-      existing.url,
-      allowInsecure: allowInsecure,
-    );
+    final parsed = PluginUrl.parse(existing.url, allowInsecure: allowInsecure);
 
     final targetDir = Directory('$pluginsDir/${existing.dirName}');
     if (!targetDir.existsSync()) {
@@ -360,8 +353,9 @@ class PluginService {
       //   surface (CLI prints + suggests `plugin remove` +
       //   `plugin add` to re-consent; refreshAll captures into
       //   `failures`).
-      final newSignature =
-          await GitService(repoDir: tmpDir.path).verifyCommit();
+      final newSignature = await GitService(
+        repoDir: tmpDir.path,
+      ).verifyCommit();
       final newFp = newSignature.fingerprint.isEmpty
           ? null
           : newSignature.fingerprint;
@@ -408,9 +402,7 @@ class PluginService {
 
       final updated = List<PluginEntry>.from(config.plugins);
       updated[idx] = refreshed;
-      await configService.writeConfig(
-        config.copyWith(plugins: updated),
-      );
+      await configService.writeConfig(config.copyWith(plugins: updated));
 
       LogService.info(
         'PluginService: refreshed ${existing.id} '
@@ -452,11 +444,7 @@ class PluginService {
       try {
         refreshed.add(await refresh(p.id, allowInsecure: allowInsecure));
       } catch (e, st) {
-        LogService.error(
-          'PluginService.refreshAll: ${p.id} failed',
-          e,
-          st,
-        );
+        LogService.error('PluginService.refreshAll: ${p.id} failed', e, st);
         failures.add((plugin: p, error: e));
       }
     }
@@ -486,9 +474,7 @@ class PluginService {
     final updatedEntry = config.plugins[idx].copyWith(autoUpdate: value);
     final updatedPlugins = List<PluginEntry>.from(config.plugins);
     updatedPlugins[idx] = updatedEntry;
-    await configService.writeConfig(
-      config.copyWith(plugins: updatedPlugins),
-    );
+    await configService.writeConfig(config.copyWith(plugins: updatedPlugins));
     return updatedEntry;
   }
 
@@ -525,8 +511,10 @@ class PluginService {
       'git',
       [
         'clone',
-        '--depth', '1',
-        '--branch', branch,
+        '--depth',
+        '1',
+        '--branch',
+        branch,
         '--no-recurse-submodules',
         url,
         target,
@@ -588,10 +576,8 @@ class PluginService {
       if (entity is! Directory) continue;
       final name = entity.path.split(Platform.pathSeparator).last;
       if (name.startsWith('.')) continue;
-      final hasManifest =
-          File('${entity.path}/manifest.json').existsSync();
-      final hasPluginNix =
-          File('${entity.path}/plugin.nix').existsSync();
+      final hasManifest = File('${entity.path}/manifest.json').existsSync();
+      final hasPluginNix = File('${entity.path}/plugin.nix').existsSync();
       if (hasManifest && hasPluginNix) {
         result.add(name);
       }
@@ -605,11 +591,11 @@ class PluginService {
   /// a non-git baseDir just logs a warning.
   Future<void> _gitIntentToAdd(String path) async {
     try {
-      final r = await Process.run(
-        'git',
-        ['add', '-N', path],
-        workingDirectory: baseDir,
-      );
+      final r = await Process.run('git', [
+        'add',
+        '-N',
+        path,
+      ], workingDirectory: baseDir);
       if (r.exitCode != 0) {
         LogService.warn(
           'PluginService: git add -N failed '
@@ -625,14 +611,15 @@ class PluginService {
   /// Uses `followLinks: false` so symlinks come back as `Link`
   /// entities instead of being transparently resolved.
   void _rejectSymlinks(String dir) {
-    for (final entity in Directory(dir).listSync(
-      recursive: true,
-      followLinks: false,
-    )) {
+    for (final entity in Directory(
+      dir,
+    ).listSync(recursive: true, followLinks: false)) {
       // Skip the .git internals — Dart doesn't descend into them
       // automatically because of the default list behavior; we
       // check anyway to avoid flagging any internal link git uses.
-      if (entity.path.contains('${Platform.pathSeparator}.git${Platform.pathSeparator}')) {
+      if (entity.path.contains(
+        '${Platform.pathSeparator}.git${Platform.pathSeparator}',
+      )) {
         continue;
       }
       if (entity is Link) {
@@ -646,15 +633,12 @@ class PluginService {
   }
 
   Future<String> _gitRevParseHead(String repoDir) async {
-    final r = await Process.run(
-      'git',
-      ['rev-parse', 'HEAD'],
-      workingDirectory: repoDir,
-    );
+    final r = await Process.run('git', [
+      'rev-parse',
+      'HEAD',
+    ], workingDirectory: repoDir);
     if (r.exitCode != 0) {
-      throw StateError(
-        'git rev-parse failed: ${(r.stderr as String).trim()}',
-      );
+      throw StateError('git rev-parse failed: ${(r.stderr as String).trim()}');
     }
     return (r.stdout as String).trim();
   }

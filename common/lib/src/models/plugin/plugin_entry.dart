@@ -126,8 +126,9 @@ class PluginEntry {
     pinnedRev: pinnedRev ?? this.pinnedRev,
     dirName: dirName ?? this.dirName,
     installedAt: installedAt ?? this.installedAt,
-    uninstalledAt:
-        clearUninstalledAt ? null : (uninstalledAt ?? this.uninstalledAt),
+    uninstalledAt: clearUninstalledAt
+        ? null
+        : (uninstalledAt ?? this.uninstalledAt),
     lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
     enabled: enabled ?? this.enabled,
     autoUpdate: autoUpdate ?? this.autoUpdate,

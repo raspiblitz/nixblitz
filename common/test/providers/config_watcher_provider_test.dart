@@ -58,9 +58,7 @@ void main() {
       container.read(configWatcherProvider);
 
       // Wait for the initial async load to settle.
-      await _waitFor(
-        () => container.read(configProvider).value != null,
-      );
+      await _waitFor(() => container.read(configProvider).value != null);
       final initial = container.read(configProvider).value!;
       expect(initial.system.hostname, 'nixblitz');
 
@@ -75,8 +73,11 @@ void main() {
         final v = container.read(configProvider).value;
         return v != null && v.system.hostname == 'externally-set';
       });
-      expect(reloaded, isTrue,
-          reason: 'configProvider should pick up external write');
+      expect(
+        reloaded,
+        isTrue,
+        reason: 'configProvider should pick up external write',
+      );
     });
 
     test('plugin manifest write triggers reload', () async {
@@ -94,9 +95,7 @@ void main() {
 
       container.read(configProvider);
       container.read(configWatcherProvider);
-      await _waitFor(
-        () => container.read(configProvider).value != null,
-      );
+      await _waitFor(() => container.read(configProvider).value != null);
 
       // Track reload-events by listening to the provider state.
       // Riverpod re-emits even on identical values, so a single
@@ -109,16 +108,15 @@ void main() {
       );
 
       Directory('${home.path}/plugins/foo').createSync(recursive: true);
-      File('${home.path}/plugins/foo/manifest.json')
-          .writeAsStringSync('{"manifest":{"schema_version":2}}');
+      File(
+        '${home.path}/plugins/foo/manifest.json',
+      ).writeAsStringSync('{"manifest":{"schema_version":2}}');
 
       final fired = await _waitFor(() => emissions > 0);
-      expect(fired, isTrue,
-          reason: 'manifest write should trigger a reload');
+      expect(fired, isTrue, reason: 'manifest write should trigger a reload');
     });
 
-    test('per-plugin config.json write does NOT trigger reload',
-        () async {
+    test('per-plugin config.json write does NOT trigger reload', () async {
       // Per-plugin config writes happen on every keystroke in the
       // Configure view's plugin form. Reloading the main config on
       // every one of those would churn the dashboard pollers and
@@ -130,10 +128,10 @@ void main() {
       // the operator is editing form fields, the plugin's directory
       // already exists from `plugin add`.
       Directory('${home.path}/plugins/foo').createSync(recursive: true);
-      File('${home.path}/plugins/foo/manifest.json')
-          .writeAsStringSync('{"manifest":{"schema_version":2}}');
-      File('${home.path}/plugins/foo/config.json')
-          .writeAsStringSync('{}');
+      File(
+        '${home.path}/plugins/foo/manifest.json',
+      ).writeAsStringSync('{"manifest":{"schema_version":2}}');
+      File('${home.path}/plugins/foo/config.json').writeAsStringSync('{}');
 
       final container = ProviderContainer(
         overrides: [baseDirProvider.overrideWithValue(home.path)],
@@ -142,9 +140,7 @@ void main() {
 
       container.read(configProvider);
       container.read(configWatcherProvider);
-      await _waitFor(
-        () => container.read(configProvider).value != null,
-      );
+      await _waitFor(() => container.read(configProvider).value != null);
 
       var emissions = 0;
       container.listen(
@@ -155,16 +151,20 @@ void main() {
 
       // Mutate the per-plugin config the same way the Configure
       // view does on each keystroke.
-      File('${home.path}/plugins/foo/config.json')
-          .writeAsStringSync('{"some":"value"}');
+      File(
+        '${home.path}/plugins/foo/config.json',
+      ).writeAsStringSync('{"some":"value"}');
 
       // 250 ms debounce + a margin. If the watcher *was* going to
       // trigger, it would have done so by now. Bail with a fast
       // negative assertion rather than waiting the full 3 s
       // timeout — that'd just slow the suite.
       await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(emissions, 0,
-          reason: 'per-plugin config writes should be ignored');
+      expect(
+        emissions,
+        0,
+        reason: 'per-plugin config writes should be ignored',
+      );
     });
 
     test('irrelevant file writes are ignored', () async {
@@ -178,9 +178,7 @@ void main() {
 
       container.read(configProvider);
       container.read(configWatcherProvider);
-      await _waitFor(
-        () => container.read(configProvider).value != null,
-      );
+      await _waitFor(() => container.read(configProvider).value != null);
 
       var emissions = 0;
       container.listen(
@@ -193,8 +191,7 @@ void main() {
       File('${home.path}/random.txt').writeAsStringSync('content');
 
       await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(emissions, 0,
-          reason: 'irrelevant writes should be ignored');
+      expect(emissions, 0, reason: 'irrelevant writes should be ignored');
     });
 
     test('debounces a burst of writes into a single reload', () async {
@@ -215,9 +212,7 @@ void main() {
 
       container.read(configProvider);
       container.read(configWatcherProvider);
-      await _waitFor(
-        () => container.read(configProvider).value != null,
-      );
+      await _waitFor(() => container.read(configProvider).value != null);
 
       var emissions = 0;
       container.listen(
@@ -228,8 +223,9 @@ void main() {
 
       // Burst: simulate the plugin-add write pattern.
       Directory('${home.path}/plugins/foo').createSync(recursive: true);
-      File('${home.path}/plugins/foo/manifest.json')
-          .writeAsStringSync('{"manifest":{"schema_version":2}}');
+      File(
+        '${home.path}/plugins/foo/manifest.json',
+      ).writeAsStringSync('{"manifest":{"schema_version":2}}');
       await cfgSvc.writeConfig(
         NixblitzConfig.defaults().copyWith(
           system: const SystemConfig(
@@ -239,17 +235,20 @@ void main() {
           ),
         ),
       );
-      File('${home.path}/plugins/foo/manifest.json').writeAsStringSync(
-        '{"manifest":{"schema_version":2,"name":"foo"}}',
-      );
+      File(
+        '${home.path}/plugins/foo/manifest.json',
+      ).writeAsStringSync('{"manifest":{"schema_version":2,"name":"foo"}}');
 
       // Wait long enough for the debounce to fire and settle.
       await _waitFor(() => emissions > 0);
       // Wait a touch longer to confirm no second emission rolls in.
       await Future<void>.delayed(const Duration(milliseconds: 350));
 
-      expect(emissions, 1,
-          reason: 'debounce should collapse the burst to one reload');
+      expect(
+        emissions,
+        1,
+        reason: 'debounce should collapse the burst to one reload',
+      );
     });
   });
 }

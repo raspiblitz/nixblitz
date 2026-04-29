@@ -33,23 +33,25 @@ void main() {
     });
 
     test('read parses a valid config.json', () {
-      File('${home.path}/plugins/demo/config.json').writeAsStringSync(
-        jsonEncode({'key': 'value', 'count': 3}),
-      );
+      File(
+        '${home.path}/plugins/demo/config.json',
+      ).writeAsStringSync(jsonEncode({'key': 'value', 'count': 3}));
       final m = svc.read('demo');
       expect(m['key'], 'value');
       expect(m['count'], 3);
     });
 
     test('read throws FormatException on non-object JSON', () {
-      File('${home.path}/plugins/demo/config.json')
-          .writeAsStringSync('["not", "an", "object"]');
+      File(
+        '${home.path}/plugins/demo/config.json',
+      ).writeAsStringSync('["not", "an", "object"]');
       expect(() => svc.read('demo'), throwsA(isA<FormatException>()));
     });
 
     test('read throws FormatException on malformed JSON', () {
-      File('${home.path}/plugins/demo/config.json')
-          .writeAsStringSync('{{ not json }}');
+      File(
+        '${home.path}/plugins/demo/config.json',
+      ).writeAsStringSync('{{ not json }}');
       expect(() => svc.read('demo'), throwsA(isA<FormatException>()));
     });
 
@@ -62,8 +64,9 @@ void main() {
 
     test('write produces pretty-printed JSON', () async {
       await svc.write('demo', {'a': 1});
-      final text =
-          File('${home.path}/plugins/demo/config.json').readAsStringSync();
+      final text = File(
+        '${home.path}/plugins/demo/config.json',
+      ).readAsStringSync();
       expect(text, contains('  "a": 1'));
       expect(text, endsWith('\n'));
     });

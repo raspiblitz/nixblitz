@@ -30,14 +30,13 @@ class SystemSnapshot {
     String? network,
     Duration? uptime,
     Map<String, ServiceState>? services,
-  }) =>
-      SystemSnapshot(
-        hostname: hostname ?? this.hostname,
-        platform: platform ?? this.platform,
-        network: network ?? this.network,
-        uptime: uptime ?? this.uptime,
-        services: services ?? this.services,
-      );
+  }) => SystemSnapshot(
+    hostname: hostname ?? this.hostname,
+    platform: platform ?? this.platform,
+    network: network ?? this.network,
+    uptime: uptime ?? this.uptime,
+    services: services ?? this.services,
+  );
 }
 
 /// Hardware snapshot: the handful of stats we show (CPU + memory +
@@ -92,7 +91,7 @@ class HardwareSnapshot {
 
 /// Bitcoin snapshot: sync progress + peers + mempool.
 class BtcSnapshot {
-  final String chain;          // "main" / "test" / "regtest" / "signet"
+  final String chain; // "main" / "test" / "regtest" / "signet"
   final int blocks;
   final int headers;
   final double verificationProgress; // 0.0 - 1.0
@@ -125,9 +124,10 @@ class BtcSnapshot {
       headers: (json['headers'] as num?)?.toInt() ?? prev?.headers ?? 0,
       verificationProgress:
           (json['verification_progress'] as num?)?.toDouble() ??
-              prev?.verificationProgress ??
-              0,
-      peers: ((json['connections_in'] as num?)?.toInt() ?? 0) +
+          prev?.verificationProgress ??
+          0,
+      peers:
+          ((json['connections_in'] as num?)?.toInt() ?? 0) +
           ((json['connections_out'] as num?)?.toInt() ?? 0),
       sizeOnDiskBytes:
           (json['size_on_disk'] as num?)?.toInt() ?? prev?.sizeOnDiskBytes ?? 0,
@@ -145,32 +145,30 @@ class BtcSnapshot {
     int? sizeOnDiskBytes,
     int? mempoolTxs,
     int? mempoolBytes,
-  }) =>
-      BtcSnapshot(
-        chain: chain ?? this.chain,
-        blocks: blocks ?? this.blocks,
-        headers: headers ?? this.headers,
-        verificationProgress:
-            verificationProgress ?? this.verificationProgress,
-        peers: peers ?? this.peers,
-        sizeOnDiskBytes: sizeOnDiskBytes ?? this.sizeOnDiskBytes,
-        mempoolTxs: mempoolTxs ?? this.mempoolTxs,
-        mempoolBytes: mempoolBytes ?? this.mempoolBytes,
-      );
+  }) => BtcSnapshot(
+    chain: chain ?? this.chain,
+    blocks: blocks ?? this.blocks,
+    headers: headers ?? this.headers,
+    verificationProgress: verificationProgress ?? this.verificationProgress,
+    peers: peers ?? this.peers,
+    sizeOnDiskBytes: sizeOnDiskBytes ?? this.sizeOnDiskBytes,
+    mempoolTxs: mempoolTxs ?? this.mempoolTxs,
+    mempoolBytes: mempoolBytes ?? this.mempoolBytes,
+  );
 }
 
 /// Lightning snapshot. Implementation-agnostic — the API abstracts
 /// LND/CLN into a common LnInfo shape so the tile doesn't branch.
 class LnSnapshot {
-  final String impl;                 // "lnd" or "cln"
+  final String impl; // "lnd" or "cln"
   final String pubkey;
   final String alias;
   final bool syncedToChain;
   final int numPeers;
   final int numActiveChannels;
   final int numPendingChannels;
-  final int onChainSats;             // confirmed on-chain balance
-  final int channelSats;             // local channel balance (sats)
+  final int onChainSats; // confirmed on-chain balance
+  final int channelSats; // local channel balance (sats)
 
   const LnSnapshot({
     required this.impl,
@@ -184,12 +182,10 @@ class LnSnapshot {
     required this.channelSats,
   });
 
-  factory LnSnapshot.fromLnInfo(
-    Map<String, dynamic> json, {
-    LnSnapshot? prev,
-  }) {
+  factory LnSnapshot.fromLnInfo(Map<String, dynamic> json, {LnSnapshot? prev}) {
     return LnSnapshot(
-      impl: (json['implementation'] as String?)?.toLowerCase() ??
+      impl:
+          (json['implementation'] as String?)?.toLowerCase() ??
           prev?.impl ??
           'lnd',
       pubkey: (json['identity_pubkey'] as String?) ?? prev?.pubkey ?? '',
@@ -197,10 +193,12 @@ class LnSnapshot {
       syncedToChain:
           (json['synced_to_chain'] as bool?) ?? prev?.syncedToChain ?? false,
       numPeers: (json['num_peers'] as num?)?.toInt() ?? prev?.numPeers ?? 0,
-      numActiveChannels: (json['num_active_channels'] as num?)?.toInt() ??
+      numActiveChannels:
+          (json['num_active_channels'] as num?)?.toInt() ??
           prev?.numActiveChannels ??
           0,
-      numPendingChannels: (json['num_pending_channels'] as num?)?.toInt() ??
+      numPendingChannels:
+          (json['num_pending_channels'] as num?)?.toInt() ??
           prev?.numPendingChannels ??
           0,
       onChainSats: prev?.onChainSats ?? 0,
@@ -218,16 +216,15 @@ class LnSnapshot {
     int? numPendingChannels,
     int? onChainSats,
     int? channelSats,
-  }) =>
-      LnSnapshot(
-        impl: impl ?? this.impl,
-        pubkey: pubkey ?? this.pubkey,
-        alias: alias ?? this.alias,
-        syncedToChain: syncedToChain ?? this.syncedToChain,
-        numPeers: numPeers ?? this.numPeers,
-        numActiveChannels: numActiveChannels ?? this.numActiveChannels,
-        numPendingChannels: numPendingChannels ?? this.numPendingChannels,
-        onChainSats: onChainSats ?? this.onChainSats,
-        channelSats: channelSats ?? this.channelSats,
-      );
+  }) => LnSnapshot(
+    impl: impl ?? this.impl,
+    pubkey: pubkey ?? this.pubkey,
+    alias: alias ?? this.alias,
+    syncedToChain: syncedToChain ?? this.syncedToChain,
+    numPeers: numPeers ?? this.numPeers,
+    numActiveChannels: numActiveChannels ?? this.numActiveChannels,
+    numPendingChannels: numPendingChannels ?? this.numPendingChannels,
+    onChainSats: onChainSats ?? this.onChainSats,
+    channelSats: channelSats ?? this.channelSats,
+  );
 }

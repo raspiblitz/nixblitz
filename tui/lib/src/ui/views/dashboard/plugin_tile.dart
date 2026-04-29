@@ -53,9 +53,7 @@ class PluginTile extends StatelessComponent {
       statusColor: snapshot.statusColor == null
           ? null
           : _statusToColor(snapshot.statusColor!),
-      rows: [
-        for (final r in snapshot.rows) TileRow(r.label, r.value),
-      ],
+      rows: [for (final r in snapshot.rows) TileRow(r.label, r.value)],
       footer: snapshot.footer,
       footerColor: snapshot.footerColor == null
           ? null
@@ -78,7 +76,7 @@ Color _hexToColor(String hex) {
 }
 
 Color _statusToColor(PluginTileStatus s) => switch (s) {
-      PluginTileStatus.ok => const Color.fromRGB(110, 220, 110),
-      PluginTileStatus.warn => const Color.fromRGB(220, 180, 100),
-      PluginTileStatus.error => const Color.fromRGB(255, 80, 80),
-    };
+  PluginTileStatus.ok => const Color.fromRGB(110, 220, 110),
+  PluginTileStatus.warn => const Color.fromRGB(220, 180, 100),
+  PluginTileStatus.error => const Color.fromRGB(255, 80, 80),
+};

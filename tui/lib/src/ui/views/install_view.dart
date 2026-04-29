@@ -12,7 +12,9 @@ import '../widgets/spinner.dart';
 
 final _diskSelectionIndexProvider = StateProvider<int>((ref) => 0);
 final _confirmProvider = StateProvider<bool>((ref) => false);
-final _confirmSelectionProvider = StateProvider<int>((ref) => 1); // 0=install, 1=go back (default safe)
+final _confirmSelectionProvider = StateProvider<int>(
+  (ref) => 1,
+); // 0=install, 1=go back (default safe)
 final _configOptionIndexProvider = StateProvider<int>((ref) => 0);
 // Initial config choices
 const _networks = ['mainnet', 'regtest'];
@@ -103,7 +105,8 @@ class _InstallViewState extends State<InstallView> {
       );
       final installService = context.read(installServiceProvider);
       context.read(installStepProvider.notifier).state = InstallStep.installing;
-      context.read(installCurrentStepLabelProvider.notifier).state = 'Starting...';
+      context.read(installCurrentStepLabelProvider.notifier).state =
+          'Starting...';
       // Reset the in-memory log buffer to empty, then funnel every
       // subsequent line through `_appendInstallLog` so it lands in
       // both the TUI buffer and `~/nixblitz.log`.
@@ -129,18 +132,16 @@ class _InstallViewState extends State<InstallView> {
       }
       _appendInstallLog(['']);
 
-      _appendInstallLog([
-        '> nix flake update nixblitz (refresh remote cache)',
-      ]);
+      _appendInstallLog(['> nix flake update nixblitz (refresh remote cache)']);
 
       // Nix caches git+https inputs aggressively. Force-refresh the nixblitz
       // input so disko-install pins the *current* remote tip in flake.lock,
       // not a stale cached revision.
-      final updateResult = Process.runSync(
-        'nix',
-        ['flake', 'update', 'nixblitz'],
-        workingDirectory: baseDirPath,
-      );
+      final updateResult = Process.runSync('nix', [
+        'flake',
+        'update',
+        'nixblitz',
+      ], workingDirectory: baseDirPath);
       final updateOutput = [
         ...((updateResult.stderr as String).trim().split('\n')),
         ...((updateResult.stdout as String).trim().split('\n')),
@@ -205,9 +206,7 @@ class _InstallViewState extends State<InstallView> {
               }
             } else {
               LogService.error('Installation failed with exit code $code');
-              _appendInstallLog(
-                ['', 'Installation failed (exit code $code).'],
-              );
+              _appendInstallLog(['', 'Installation failed (exit code $code).']);
               context.read(installStepProvider.notifier).state =
                   InstallStep.failed;
             }

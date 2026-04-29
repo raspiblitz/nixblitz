@@ -3,7 +3,7 @@
 This is the cheat-sheet for hacking on NixBlitz: which `just`
 target gets you what, where the artifacts land, and how to test
 your change without paving over a real install. Pairs with
-[architecture.md](architecture.md) for *what* you're editing.
+[architecture.md](architecture.md) for _what_ you're editing.
 
 ## What to install on your host
 
@@ -13,7 +13,7 @@ Minimum:
   [Determinate installer](https://determinate.systems/posts/determinate-nix-installer)
   is the smoothest path; vanilla nix works too.
 - **`just`** — the task runner the repo standardizes on. `nix
-  shell nixpkgs#just` if you don't want to install it permanently.
+shell nixpkgs#just` if you don't want to install it permanently.
 - **`qemu`** + **`qemu-img`** — for `just vm-boot`. NixOS hosts
   get this for free; on Debian: `apt install qemu-system-x86 qemu-utils`.
 
@@ -28,11 +28,11 @@ still works without it.
 
 The fastest way to see your change matters by what you changed:
 
-| Change       | Loop                              | Round-trip   |
-| ------------ | --------------------------------- | ------------ |
-| Widget / UI  | `just run-dev`                    | seconds      |
+| Change                             | Loop                                | Round-trip                          |
+| ---------------------------------- | ----------------------------------- | ----------------------------------- |
+| Widget / UI                        | `just run-dev`                      | seconds                             |
 | Service / config / TUI integration | `just run` against a local checkout | seconds (Dart) but no real services |
-| End-to-end   | `just vm-boot` → `just vm-deploy` | minutes      |
+| End-to-end                         | `just vm-boot` → `just vm-deploy`   | minutes                             |
 
 ### Loop 1 — `just run-dev`
 
@@ -156,14 +156,14 @@ just gen-locks             # regenerate Nix-side workspace locks
 
 ## Where artifacts land
 
-| Path                                 | What                                                    |
-| ------------------------------------ | ------------------------------------------------------- |
-| `~/nixblitz/config.json`             | Single source of truth for the installed system         |
-| `~/nixblitz/flake.nix`               | Reads `config.json`, builds the NixOS configuration     |
-| `~/nixblitz/hosts/installed.nix`     | Host config (lives next to the user's settings)         |
-| `~/nixblitz/plugins/<id>/`           | Each installed plugin's tree (manifest + plugin.nix + config.json) |
-| `~/nixblitz.log`                     | The TUI's own log (synchronous file append; no IOSink)  |
-| `/run/current-system/sw/bin/nixblitz`| The system-installed TUI binary (current generation)    |
+| Path                                       | What                                                                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| `~/nixblitz/config.json`                   | Single source of truth for the installed system                                  |
+| `~/nixblitz/flake.nix`                     | Reads `config.json`, builds the NixOS configuration                              |
+| `~/nixblitz/hosts/installed.nix`           | Host config (lives next to the user's settings)                                  |
+| `~/nixblitz/plugins/<id>/`                 | Each installed plugin's tree (manifest + plugin.nix + config.json)               |
+| `~/nixblitz.log`                           | The TUI's own log (synchronous file append; no IOSink)                           |
+| `/run/current-system/sw/bin/nixblitz`      | The system-installed TUI binary (current generation)                             |
 | `/var/lib/nixblitz-tui/update-status.json` | Periodic update-checker output; backs the dashboard's "updates available" banner |
 
 The whole `~/nixblitz/` tree is a git repo. Apply commits there;
@@ -214,8 +214,8 @@ jj split           # split current commit; opens diff editor
 jj split <FILES>   # non-interactive: listed files go into the new parent
 ```
 
-The repo's CLAUDE.md captures one constraint: *new files have to
-be committed before `nix build` can see them* (Nix evaluates
+The repo's CLAUDE.md captures one constraint: _new files have to
+be committed before `nix build` can see them_ (Nix evaluates
 against a snapshot, JJ's auto-tracking doesn't propagate until
 commit). If a `nix build` fails with "file not found" right after
 you created a new file, that's the cause.
@@ -232,7 +232,7 @@ Before pushing:
 3. If you touched any `pubspec.yaml`: `just gen-locks`.
 4. **Commit message style**: imperative subject, short summary,
    reference issue numbers when relevant. See `git log --oneline
-   -20` for the existing voice.
+-20` for the existing voice.
 
 Commits straight to `main` are the norm for the solo / small-team
 phase; expect a PR review process to land later.

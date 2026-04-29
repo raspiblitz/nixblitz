@@ -38,9 +38,10 @@ String _footerHint(AppView view, {required bool hasPending}) {
   return switch (view) {
     AppView.install => '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
     AppView.setup => 'Setting up...  [?]: Help',
-    AppView.dashboard => hasPending
-        ? '[c]: Configure  [a]: Apply  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit'
-        : '[c]: Configure  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit',
+    AppView.dashboard =>
+      hasPending
+          ? '[c]: Configure  [a]: Apply  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit'
+          : '[c]: Configure  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit',
     AppView.configure =>
       '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
     AppView.apply => '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
@@ -63,9 +64,9 @@ void _autoUpgrade(String baseDir) {
     // bumps. Synchronous path — ConfigService has both async and sync
     // variants; we want sync here to block before the UI renders.
     final configService = ConfigService(baseDir: baseDir);
-    final json = jsonDecode(
-      File('$baseDir/config.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final json =
+        jsonDecode(File('$baseDir/config.json').readAsStringSync())
+            as Map<String, dynamic>;
     final config = NixblitzConfig.fromJson(json);
     configService.writeConfigSync(config);
 
@@ -181,8 +182,7 @@ class _Shell extends StatelessComponent {
     context.read(configWatcherProvider);
 
     final helpVisible = context.watch(_helpVisibleProvider);
-    final sudoPromptVisible =
-        context.watch(pendingSudoPromptProvider) != null;
+    final sudoPromptVisible = context.watch(pendingSudoPromptProvider) != null;
 
     return Stack(
       children: [
@@ -293,10 +293,12 @@ class _Shell extends StatelessComponent {
                   child: Text(
                     _footerHint(
                       context.watch(currentViewProvider),
-                      hasPending: context.watch(pendingChangesProvider).maybeWhen(
-                        data: (lines) => lines.isNotEmpty,
-                        orElse: () => false,
-                      ),
+                      hasPending: context
+                          .watch(pendingChangesProvider)
+                          .maybeWhen(
+                            data: (lines) => lines.isNotEmpty,
+                            orElse: () => false,
+                          ),
                     ),
                     style: const TextStyle(
                       color: Color.fromRGB(247, 147, 26),

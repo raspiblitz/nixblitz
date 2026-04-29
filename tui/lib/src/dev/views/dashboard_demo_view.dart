@@ -27,8 +27,7 @@ class DashboardDemoView extends StatelessComponent {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.escape) {
-            context.read(currentDevViewProvider.notifier).state =
-                DevView.menu;
+            context.read(currentDevViewProvider.notifier).state = DevView.menu;
             return true;
           }
           return false;
@@ -109,9 +108,7 @@ class DashboardDemoView extends StatelessComponent {
                   child: Text(
                     'Dashboard layout preview ($cols-col layout, '
                     '[Esc] back)',
-                    style: const TextStyle(
-                      color: Color.fromRGB(150, 150, 180),
-                    ),
+                    style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
                   ),
                 ),
                 const SizedBox(height: 1),

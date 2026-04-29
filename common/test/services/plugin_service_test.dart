@@ -24,13 +24,14 @@ Future<String> _seedPluginRepo(
   dir.createSync(recursive: true);
 
   if (includePluginNix) {
-    File('$path/plugin.nix').writeAsStringSync(
-      '{ services.tailscale.enable = true; }\n',
-    );
+    File(
+      '$path/plugin.nix',
+    ).writeAsStringSync('{ services.tailscale.enable = true; }\n');
   }
 
   if (includeManifest) {
-    final manifest = manifestOverride ??
+    final manifest =
+        manifestOverride ??
         {
           'manifest': {
             'schema_version': 2,
@@ -39,9 +40,9 @@ Future<String> _seedPluginRepo(
             'description': 'test plugin',
           },
         };
-    File('$path/manifest.json').writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(manifest),
-    );
+    File(
+      '$path/manifest.json',
+    ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(manifest));
   }
 
   File('$path/README.md').writeAsStringSync('# $manifestName\n');
@@ -106,7 +107,10 @@ void main() {
       // .plugin-metadata.json is intentionally NOT written —
       // main config's plugins[] is the authoritative record and
       // duplicating timestamps just churns the diff.
-      expect(File('${pluginDir.path}/.plugin-metadata.json').existsSync(), isFalse);
+      expect(
+        File('${pluginDir.path}/.plugin-metadata.json').existsSync(),
+        isFalse,
+      );
 
       final config = await ConfigService(baseDir: home.path).readConfig();
       expect(config.plugins.length, 1);
@@ -179,10 +183,7 @@ void main() {
 
     test('install with malformed manifest leaves nothing behind', () async {
       final bad = Directory.systemTemp.createTempSync('nixblitz_plugin_bad_');
-      await _seedPluginRepo(
-        bad.path,
-        manifestOverride: {'not': 'a manifest'},
-      );
+      await _seedPluginRepo(bad.path, manifestOverride: {'not': 'a manifest'});
 
       expect(
         () => svc.install('file://${bad.path}', allowInsecure: true),
@@ -207,10 +208,7 @@ void main() {
       await _seedPluginRepo(noPluginNix.path, includePluginNix: false);
 
       expect(
-        () => svc.install(
-          'file://${noPluginNix.path}',
-          allowInsecure: true,
-        ),
+        () => svc.install('file://${noPluginNix.path}', allowInsecure: true),
         throwsA(isA<StateError>()),
       );
 
@@ -224,14 +222,11 @@ void main() {
       );
     });
 
-    test('clone failure on a subdir inside a repo suggests --subdir',
-        () async {
+    test('clone failure on a subdir inside a repo suggests --subdir', () async {
       // Build an outer repo containing a plugin subdir. Pointing
       // directly at the subdir fails because it has no .git/; the
       // fix is to point at the parent with --subdir.
-      final outer = Directory.systemTemp.createTempSync(
-        'nixblitz_outer_',
-      );
+      final outer = Directory.systemTemp.createTempSync('nixblitz_outer_');
       try {
         await _seedPluginRepo(outer.path);
         Directory('${outer.path}/tailscale').createSync();
@@ -247,10 +242,7 @@ void main() {
         );
 
         await expectLater(
-          () => svc.install(
-            '${outer.path}/tailscale',
-            allowInsecure: true,
-          ),
+          () => svc.install('${outer.path}/tailscale', allowInsecure: true),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -268,73 +260,71 @@ void main() {
       }
     });
 
-    test('multi-plugin repo without --subdir lists available plugins',
-        () async {
-      final multi = Directory.systemTemp.createTempSync(
-        'nixblitz_multi_list_',
-      );
-      try {
-        // Two valid plugins + one non-plugin subdir (should be skipped).
-        for (final name in ['tailscale', 'btcpay']) {
-          Directory('${multi.path}/$name').createSync(recursive: true);
-          File('${multi.path}/$name/plugin.nix').writeAsStringSync('{}\n');
-          File('${multi.path}/$name/manifest.json').writeAsStringSync(
-            jsonEncode({
-              'manifest': {
-                'schema_version': 2,
-                'min_tui_version': 1,
-                'name': name,
-              },
-            }),
-          );
-        }
-        Directory('${multi.path}/docs').createSync();
-        File('${multi.path}/docs/notes.md').writeAsStringSync('# docs\n');
-        File('${multi.path}/README.md').writeAsStringSync('# multi\n');
+    test(
+      'multi-plugin repo without --subdir lists available plugins',
+      () async {
+        final multi = Directory.systemTemp.createTempSync(
+          'nixblitz_multi_list_',
+        );
+        try {
+          // Two valid plugins + one non-plugin subdir (should be skipped).
+          for (final name in ['tailscale', 'btcpay']) {
+            Directory('${multi.path}/$name').createSync(recursive: true);
+            File('${multi.path}/$name/plugin.nix').writeAsStringSync('{}\n');
+            File('${multi.path}/$name/manifest.json').writeAsStringSync(
+              jsonEncode({
+                'manifest': {
+                  'schema_version': 2,
+                  'min_tui_version': 1,
+                  'name': name,
+                },
+              }),
+            );
+          }
+          Directory('${multi.path}/docs').createSync();
+          File('${multi.path}/docs/notes.md').writeAsStringSync('# docs\n');
+          File('${multi.path}/README.md').writeAsStringSync('# multi\n');
 
-        for (final args in [
-          ['init', '-b', 'main'],
-          ['add', '-A'],
-          ['commit', '-m', 'initial'],
-        ]) {
-          final r = await testGit(args, workingDirectory: multi.path);
-          expect(r.exitCode, 0, reason: r.stderr.toString());
-        }
+          for (final args in [
+            ['init', '-b', 'main'],
+            ['add', '-A'],
+            ['commit', '-m', 'initial'],
+          ]) {
+            final r = await testGit(args, workingDirectory: multi.path);
+            expect(r.exitCode, 0, reason: r.stderr.toString());
+          }
 
-        await expectLater(
-          () => svc.install(
-            'file://${multi.path}',
-            allowInsecure: true,
-          ),
-          throwsA(
-            isA<StateError>().having(
-              (e) => e.message,
-              'message',
-              allOf(
-                contains('btcpay'),
-                contains('tailscale'),
-                contains('--subdir'),
-                isNot(contains('docs')),
+          await expectLater(
+            () => svc.install('file://${multi.path}', allowInsecure: true),
+            throwsA(
+              isA<StateError>().having(
+                (e) => e.message,
+                'message',
+                allOf(
+                  contains('btcpay'),
+                  contains('tailscale'),
+                  contains('--subdir'),
+                  isNot(contains('docs')),
+                ),
               ),
             ),
-          ),
-        );
-      } finally {
-        multi.deleteSync(recursive: true);
-      }
-    });
+          );
+        } finally {
+          multi.deleteSync(recursive: true);
+        }
+      },
+    );
 
     test('install with --subdir from a multi-plugin repo', () async {
       // Build a multi-plugin repo: root has no manifest, but
       // `tailscale/` does. `install(... subdir: 'tailscale')` must
       // look for the manifest inside the subdir.
-      final multi = Directory.systemTemp.createTempSync(
-        'nixblitz_multi_',
-      );
+      final multi = Directory.systemTemp.createTempSync('nixblitz_multi_');
       try {
         Directory('${multi.path}/tailscale').createSync(recursive: true);
-        File('${multi.path}/tailscale/plugin.nix')
-            .writeAsStringSync('{ services.tailscale.enable = true; }\n');
+        File(
+          '${multi.path}/tailscale/plugin.nix',
+        ).writeAsStringSync('{ services.tailscale.enable = true; }\n');
         File('${multi.path}/tailscale/manifest.json').writeAsStringSync(
           jsonEncode({
             'manifest': {
@@ -362,13 +352,8 @@ void main() {
         expect(entry.id, contains('dir=tailscale'));
         expect(entry.dirName, endsWith('-tailscale'));
 
-        final pluginDir = Directory(
-          '${home.path}/plugins/${entry.dirName}',
-        );
-        expect(
-          File('${pluginDir.path}/plugin.nix').existsSync(),
-          isTrue,
-        );
+        final pluginDir = Directory('${home.path}/plugins/${entry.dirName}');
+        expect(File('${pluginDir.path}/plugin.nix').existsSync(), isTrue);
       } finally {
         multi.deleteSync(recursive: true);
       }
@@ -384,15 +369,16 @@ void main() {
       try {
         await _seedPluginRepo(malicious.path);
         Link('${malicious.path}/leak').createSync('/etc/passwd');
-        final addRes = await testGit(
-          ['add', '-A'],
-          workingDirectory: malicious.path,
-        );
+        final addRes = await testGit([
+          'add',
+          '-A',
+        ], workingDirectory: malicious.path);
         expect(addRes.exitCode, 0, reason: 'git add failed: ${addRes.stderr}');
-        final commitRes = await testGit(
-          ['commit', '-m', 'add symlink'],
-          workingDirectory: malicious.path,
-        );
+        final commitRes = await testGit([
+          'commit',
+          '-m',
+          'add symlink',
+        ], workingDirectory: malicious.path);
         expect(
           commitRes.exitCode,
           0,
@@ -403,10 +389,7 @@ void main() {
         // would race on `malicious.deleteSync` completing before the
         // install's git clone actually runs.
         await expectLater(
-          () => svc.install(
-            'file://${malicious.path}',
-            allowInsecure: true,
-          ),
+          () => svc.install('file://${malicious.path}', allowInsecure: true),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -465,60 +448,59 @@ void main() {
       expect(config.plugins.first.uninstalledAt, isNull);
     });
 
-    test('refresh re-fetches files but preserves per-plugin config.json',
-        () async {
-      final first = await svc.install(
-        'file://${srcRepo.path}',
-        allowInsecure: true,
-      );
+    test(
+      'refresh re-fetches files but preserves per-plugin config.json',
+      () async {
+        final first = await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
 
-      // User edits their plugin config. Refresh must not clobber it.
-      final cfgPath = '${home.path}/plugins/${first.dirName}/config.json';
-      File(cfgPath).writeAsStringSync(
-        jsonEncode({'custom_key': 'value', 'other': 42}),
-      );
+        // User edits their plugin config. Refresh must not clobber it.
+        final cfgPath = '${home.path}/plugins/${first.dirName}/config.json';
+        File(
+          cfgPath,
+        ).writeAsStringSync(jsonEncode({'custom_key': 'value', 'other': 42}));
 
-      // Advance the upstream repo: change plugin.nix, commit.
-      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
-        '# refreshed plugin.nix v2\n{ services.tailscale.enable = true; }\n',
-      );
-      for (final args in [
-        ['add', '-A'],
-        ['commit', '-m', 'update plugin'],
-      ]) {
-        final r = await testGit(args, workingDirectory: srcRepo.path);
-        expect(r.exitCode, 0, reason: r.stderr.toString());
-      }
+        // Advance the upstream repo: change plugin.nix, commit.
+        File('${srcRepo.path}/plugin.nix').writeAsStringSync(
+          '# refreshed plugin.nix v2\n{ services.tailscale.enable = true; }\n',
+        );
+        for (final args in [
+          ['add', '-A'],
+          ['commit', '-m', 'update plugin'],
+        ]) {
+          final r = await testGit(args, workingDirectory: srcRepo.path);
+          expect(r.exitCode, 0, reason: r.stderr.toString());
+        }
 
-      final refreshed = await svc.refresh(
-        first.id,
-        allowInsecure: true,
-      );
+        final refreshed = await svc.refresh(first.id, allowInsecure: true);
 
-      // Pin advanced.
-      expect(refreshed.pinnedRev, isNot(first.pinnedRev));
-      expect(refreshed.dirName, first.dirName);
+        // Pin advanced.
+        expect(refreshed.pinnedRev, isNot(first.pinnedRev));
+        expect(refreshed.dirName, first.dirName);
 
-      // Files updated.
-      final pluginNix = File(
-        '${home.path}/plugins/${refreshed.dirName}/plugin.nix',
-      ).readAsStringSync();
-      expect(pluginNix, contains('# refreshed plugin.nix v2'));
+        // Files updated.
+        final pluginNix = File(
+          '${home.path}/plugins/${refreshed.dirName}/plugin.nix',
+        ).readAsStringSync();
+        expect(pluginNix, contains('# refreshed plugin.nix v2'));
 
-      // Per-plugin config preserved.
-      final cfg = jsonDecode(File(cfgPath).readAsStringSync()) as Map;
-      expect(cfg['custom_key'], 'value');
-      expect(cfg['other'], 42);
+        // Per-plugin config preserved.
+        final cfg = jsonDecode(File(cfgPath).readAsStringSync()) as Map;
+        expect(cfg['custom_key'], 'value');
+        expect(cfg['other'], 42);
 
-      // Main config entry updated in place.
-      final afterConfig =
-          await ConfigService(baseDir: home.path).readConfig();
-      expect(afterConfig.plugins.length, 1);
-      expect(afterConfig.plugins.first.pinnedRev, refreshed.pinnedRev);
-    });
+        // Main config entry updated in place.
+        final afterConfig = await ConfigService(
+          baseDir: home.path,
+        ).readConfig();
+        expect(afterConfig.plugins.length, 1);
+        expect(afterConfig.plugins.first.pinnedRev, refreshed.pinnedRev);
+      },
+    );
 
-    test('refresh is a no-op when upstream pin matches existing',
-        () async {
+    test('refresh is a no-op when upstream pin matches existing', () async {
       final first = await svc.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
@@ -527,14 +509,14 @@ void main() {
       // No upstream change between install and refresh — the new
       // pin will equal the existing one, refresh should bail before
       // touching anything.
-      final refreshed = await svc.refresh(
-        first.id,
-        allowInsecure: true,
-      );
+      final refreshed = await svc.refresh(first.id, allowInsecure: true);
 
       expect(refreshed.pinnedRev, first.pinnedRev);
-      expect(refreshed.lastUpdatedAt, first.lastUpdatedAt,
-          reason: 'last_updated_at should not bump on no-op refresh');
+      expect(
+        refreshed.lastUpdatedAt,
+        first.lastUpdatedAt,
+        reason: 'last_updated_at should not bump on no-op refresh',
+      );
 
       // Main config wasn't touched either.
       final after = await ConfigService(baseDir: home.path).readConfig();
@@ -571,117 +553,122 @@ void main() {
       expect(captured!.signature.isPresent, isFalse);
     });
 
-    test('install on unsigned commit leaves signatureFingerprint null',
-        () async {
-      // Belt-and-suspenders for the install side of Approach A:
-      // when no signature is present at install time, we explicitly
-      // pin null. That null is the trigger for the "silent upgrade"
-      // path on a future signed refresh — without this guarantee,
-      // the upgrade case could be confused with a key change.
-      final entry = await svc.install(
-        'file://${srcRepo.path}',
-        allowInsecure: true,
-      );
-      expect(entry.signatureFingerprint, isNull);
+    test(
+      'install on unsigned commit leaves signatureFingerprint null',
+      () async {
+        // Belt-and-suspenders for the install side of Approach A:
+        // when no signature is present at install time, we explicitly
+        // pin null. That null is the trigger for the "silent upgrade"
+        // path on a future signed refresh — without this guarantee,
+        // the upgrade case could be confused with a key change.
+        final entry = await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        expect(entry.signatureFingerprint, isNull);
 
-      final cfg = await ConfigService(baseDir: home.path).readConfig();
-      expect(cfg.plugins.first.signatureFingerprint, isNull);
-    });
+        final cfg = await ConfigService(baseDir: home.path).readConfig();
+        expect(cfg.plugins.first.signatureFingerprint, isNull);
+      },
+    );
 
-    test('refresh throws PluginSignatureMismatch when pinned fp differs',
-        () async {
-      // Approach A's hard-fail case: install captured a fingerprint,
-      // a later refresh sees a different one (or none) → the caller
-      // must explicitly re-consent. The hermetic env can't produce a
-      // real signature, so we spoof the *pinned* side by writing a
-      // fake fingerprint into the entry, then push a new (still
-      // unsigned) upstream commit — the pinned `fake-fp` vs new
-      // `(unsigned, null)` diff is enough to trip the check.
-      final entry = await svc.install(
-        'file://${srcRepo.path}',
-        allowInsecure: true,
-      );
+    test(
+      'refresh throws PluginSignatureMismatch when pinned fp differs',
+      () async {
+        // Approach A's hard-fail case: install captured a fingerprint,
+        // a later refresh sees a different one (or none) → the caller
+        // must explicitly re-consent. The hermetic env can't produce a
+        // real signature, so we spoof the *pinned* side by writing a
+        // fake fingerprint into the entry, then push a new (still
+        // unsigned) upstream commit — the pinned `fake-fp` vs new
+        // `(unsigned, null)` diff is enough to trip the check.
+        final entry = await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
 
-      // Forge a pinned fingerprint on the entry so the next refresh
-      // takes the mismatch branch instead of the silent-upgrade one.
-      final cs = ConfigService(baseDir: home.path);
-      final cfg = await cs.readConfig();
-      final tampered = cfg.copyWith(plugins: [
-        cfg.plugins.first
-            .copyWith(signatureFingerprint: 'SHA256:fake-pinned-key'),
-      ]);
-      await cs.writeConfig(tampered);
+        // Forge a pinned fingerprint on the entry so the next refresh
+        // takes the mismatch branch instead of the silent-upgrade one.
+        final cs = ConfigService(baseDir: home.path);
+        final cfg = await cs.readConfig();
+        final tampered = cfg.copyWith(
+          plugins: [
+            cfg.plugins.first.copyWith(
+              signatureFingerprint: 'SHA256:fake-pinned-key',
+            ),
+          ],
+        );
+        await cs.writeConfig(tampered);
 
-      // Advance the upstream pin so refresh has *something* to do
-      // (a no-op refresh returns early before the signature check).
-      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
-        '# v2\n{ services.tailscale.enable = true; }\n',
-      );
-      for (final args in [
-        ['add', '-A'],
-        ['commit', '-m', 'rotate'],
-      ]) {
-        final r = await testGit(args, workingDirectory: srcRepo.path);
-        expect(r.exitCode, 0, reason: r.stderr.toString());
-      }
+        // Advance the upstream pin so refresh has *something* to do
+        // (a no-op refresh returns early before the signature check).
+        File(
+          '${srcRepo.path}/plugin.nix',
+        ).writeAsStringSync('# v2\n{ services.tailscale.enable = true; }\n');
+        for (final args in [
+          ['add', '-A'],
+          ['commit', '-m', 'rotate'],
+        ]) {
+          final r = await testGit(args, workingDirectory: srcRepo.path);
+          expect(r.exitCode, 0, reason: r.stderr.toString());
+        }
 
-      await expectLater(
-        () => svc.refresh(entry.id, allowInsecure: true),
-        throwsA(
-          isA<PluginSignatureMismatch>()
-              .having((e) => e.pluginId, 'pluginId', entry.id)
-              .having(
-                (e) => e.expected,
-                'expected',
-                'SHA256:fake-pinned-key',
-              )
-              .having((e) => e.actual, 'actual', isNull),
-        ),
-      );
+        await expectLater(
+          () => svc.refresh(entry.id, allowInsecure: true),
+          throwsA(
+            isA<PluginSignatureMismatch>()
+                .having((e) => e.pluginId, 'pluginId', entry.id)
+                .having((e) => e.expected, 'expected', 'SHA256:fake-pinned-key')
+                .having((e) => e.actual, 'actual', isNull),
+          ),
+        );
 
-      // Mismatch is hard-fail: nothing on disk should have moved,
-      // pinnedRev included. The user has to `plugin remove` +
-      // `plugin add` to re-consent.
-      final after = await cs.readConfig();
-      expect(after.plugins.first.pinnedRev, entry.pinnedRev);
-      expect(
-        after.plugins.first.signatureFingerprint,
-        'SHA256:fake-pinned-key',
-      );
-    });
+        // Mismatch is hard-fail: nothing on disk should have moved,
+        // pinnedRev included. The user has to `plugin remove` +
+        // `plugin add` to re-consent.
+        final after = await cs.readConfig();
+        expect(after.plugins.first.pinnedRev, entry.pinnedRev);
+        expect(
+          after.plugins.first.signatureFingerprint,
+          'SHA256:fake-pinned-key',
+        );
+      },
+    );
 
-    test('refresh with no pinned fp adopts whatever the new commit has',
-        () async {
-      // The "silent upgrade" path: an entry that was installed
-      // without a signature should accept new metadata on refresh
-      // without forcing the operator through re-consent. With the
-      // hermetic harness, "whatever the new commit has" is also
-      // null, so this test pins down the null→null no-throw shape;
-      // the null→fingerprint variant requires real signing keys
-      // outside the test scope.
-      final entry = await svc.install(
-        'file://${srcRepo.path}',
-        allowInsecure: true,
-      );
-      expect(entry.signatureFingerprint, isNull);
+    test(
+      'refresh with no pinned fp adopts whatever the new commit has',
+      () async {
+        // The "silent upgrade" path: an entry that was installed
+        // without a signature should accept new metadata on refresh
+        // without forcing the operator through re-consent. With the
+        // hermetic harness, "whatever the new commit has" is also
+        // null, so this test pins down the null→null no-throw shape;
+        // the null→fingerprint variant requires real signing keys
+        // outside the test scope.
+        final entry = await svc.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        expect(entry.signatureFingerprint, isNull);
 
-      // Advance upstream so refresh actually runs the signature
-      // check (no-op refresh returns before the comparison).
-      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
-        '# v2\n{ services.tailscale.enable = true; }\n',
-      );
-      for (final args in [
-        ['add', '-A'],
-        ['commit', '-m', 'advance'],
-      ]) {
-        final r = await testGit(args, workingDirectory: srcRepo.path);
-        expect(r.exitCode, 0, reason: r.stderr.toString());
-      }
+        // Advance upstream so refresh actually runs the signature
+        // check (no-op refresh returns before the comparison).
+        File(
+          '${srcRepo.path}/plugin.nix',
+        ).writeAsStringSync('# v2\n{ services.tailscale.enable = true; }\n');
+        for (final args in [
+          ['add', '-A'],
+          ['commit', '-m', 'advance'],
+        ]) {
+          final r = await testGit(args, workingDirectory: srcRepo.path);
+          expect(r.exitCode, 0, reason: r.stderr.toString());
+        }
 
-      final refreshed = await svc.refresh(entry.id, allowInsecure: true);
-      expect(refreshed.signatureFingerprint, isNull);
-      expect(refreshed.pinnedRev, isNot(entry.pinnedRev));
-    });
+        final refreshed = await svc.refresh(entry.id, allowInsecure: true);
+        expect(refreshed.signatureFingerprint, isNull);
+        expect(refreshed.pinnedRev, isNot(entry.pinnedRev));
+      },
+    );
 
     test('refreshAll walks every active plugin', () async {
       // Second repo so we have two distinct plugins to refresh.
@@ -690,14 +677,8 @@ void main() {
       );
       try {
         await _seedPluginRepo(secondRepo.path, manifestName: 'second');
-        await svc.install(
-          'file://${srcRepo.path}',
-          allowInsecure: true,
-        );
-        await svc.install(
-          'file://${secondRepo.path}',
-          allowInsecure: true,
-        );
+        await svc.install('file://${srcRepo.path}', allowInsecure: true);
+        await svc.install('file://${secondRepo.path}', allowInsecure: true);
 
         final result = await svc.refreshAll(allowInsecure: true);
         expect(result.refreshed.length, 2);
@@ -708,8 +689,7 @@ void main() {
       }
     });
 
-    test('pin flips auto_update to false; unpin flips it back',
-        () async {
+    test('pin flips auto_update to false; unpin flips it back', () async {
       final entry = await svc.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
@@ -727,8 +707,7 @@ void main() {
       expect(unpinned.autoUpdate, isTrue);
     });
 
-    test('refreshAll skips pinned plugins when includePinned=false',
-        () async {
+    test('refreshAll skips pinned plugins when includePinned=false', () async {
       final secondRepo = Directory.systemTemp.createTempSync(
         'nixblitz_refresh_pinned_',
       );
@@ -738,10 +717,7 @@ void main() {
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
-        await svc.install(
-          'file://${secondRepo.path}',
-          allowInsecure: true,
-        );
+        await svc.install('file://${secondRepo.path}', allowInsecure: true);
 
         // Pin the first one so includePinned=false should skip it.
         await svc.pin(first.id);
@@ -774,19 +750,14 @@ void main() {
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
-        await svc.install(
-          'file://${secondRepo.path}',
-          allowInsecure: true,
-        );
+        await svc.install('file://${secondRepo.path}', allowInsecure: true);
 
         // Poison: move the first source repo so refresh's clone
         // fails for it.
         movedRepo.deleteSync(recursive: true);
         Directory(srcRepo.path).renameSync(movedRepo.path);
 
-        final result = await svc.refreshAll(
-          allowInsecure: true,
-        );
+        final result = await svc.refreshAll(allowInsecure: true);
         expect(result.refreshed.length, 1);
         expect(result.failures.length, 1);
         expect(result.failures.first.plugin.id, bad.id);
@@ -827,9 +798,7 @@ void main() {
     });
 
     test('parses github: with subdir', () {
-      final p = PluginUrl.parse(
-        'github:fusion44/nixblitz-plugins/tailscale',
-      );
+      final p = PluginUrl.parse('github:fusion44/nixblitz-plugins/tailscale');
       expect(p.canonical, 'github:fusion44/nixblitz-plugins/tailscale');
       expect(p.cloneUrl, 'https://github.com/fusion44/nixblitz-plugins');
       expect(p.subdir, 'tailscale');
@@ -857,10 +826,7 @@ void main() {
     });
 
     test('accepts file:// with allowInsecure', () {
-      final p = PluginUrl.parse(
-        'file:///tmp/plugin',
-        allowInsecure: true,
-      );
+      final p = PluginUrl.parse('file:///tmp/plugin', allowInsecure: true);
       expect(p.insecure, isTrue);
     });
 
@@ -879,10 +845,7 @@ void main() {
 
     test('hints when file://~/... is used literally', () {
       expect(
-        () => PluginUrl.parse(
-          'file://~/plugin',
-          allowInsecure: true,
-        ),
+        () => PluginUrl.parse('file://~/plugin', allowInsecure: true),
         throwsA(
           isA<FormatException>().having(
             (e) => e.message,
@@ -894,9 +857,7 @@ void main() {
     });
 
     test('deriveDirName strips .git from https URL', () {
-      final p = PluginUrl.parse(
-        'https://forge.example/org/nixblitz-foo.git',
-      );
+      final p = PluginUrl.parse('https://forge.example/org/nixblitz-foo.git');
       expect(p.deriveDirName(), 'nixblitz-foo');
     });
 
@@ -913,10 +874,7 @@ void main() {
         p.canonical,
         'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins',
       );
-      expect(
-        p.cloneUrl,
-        'https://forge.f44.fyi/f44/nixblitz_official_plugins',
-      );
+      expect(p.cloneUrl, 'https://forge.f44.fyi/f44/nixblitz_official_plugins');
       expect(p.subdir, isNull);
       expect(p.deriveDirName(), 'f44-nixblitz_official_plugins');
     });
@@ -968,10 +926,7 @@ void main() {
 
     test('conflicting URL subdir + --subdir is an error', () {
       expect(
-        () => PluginUrl.parse(
-          'github:a/b/c',
-          subdir: 'd',
-        ),
+        () => PluginUrl.parse('github:a/b/c', subdir: 'd'),
         throwsA(isA<FormatException>()),
       );
     });

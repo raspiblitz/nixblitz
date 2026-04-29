@@ -43,10 +43,7 @@ class ServiceCardDemoView extends StatelessComponent {
               ),
             ),
             const ServiceCard(
-              status: ServiceStatus(
-                name: 'lnd',
-                state: ServiceState.stopped,
-              ),
+              status: ServiceStatus(name: 'lnd', state: ServiceState.stopped),
             ),
             const ServiceCard(
               status: ServiceStatus(

@@ -13,6 +13,7 @@
 ## File Map
 
 ### common package (new files)
+
 - Create: `common/lib/src/models/install_state.dart` — install step enum and disk model
 - Create: `common/lib/src/services/install_service.dart` — disk detection, disko-install, platform detection
 - Create: `common/test/services/install_service_test.dart` — test lsblk/platform parsing
@@ -20,6 +21,7 @@
 - Modify: `common/lib/common.dart` — add exports
 
 ### tui package (new/modified files)
+
 - Create: `tui/lib/src/ui/views/install_view.dart` — multi-step install wizard
 - Create: `tui/lib/src/ui/views/setup_view.dart` — first-boot setup (passwords, seeds)
 - Modify: `tui/lib/src/providers/ui_state_provider.dart` — add install/setup views
@@ -30,6 +32,7 @@
 ## Task 1: Install State Model + Disk Model
 
 **Files:**
+
 - Create: `common/lib/src/models/install_state.dart`
 - Modify: `common/lib/common.dart`
 
@@ -92,6 +95,7 @@ class SystemInfo {
 - [ ] **Step 2: Add export to barrel file**
 
 Add to `common/lib/common.dart`:
+
 ```dart
 export 'src/models/install_state.dart';
 ```
@@ -112,6 +116,7 @@ feat: add InstallStep, DiskInfo, and SystemInfo models
 ## Task 2: Install Service (detection + disk enumeration + disko-install)
 
 **Files:**
+
 - Create: `common/lib/src/services/install_service.dart`
 - Create: `common/test/services/install_service_test.dart`
 - Modify: `common/lib/common.dart`
@@ -355,6 +360,7 @@ class InstallService {
 - [ ] **Step 4: Add export to barrel file**
 
 Add to `common/lib/common.dart`:
+
 ```dart
 export 'src/services/install_service.dart';
 ```
@@ -375,6 +381,7 @@ feat: add InstallService with disk detection, platform detection, and disko-inst
 ## Task 3: Install Provider
 
 **Files:**
+
 - Create: `common/lib/src/providers/install_provider.dart`
 - Modify: `common/lib/common.dart`
 
@@ -410,6 +417,7 @@ final installCurrentStepLabelProvider = StateProvider<String>((ref) => '');
 - [ ] **Step 2: Add export**
 
 Add to `common/lib/common.dart`:
+
 ```dart
 export 'src/providers/install_provider.dart';
 ```
@@ -430,6 +438,7 @@ feat: add Riverpod providers for install flow state
 ## Task 4: Update UI State + App Routing
 
 **Files:**
+
 - Modify: `tui/lib/src/providers/ui_state_provider.dart`
 - Modify: `tui/lib/src/ui/app.dart`
 
@@ -507,14 +516,16 @@ class NixBlitzApp extends StatelessComponent {
 ```
 
 Add imports at top of app.dart:
+
 ```dart
 import 'dart:convert';
 import 'dart:io';
 ```
 
-- [ ] **Step 3: Update the view switch in _Shell.build()**
+- [ ] **Step 3: Update the view switch in \_Shell.build()**
 
 Replace the view switch:
+
 ```dart
             Expanded(
               child: switch (context.watch(currentViewProvider)) {
@@ -528,6 +539,7 @@ Replace the view switch:
 ```
 
 Add imports:
+
 ```dart
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
@@ -567,6 +579,7 @@ Replace the `runApp` call in `tui/bin/nixblitz.dart`:
 ```
 
 Add import:
+
 ```dart
 import 'dart:io';
 ```
@@ -617,6 +630,7 @@ feat: add startup mode detection and install/setup view routing
 ## Task 5: Install View (Multi-Step Wizard)
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/install_view.dart` (replace stub)
 
 This is the main install wizard. It progresses through `InstallStep` values, showing different content at each step.
@@ -1105,6 +1119,7 @@ feat: implement multi-step install wizard view
 ## Task 6: First Boot Setup View
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/setup_view.dart` (replace stub)
 
 - [ ] **Step 1: Implement setup_view.dart**

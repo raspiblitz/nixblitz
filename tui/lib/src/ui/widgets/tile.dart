@@ -36,24 +36,13 @@ class Tile extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.only(
-        left: 1,
-        right: 1,
-        top: 1,
-        bottom: 1,
-      ),
+      padding: const EdgeInsets.only(left: 1, right: 1, top: 1, bottom: 1),
       decoration: BoxDecoration(
         border: BoxBorder(
           top: BorderSide(color: accent),
-          bottom: BorderSide(
-            color: const Color.fromRGB(60, 60, 80),
-          ),
-          left: BorderSide(
-            color: const Color.fromRGB(60, 60, 80),
-          ),
-          right: BorderSide(
-            color: const Color.fromRGB(60, 60, 80),
-          ),
+          bottom: BorderSide(color: const Color.fromRGB(60, 60, 80)),
+          left: BorderSide(color: const Color.fromRGB(60, 60, 80)),
+          right: BorderSide(color: const Color.fromRGB(60, 60, 80)),
         ),
       ),
       child: Column(
@@ -70,8 +59,7 @@ class Tile extends StatelessComponent {
                 Text(
                   statusLabel!,
                   style: TextStyle(
-                    color: statusColor ??
-                        const Color.fromRGB(150, 150, 180),
+                    color: statusColor ?? const Color.fromRGB(150, 150, 180),
                   ),
                 ),
             ],

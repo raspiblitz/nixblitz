@@ -37,7 +37,11 @@ class OptionEditorDemoView extends StatelessComponent {
             ),
             const SizedBox(height: 1),
             const Text('Bool editors:'),
-            const BoolOptionEditor(label: 'enabled', value: true, focused: true),
+            const BoolOptionEditor(
+              label: 'enabled',
+              value: true,
+              focused: true,
+            ),
             const BoolOptionEditor(label: 'pruned', value: false),
             const SizedBox(height: 1),
             const Text('Select editors:'),
@@ -60,10 +64,7 @@ class OptionEditorDemoView extends StatelessComponent {
               unit: 'GB',
               focused: true,
             ),
-            const NumberOptionEditor(
-              label: 'port',
-              value: 8333,
-            ),
+            const NumberOptionEditor(label: 'port', value: 8333),
             const SizedBox(height: 1),
             const Text('Text editors:'),
             const TextOptionEditor(
@@ -71,10 +72,7 @@ class OptionEditorDemoView extends StatelessComponent {
               value: 'nixblitz',
               focused: true,
             ),
-            const TextOptionEditor(
-              label: 'alias',
-              value: 'my-lightning-node',
-            ),
+            const TextOptionEditor(label: 'alias', value: 'my-lightning-node'),
             const SizedBox(height: 2),
             const Text(
               '[Esc] back to menu  (these are display-only in the demo)',

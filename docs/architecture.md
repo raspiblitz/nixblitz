@@ -202,10 +202,10 @@ Two systemd timers run on the installed system to surface "X
 updates available" on the dashboard without the operator having to
 trigger an Update flow:
 
-| Timer                            | Cadence | What it does                                                              |
-| -------------------------------- | ------- | ------------------------------------------------------------------------- |
-| `nixblitz-check-light.timer`     | daily   | Calls each flake input's upstream API (GitHub / Forgejo) for the branch HEAD; compares to our locked rev. ~5 HTTP calls, ~kB transfer. |
-| `nixblitz-check-heavy.timer`     | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix eval` + `nvd diff` there. ~125 MB tarball fetch + 30-60s eval. |
+| Timer                        | Cadence | What it does                                                                                                                           |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `nixblitz-check-light.timer` | daily   | Calls each flake input's upstream API (GitHub / Forgejo) for the branch HEAD; compares to our locked rev. ~5 HTTP calls, ~kB transfer. |
+| `nixblitz-check-heavy.timer` | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix eval` + `nvd diff` there. ~125 MB tarball fetch + 30-60s eval.        |
 
 Both run as `User=admin` and write to
 `/var/lib/nixblitz-tui/update-status.json` (created with

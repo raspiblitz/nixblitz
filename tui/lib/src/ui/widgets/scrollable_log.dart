@@ -163,9 +163,7 @@ class _ScrollableLogState extends State<ScrollableLog> {
       return;
     }
     final firstVisible = _scrollController.offset;
-    final fwd = _matchRows.indexWhere(
-      (r) => r >= firstVisible.floor(),
-    );
+    final fwd = _matchRows.indexWhere((r) => r >= firstVisible.floor());
     _scrollToMatch(fwd >= 0 ? fwd : 0);
   }
 
@@ -250,11 +248,7 @@ class _ScrollableLogState extends State<ScrollableLog> {
   /// segments: surrounding text in [base] style, matched substrings in
   /// the highlight style. Case-insensitive matching, but the original
   /// casing of the line is preserved in the rendered output.
-  Component _highlightedRow(
-    String line,
-    TextStyle base,
-    TextStyle highlight,
-  ) {
+  Component _highlightedRow(String line, TextStyle base, TextStyle highlight) {
     final needle = _query.toLowerCase();
     final hay = line.toLowerCase();
     final segments = <Component>[];
@@ -268,10 +262,9 @@ class _ScrollableLogState extends State<ScrollableLog> {
       if (hit > cursor) {
         segments.add(Text(line.substring(cursor, hit), style: base));
       }
-      segments.add(Text(
-        line.substring(hit, hit + needle.length),
-        style: highlight,
-      ));
+      segments.add(
+        Text(line.substring(hit, hit + needle.length), style: highlight),
+      );
       cursor = hit + needle.length;
     }
     if (segments.isEmpty) {
@@ -287,19 +280,23 @@ class _ScrollableLogState extends State<ScrollableLog> {
       // Trailing block char acts as a cursor; cheap and works without
       // a real text-field widget. Widening to a full TextField would be
       // overkill for a single-line search.
-      return Row(children: [
-        Text('/', style: hi),
-        Text('$_input█', style: dim),
-      ]);
+      return Row(
+        children: [
+          Text('/', style: hi),
+          Text('$_input█', style: dim),
+        ],
+      );
     }
     final pos = _matchRows.isEmpty
         ? '0/0'
         : '${_matchIndex + 1}/${_matchRows.length}';
-    return Row(children: [
-      Text('[$pos] ', style: dim),
-      Text('/$_query', style: hi),
-      Text('   n=next  N=prev  Esc=clear', style: dim),
-    ]);
+    return Row(
+      children: [
+        Text('[$pos] ', style: dim),
+        Text('/$_query', style: hi),
+        Text('   n=next  N=prev  Esc=clear', style: dim),
+      ],
+    );
   }
 
   /// Returns true if the event was consumed by the search machinery.

@@ -33,9 +33,9 @@ class PluginDashboardService {
   bool _disposed = false;
 
   PluginDashboardService(Ref ref)
-      : _ref = ref,
-        _pluginService = ref.read(pluginServiceProvider),
-        _runner = ref.read(pluginActionRunnerProvider) {
+    : _ref = ref,
+      _pluginService = ref.read(pluginServiceProvider),
+      _runner = ref.read(pluginActionRunnerProvider) {
     _ref.listen(
       configProvider,
       (_, next) => _reconcile(next.value?.plugins ?? const []),
@@ -210,16 +210,14 @@ class _PluginPoller {
       final lastErr = _lastNonEmptyLine(r.stderr);
       return PluginTileSnapshot.failure(
         spec: spec,
-        reason: 'command failed (exit ${r.exitCode})'
+        reason:
+            'command failed (exit ${r.exitCode})'
             '${lastErr.isEmpty ? '' : ': $lastErr'}',
       );
     }
     final trimmed = r.stdout.trim();
     if (trimmed.isEmpty) {
-      return PluginTileSnapshot.failure(
-        spec: spec,
-        reason: 'empty stdout',
-      );
+      return PluginTileSnapshot.failure(spec: spec, reason: 'empty stdout');
     }
     final dynamic decoded;
     try {

@@ -14,12 +14,7 @@ class BitcoinTile extends StatelessComponent {
     final snap = context.watch(btcSnapshotProvider);
 
     // Show the configured network as subtitle even before data lands.
-    final network = context
-            .watch(configProvider)
-            .value
-            ?.bitcoind
-            .network ??
-        '';
+    final network = context.watch(configProvider).value?.bitcoind.network ?? '';
 
     return snap.when(
       loading: () => Tile(

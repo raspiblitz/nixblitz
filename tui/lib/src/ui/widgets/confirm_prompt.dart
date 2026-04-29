@@ -84,18 +84,15 @@ class ConfirmPrompt extends StatelessComponent {
             if (details.isNotEmpty) ...[
               const SizedBox(height: 1),
               ...details.map(
-                (d) => Text(d, style: const TextStyle(color: Color.fromRGB(200, 200, 200))),
+                (d) => Text(
+                  d,
+                  style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+                ),
               ),
             ],
             const SizedBox(height: 1),
-            _ConfirmOption(
-              label: confirmLabel,
-              focused: selectedIndex == 0,
-            ),
-            _ConfirmOption(
-              label: cancelLabel,
-              focused: selectedIndex == 1,
-            ),
+            _ConfirmOption(label: confirmLabel, focused: selectedIndex == 0),
+            _ConfirmOption(label: cancelLabel, focused: selectedIndex == 1),
           ],
         ),
       ),
@@ -117,7 +114,10 @@ class _ConfirmOption extends StatelessComponent {
         : const Color.fromRGB(200, 200, 200);
     return Text(
       '$prefix$label',
-      style: TextStyle(color: color, fontWeight: focused ? FontWeight.bold : FontWeight.normal),
+      style: TextStyle(
+        color: color,
+        fontWeight: focused ? FontWeight.bold : FontWeight.normal,
+      ),
     );
   }
 }

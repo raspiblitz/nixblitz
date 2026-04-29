@@ -117,60 +117,63 @@ class _UpdateViewState extends State<UpdateView> {
     final initialHead = await git.headRef();
 
     _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
-    pluginService.refreshAll(includePinned: false).then((result) async {
-      for (final p in result.refreshed) {
-        final pin = p.pinnedRev.length >= 7
-            ? p.pinnedRev.substring(0, 7)
-            : p.pinnedRev;
-        _appendUpdateLine('  refreshed ${p.id} → $pin');
-      }
-      for (final f in result.failures) {
-        _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
-      }
-      for (final s in result.skipped) {
-        _appendUpdateLine('  skipped (pinned): ${s.id}');
-      }
-      if (result.totalAttempted == 0 && result.skipped.isEmpty) {
-        _appendUpdateLine('  (no installed plugins)');
-      } else {
-        _appendUpdateLine(
-          '${result.refreshed.length} refreshed, '
-          '${result.failures.length} failed, '
-          '${result.skipped.length} skipped',
-        );
-      }
+    pluginService
+        .refreshAll(includePinned: false)
+        .then((result) async {
+          for (final p in result.refreshed) {
+            final pin = p.pinnedRev.length >= 7
+                ? p.pinnedRev.substring(0, 7)
+                : p.pinnedRev;
+            _appendUpdateLine('  refreshed ${p.id} → $pin');
+          }
+          for (final f in result.failures) {
+            _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
+          }
+          for (final s in result.skipped) {
+            _appendUpdateLine('  skipped (pinned): ${s.id}');
+          }
+          if (result.totalAttempted == 0 && result.skipped.isEmpty) {
+            _appendUpdateLine('  (no installed plugins)');
+          } else {
+            _appendUpdateLine(
+              '${result.refreshed.length} refreshed, '
+              '${result.failures.length} failed, '
+              '${result.skipped.length} skipped',
+            );
+          }
 
-      // Same scoped-commit pattern as _refreshPluginsThenPreview
-      // so we don't sweep up unrelated working-tree edits.
-      if (result.refreshed.isNotEmpty) {
-        final paths = <String>[
-          'config.json',
-          for (final p in result.refreshed) 'plugins/${p.dirName}',
-        ];
-        final ids = result.refreshed.map((p) => p.id).join(', ');
-        _appendUpdateLine('');
-        _appendUpdateLine('> git commit -m "Update plugins: $ids"');
-        final ok = await git.commitPaths(paths, 'Update plugins: $ids');
-        if (!ok) {
-          _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
-        }
-      }
+          // Same scoped-commit pattern as _refreshPluginsThenPreview
+          // so we don't sweep up unrelated working-tree edits.
+          if (result.refreshed.isNotEmpty) {
+            final paths = <String>[
+              'config.json',
+              for (final p in result.refreshed) 'plugins/${p.dirName}',
+            ];
+            final ids = result.refreshed.map((p) => p.id).join(', ');
+            _appendUpdateLine('');
+            _appendUpdateLine('> git commit -m "Update plugins: $ids"');
+            final ok = await git.commitPaths(paths, 'Update plugins: $ids');
+            if (!ok) {
+              _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
+            }
+          }
 
-      // Did the refresh actually move anything? If HEAD didn't
-      // advance, there's nothing to preview or apply.
-      final currentHead = await git.headRef();
-      if (currentHead == initialHead) {
-        _appendUpdateLine('');
-        _appendUpdateLine('Nothing to apply.');
-        _completeWithSuccess();
-        return;
-      }
-      _runPreviewDiff(baseDirPath);
-    }).catchError((e, st) {
-      LogService.error('plugin refresh threw', e, st);
-      _appendUpdateLine('  ⚠ plugin refresh threw: $e');
-      _failToDone(1);
-    });
+          // Did the refresh actually move anything? If HEAD didn't
+          // advance, there's nothing to preview or apply.
+          final currentHead = await git.headRef();
+          if (currentHead == initialHead) {
+            _appendUpdateLine('');
+            _appendUpdateLine('Nothing to apply.');
+            _completeWithSuccess();
+            return;
+          }
+          _runPreviewDiff(baseDirPath);
+        })
+        .catchError((e, st) {
+          LogService.error('plugin refresh threw', e, st);
+          _appendUpdateLine('  ⚠ plugin refresh threw: $e');
+          _failToDone(1);
+        });
   }
 
   /// Refresh Nix template files from the embedded templates in this
@@ -212,66 +215,69 @@ class _UpdateViewState extends State<UpdateView> {
     final initialHead = await git.headRef();
 
     _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
-    pluginService.refreshAll(includePinned: false).then((result) async {
-      for (final p in result.refreshed) {
-        final pin = p.pinnedRev.length >= 7
-            ? p.pinnedRev.substring(0, 7)
-            : p.pinnedRev;
-        _appendUpdateLine('  refreshed ${p.id} → $pin');
-      }
-      for (final f in result.failures) {
-        _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
-      }
-      for (final s in result.skipped) {
-        _appendUpdateLine('  skipped (pinned): ${s.id}');
-      }
-      if (result.totalAttempted == 0 && result.skipped.isEmpty) {
-        _appendUpdateLine('  (no installed plugins)');
-      } else {
-        _appendUpdateLine(
-          '${result.refreshed.length} refreshed, '
-          '${result.failures.length} failed, '
-          '${result.skipped.length} skipped',
-        );
-      }
+    pluginService
+        .refreshAll(includePinned: false)
+        .then((result) async {
+          for (final p in result.refreshed) {
+            final pin = p.pinnedRev.length >= 7
+                ? p.pinnedRev.substring(0, 7)
+                : p.pinnedRev;
+            _appendUpdateLine('  refreshed ${p.id} → $pin');
+          }
+          for (final f in result.failures) {
+            _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
+          }
+          for (final s in result.skipped) {
+            _appendUpdateLine('  skipped (pinned): ${s.id}');
+          }
+          if (result.totalAttempted == 0 && result.skipped.isEmpty) {
+            _appendUpdateLine('  (no installed plugins)');
+          } else {
+            _appendUpdateLine(
+              '${result.refreshed.length} refreshed, '
+              '${result.failures.length} failed, '
+              '${result.skipped.length} skipped',
+            );
+          }
 
-      // Commit the plugin-refresh diffs immediately, scoped to
-      // exactly the paths the refresh touched. Without this, the
-      // changes linger in the working tree and `nix flake update`
-      // (whose lock-update gate is the only signal updateLock
-      // checks) can correctly report "no inputs changed" even
-      // though plugin trees moved — the user would land on a
-      // confusing "Nothing to apply" screen and only later see
-      // pending changes on the dashboard. Scoped paths instead of
-      // `git add -A` so we don't sweep up unrelated user edits.
-      if (result.refreshed.isNotEmpty) {
-        final paths = <String>[
-          'config.json',
-          for (final p in result.refreshed) 'plugins/${p.dirName}',
-        ];
-        final ids = result.refreshed.map((p) => p.id).join(', ');
-        _appendUpdateLine('');
-        _appendUpdateLine('> git commit -m "Update plugins: $ids"');
-        final ok = await git.commitPaths(paths, 'Update plugins: $ids');
-        if (!ok) {
-          _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
-        }
-      }
+          // Commit the plugin-refresh diffs immediately, scoped to
+          // exactly the paths the refresh touched. Without this, the
+          // changes linger in the working tree and `nix flake update`
+          // (whose lock-update gate is the only signal updateLock
+          // checks) can correctly report "no inputs changed" even
+          // though plugin trees moved — the user would land on a
+          // confusing "Nothing to apply" screen and only later see
+          // pending changes on the dashboard. Scoped paths instead of
+          // `git add -A` so we don't sweep up unrelated user edits.
+          if (result.refreshed.isNotEmpty) {
+            final paths = <String>[
+              'config.json',
+              for (final p in result.refreshed) 'plugins/${p.dirName}',
+            ];
+            final ids = result.refreshed.map((p) => p.id).join(', ');
+            _appendUpdateLine('');
+            _appendUpdateLine('> git commit -m "Update plugins: $ids"');
+            final ok = await git.commitPaths(paths, 'Update plugins: $ids');
+            if (!ok) {
+              _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
+            }
+          }
 
-      _previewSystemUpdate(
-        baseDirPath,
-        nixblitzOnly: false,
-        initialHead: initialHead,
-      );
-    }).catchError((e, st) {
-      LogService.error('plugin refresh during update threw', e, st);
-      _appendUpdateLine('  ⚠ plugin refresh threw: $e (continuing)');
-      _previewSystemUpdate(
-        baseDirPath,
-        nixblitzOnly: false,
-        initialHead: initialHead,
-      );
-    });
+          _previewSystemUpdate(
+            baseDirPath,
+            nixblitzOnly: false,
+            initialHead: initialHead,
+          );
+        })
+        .catchError((e, st) {
+          LogService.error('plugin refresh during update threw', e, st);
+          _appendUpdateLine('  ⚠ plugin refresh threw: $e (continuing)');
+          _previewSystemUpdate(
+            baseDirPath,
+            nixblitzOnly: false,
+            initialHead: initialHead,
+          );
+        });
   }
 
   void _previewSystemUpdate(
@@ -295,54 +301,55 @@ class _UpdateViewState extends State<UpdateView> {
       commitMessage: commitMessage,
     );
     _outputSub = lockRun.output.listen(_appendUpdateLine);
-    lockRun.result.then((res) async {
-      await _outputSub?.cancel();
-      _outputSub = null;
-      if (!res.success) {
-        _failToDone(res.exitCode);
-        return;
-      }
-      // "Anything to apply?" — capture HEAD now and compare against
-      // wherever the flow started. Covers plugin-refresh commits
-      // upstream of us as well as updateLock's flake.lock commit.
-      // initialHead is null when this method was called directly
-      // from _startUpdate's nixblitzOnly path; treat that as "the
-      // only commit point is updateLock" and use the lock's own
-      // committed flag.
-      final currentHead = await git.headRef();
-      final headMoved = initialHead != null
-          ? currentHead != initialHead
-          : res.committed;
-      if (!headMoved) {
-        _appendUpdateLine('');
-        _appendUpdateLine('Nothing to apply.');
-        _completeWithSuccess();
-        return;
-      }
-      _runPreviewDiff(baseDirPath);
-    }).catchError((e, st) {
-      LogService.error('updateLock failed', e, st);
-      _failToDone(1);
-    });
+    lockRun.result
+        .then((res) async {
+          await _outputSub?.cancel();
+          _outputSub = null;
+          if (!res.success) {
+            _failToDone(res.exitCode);
+            return;
+          }
+          // "Anything to apply?" — capture HEAD now and compare against
+          // wherever the flow started. Covers plugin-refresh commits
+          // upstream of us as well as updateLock's flake.lock commit.
+          // initialHead is null when this method was called directly
+          // from _startUpdate's nixblitzOnly path; treat that as "the
+          // only commit point is updateLock" and use the lock's own
+          // committed flag.
+          final currentHead = await git.headRef();
+          final headMoved = initialHead != null
+              ? currentHead != initialHead
+              : res.committed;
+          if (!headMoved) {
+            _appendUpdateLine('');
+            _appendUpdateLine('Nothing to apply.');
+            _completeWithSuccess();
+            return;
+          }
+          _runPreviewDiff(baseDirPath);
+        })
+        .catchError((e, st) {
+          LogService.error('updateLock failed', e, st);
+          _failToDone(1);
+        });
   }
 
   void _writeTemplatesAndPreview(String baseDirPath) {
     try {
       _appendUpdateLine('> Refreshing Nix templates from embedded sources');
-      final written = ScaffoldService(targetDir: baseDirPath)
-          .refreshTemplatesSync();
+      final written = ScaffoldService(
+        targetDir: baseDirPath,
+      ).refreshTemplatesSync();
       _appendUpdateLine('Wrote $written template files');
 
       _appendUpdateLine('');
       _appendUpdateLine('> git add . && git commit -m "Refresh templates"');
-      Process.runSync(
-        'git', ['add', '.'],
-        workingDirectory: baseDirPath,
-      );
-      final commit = Process.runSync(
-        'git', ['commit', '-m', 'Refresh templates from TUI'],
-        workingDirectory: baseDirPath,
-      );
+      Process.runSync('git', ['add', '.'], workingDirectory: baseDirPath);
+      final commit = Process.runSync('git', [
+        'commit',
+        '-m',
+        'Refresh templates from TUI',
+      ], workingDirectory: baseDirPath);
       // Exit 1 here usually means "nothing to commit" — same as
       // updateLock's `committed: false` branch.
       if (commit.exitCode != 0) {
@@ -364,40 +371,42 @@ class _UpdateViewState extends State<UpdateView> {
     _appendUpdateLine('');
     final preview = systemService.previewPackageDiff(flakePath: baseDirPath);
     _outputSub = preview.output.listen(_appendUpdateLine);
-    preview.result.then((res) async {
-      await _outputSub?.cancel();
-      _outputSub = null;
+    preview.result
+        .then((res) async {
+          await _outputSub?.cancel();
+          _outputSub = null;
 
-      if (!res.success) {
-        _appendUpdateLine('');
-        _appendUpdateLine(res.errorMessage ?? 'Preview failed.');
-        // Eval failed — let the user discard the lock commit from
-        // the preview screen so they can decide. Show the running
-        // log as the "diff".
-        context.read(_packageDiffProvider.notifier).state =
-            res.errorMessage ?? 'Preview failed (no detail).';
-        context.read(_updateModeProvider.notifier).state =
-            _UpdateMode.previewing;
-        _started = false;
-        return;
-      }
+          if (!res.success) {
+            _appendUpdateLine('');
+            _appendUpdateLine(res.errorMessage ?? 'Preview failed.');
+            // Eval failed — let the user discard the lock commit from
+            // the preview screen so they can decide. Show the running
+            // log as the "diff".
+            context.read(_packageDiffProvider.notifier).state =
+                res.errorMessage ?? 'Preview failed (no detail).';
+            context.read(_updateModeProvider.notifier).state =
+                _UpdateMode.previewing;
+            _started = false;
+            return;
+          }
 
-      if (res.noChanges) {
-        _appendUpdateLine('');
-        _appendUpdateLine('No package changes — proceeding to rebuild.');
-        // Skip the preview screen; go straight to applying.
-        _runRebuild(baseDirPath);
-        return;
-      }
+          if (res.noChanges) {
+            _appendUpdateLine('');
+            _appendUpdateLine('No package changes — proceeding to rebuild.');
+            // Skip the preview screen; go straight to applying.
+            _runRebuild(baseDirPath);
+            return;
+          }
 
-      context.read(_packageDiffProvider.notifier).state = res.diffText;
-      context.read(_updateModeProvider.notifier).state =
-          _UpdateMode.previewing;
-      _started = false;
-    }).catchError((e, st) {
-      LogService.error('previewPackageDiff failed', e, st);
-      _failToDone(1);
-    });
+          context.read(_packageDiffProvider.notifier).state = res.diffText;
+          context.read(_updateModeProvider.notifier).state =
+              _UpdateMode.previewing;
+          _started = false;
+        })
+        .catchError((e, st) {
+          LogService.error('previewPackageDiff failed', e, st);
+          _failToDone(1);
+        });
   }
 
   // ── Phase 2 (previewing → applying or selectMode) ──────────────
@@ -423,12 +432,8 @@ class _UpdateViewState extends State<UpdateView> {
         _failToDone(1);
         return;
       }
-      final platform = context
-              .read(configProvider)
-              .value
-              ?.system
-              .platform ??
-          'x86';
+      final platform =
+          context.read(configProvider).value?.system.platform ?? 'x86';
       final attr = rebuildAttributeFor(platform);
       _appendUpdateLine(
         '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
@@ -462,15 +467,16 @@ class _UpdateViewState extends State<UpdateView> {
   void _runRebuild(String baseDirPath) {
     final systemService = context.read(systemServiceProvider);
     if (context.read(_updateModeProvider) != _UpdateMode.applying) {
-      context.read(_updateModeProvider.notifier).state =
-          _UpdateMode.applying;
+      context.read(_updateModeProvider.notifier).state = _UpdateMode.applying;
     }
 
     final platform =
         context.read(configProvider).value?.system.platform ?? 'x86';
     final attr = rebuildAttributeFor(platform);
-    final (:output, :exitCode) =
-        systemService.rebuild(baseDirPath, attribute: attr);
+    final (:output, :exitCode) = systemService.rebuild(
+      baseDirPath,
+      attribute: attr,
+    );
     _outputSub = output.listen(
       _appendUpdateLine,
       onError: (e, st) {
@@ -478,20 +484,22 @@ class _UpdateViewState extends State<UpdateView> {
       },
     );
 
-    exitCode.then((code) async {
-      LogService.info('rebuild exited with code $code');
-      if (code == 0) {
-        final startup = context.read(startupBinaryProvider);
-        final updated = await systemService.hasNewerBinary(startup);
-        context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
-      }
-      context.read(_updateExitCodeProvider.notifier).state = code;
-      context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
-      _started = false;
-    }).catchError((e, st) {
-      LogService.error('Rebuild failed', e, st);
-      _failToDone(1);
-    });
+    exitCode
+        .then((code) async {
+          LogService.info('rebuild exited with code $code');
+          if (code == 0) {
+            final startup = context.read(startupBinaryProvider);
+            final updated = await systemService.hasNewerBinary(startup);
+            context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
+          }
+          context.read(_updateExitCodeProvider.notifier).state = code;
+          context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+          _started = false;
+        })
+        .catchError((e, st) {
+          LogService.error('Rebuild failed', e, st);
+          _failToDone(1);
+        });
   }
 
   // ── State helpers ──────────────────────────────────────────────
@@ -541,17 +549,18 @@ class _UpdateViewState extends State<UpdateView> {
     return switch (mode) {
       _UpdateMode.selectMode => _buildSelectMode(),
       _UpdateMode.running => _buildRunning(
-          label: 'Computing update preview…',
-          hint: 'Building new system from binary cache. First run '
-              'after a flake bump can take a few minutes; the '
-              'subsequent rebuild on Apply will be near-instant '
-              'since everything is already in /nix/store.',
-        ),
+        label: 'Computing update preview…',
+        hint:
+            'Building new system from binary cache. First run '
+            'after a flake bump can take a few minutes; the '
+            'subsequent rebuild on Apply will be near-instant '
+            'since everything is already in /nix/store.',
+      ),
       _UpdateMode.previewing => _buildPreview(),
       _UpdateMode.applying => _buildRunning(
-          label: 'Applying changes…',
-          hint: null,
-        ),
+        label: 'Applying changes…',
+        hint: null,
+      ),
       _UpdateMode.done => _buildDone(),
     };
   }
@@ -636,19 +645,16 @@ class _UpdateViewState extends State<UpdateView> {
               );
             }),
             const SizedBox(height: 1),
-            Text(
-              switch (selection) {
-                0 => 'Updates only the NixBlitz TUI. Fast.',
-                1 =>
-                  'Updates NixBlitz, NixOS, and all services. May take a while.',
-                2 =>
-                  'Pulls the latest commit for every installed plugin (skipping\npinned ones), commits the diff, then previews + rebuilds. Same as\n`nixblitz plugin refresh --all` followed by Apply.',
-                3 =>
-                  'Rewrites ~/nixblitz/ Nix files from the currently running TUI.\nUse this after a TUI upgrade to pick up new modules, or to recover\nfrom a broken config. Preserves config.json.',
-                _ => '',
-              },
-              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-            ),
+            Text(switch (selection) {
+              0 => 'Updates only the NixBlitz TUI. Fast.',
+              1 =>
+                'Updates NixBlitz, NixOS, and all services. May take a while.',
+              2 =>
+                'Pulls the latest commit for every installed plugin (skipping\npinned ones), commits the diff, then previews + rebuilds. Same as\n`nixblitz plugin refresh --all` followed by Apply.',
+              3 =>
+                'Rewrites ~/nixblitz/ Nix files from the currently running TUI.\nUse this after a TUI upgrade to pick up new modules, or to recover\nfrom a broken config. Preserves config.json.',
+              _ => '',
+            }, style: const TextStyle(color: Color.fromRGB(150, 150, 180))),
           ],
         ),
       ),
@@ -786,11 +792,14 @@ class _UpdateViewState extends State<UpdateView> {
                 ),
               ),
               const SizedBox(height: 1),
-              ...diffText.split('\n').map(
+              ...diffText
+                  .split('\n')
+                  .map(
                     (l) => Text(
                       l,
                       style: TextStyle(
-                        color: _nvdLineColor(l) ??
+                        color:
+                            _nvdLineColor(l) ??
                             const Color.fromRGB(200, 200, 200),
                       ),
                     ),

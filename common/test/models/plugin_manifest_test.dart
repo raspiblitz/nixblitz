@@ -27,7 +27,11 @@ void main() {
           'name': 'tailscale',
         },
         'config': {
-          'auth_key': {'type': 'secret', 'label': 'Auth key', 'required': false},
+          'auth_key': {
+            'type': 'secret',
+            'label': 'Auth key',
+            'required': false,
+          },
           'tags': {'type': 'list<string>', 'label': 'ACL tags'},
           'exit_node': {'type': 'bool', 'label': 'Exit node', 'default': false},
         },
@@ -75,8 +79,7 @@ void main() {
       expect(m.actions['reset_db']!.command, isNull);
       expect(m.actions['reset_db']!.isPrivileged, isTrue);
       expect(m.actions['reset_db']!.timeoutSeconds, 60);
-      expect(m.permissions.privilegedUnits,
-          ['lnbits-reset-db.service']);
+      expect(m.permissions.privilegedUnits, ['lnbits-reset-db.service']);
     });
 
     test('schema v1 manifest with no v1-only fields is rejected', () {
@@ -84,17 +87,15 @@ void main() {
       // operator running an old TUI gets a clear migration message.
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {
-            'schema_version': 1,
-            'min_tui_version': 1,
-            'name': 'p',
-          },
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
         }),
-        throwsA(isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('schema_version'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('schema_version'),
+          ),
+        ),
       );
     });
 
@@ -103,24 +104,18 @@ void main() {
       // pointed message even before the schema-version check fires.
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {
-            'schema_version': 1,
-            'min_tui_version': 1,
-            'name': 'p',
-          },
+          'manifest': {'schema_version': 1, 'min_tui_version': 1, 'name': 'p'},
           'actions': {
-            'r': {
-              'label': 'R',
-              'command': 'true',
-              'run_as_root': true,
-            },
+            'r': {'label': 'R', 'command': 'true', 'run_as_root': true},
           },
         }),
-        throwsA(isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('run_as_root'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('run_as_root'),
+          ),
+        ),
       );
     });
 
@@ -152,16 +147,12 @@ void main() {
       );
     });
 
-    test('unit action without permissions.privileged_units entry rejected',
-        () {
+    test('unit action without permissions.privileged_units entry rejected', () {
       expect(
         () => PluginManifest.fromJson({
           'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'actions': {
-            'sneaky': {
-              'label': 'Sneaky',
-              'unit': 'systemd-shutdown.service',
-            },
+            'sneaky': {'label': 'Sneaky', 'unit': 'systemd-shutdown.service'},
           },
           // No permissions.privileged_units → unit reference is rejected.
         }),
@@ -193,11 +184,13 @@ void main() {
             },
           },
         }),
-        throwsA(isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('run_as_root'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('run_as_root'),
+          ),
+        ),
       );
     });
 
@@ -206,11 +199,7 @@ void main() {
         () => PluginManifest.fromJson({
           'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
           'actions': {
-            'bad': {
-              'label': 'x',
-              'command': 'true',
-              'timeout_seconds': 0,
-            },
+            'bad': {'label': 'x', 'command': 'true', 'timeout_seconds': 0},
           },
         }),
         throwsA(isA<FormatException>()),
@@ -221,11 +210,7 @@ void main() {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'actions': {
-          'r': {
-            'label': 'R',
-            'command': 'true',
-            'timeout_seconds': 90,
-          },
+          'r': {'label': 'R', 'command': 'true', 'timeout_seconds': 90},
         },
       });
       final back = PluginManifest.fromJson(m.toJson());
@@ -238,10 +223,7 @@ void main() {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
         'actions': {
-          'reset': {
-            'label': 'Reset',
-            'unit': 'p-reset.service',
-          },
+          'reset': {'label': 'Reset', 'unit': 'p-reset.service'},
         },
         'permissions': {
           'privileged_units': ['p-reset.service'],
@@ -275,32 +257,23 @@ void main() {
     test('dashboard with run_as_root in v2 manifest is rejected', () {
       expect(
         () => PluginManifest.fromJson({
-          'manifest': {
-            'schema_version': 2,
-            'min_tui_version': 1,
-            'name': 'p',
-          },
-          'dashboard': {
-            'title': 'X',
-            'command': 'x',
-            'run_as_root': true,
-          },
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'dashboard': {'title': 'X', 'command': 'x', 'run_as_root': true},
         }),
-        throwsA(isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('run_as_root'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('run_as_root'),
+          ),
+        ),
       );
     });
 
     test('dashboard with defaults', () {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
-        'dashboard': {
-          'title': 'X',
-          'command': 'x-state',
-        },
+        'dashboard': {'title': 'X', 'command': 'x-state'},
       });
       expect(m.dashboard!.pollInterval, const Duration(seconds: 30));
       expect(m.dashboard!.timeout, const Duration(seconds: 5));
@@ -331,11 +304,7 @@ void main() {
       expect(
         () => PluginManifest.fromJson({
           'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
-          'dashboard': {
-            'title': 'X',
-            'command': 'x',
-            'accent_color': 'red',
-          },
+          'dashboard': {'title': 'X', 'command': 'x', 'accent_color': 'red'},
         }),
         throwsA(isA<FormatException>()),
       );
@@ -464,10 +433,7 @@ void main() {
     });
 
     test('accepts list with primitive element type', () {
-      final f = ConfigField.fromJson({
-        'type': 'list<string>',
-        'label': 'Tags',
-      });
+      final f = ConfigField.fromJson({'type': 'list<string>', 'label': 'Tags'});
       expect(f.type, 'list<string>');
     });
 
@@ -527,10 +493,7 @@ void main() {
     });
 
     test('select accepts listed choices only', () {
-      final f = ConfigField.fromJson({
-        'type': 'select<a|b>',
-        'label': 'x',
-      });
+      final f = ConfigField.fromJson({'type': 'select<a|b>', 'label': 'x'});
       expect(f.validate('a'), isNull);
       expect(f.validate('b'), isNull);
       expect(f.validate('c'), isNotNull);
@@ -538,10 +501,7 @@ void main() {
     });
 
     test('list validates each element', () {
-      final f = ConfigField.fromJson({
-        'type': 'list<int>',
-        'label': 'x',
-      });
+      final f = ConfigField.fromJson({'type': 'list<int>', 'label': 'x'});
       expect(f.validate([1, 2, 3]), isNull);
       expect(f.validate([1, 'oops', 3]), isNotNull);
       expect(f.validate('not a list'), isNotNull);

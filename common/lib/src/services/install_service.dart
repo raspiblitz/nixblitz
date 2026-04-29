@@ -7,7 +7,11 @@ import 'package:common/src/services/log_service.dart';
 class InstallService {
   Future<List<DiskInfo>> listDisks() async {
     final result = await Process.run('lsblk', [
-      '--json', '--bytes', '--output', 'NAME,SIZE,MODEL,RM,TYPE', '--nodeps',
+      '--json',
+      '--bytes',
+      '--output',
+      'NAME,SIZE,MODEL,RM,TYPE',
+      '--nodeps',
     ]);
     return parseLsblkOutput(result.stdout as String);
   }
@@ -127,7 +131,11 @@ class InstallService {
   }
 
   Future<SystemInfo> detectSystem() async {
-    final results = await Future.wait([detectPlatform(), getMemoryMb(), listDisks()]);
+    final results = await Future.wait([
+      detectPlatform(),
+      getMemoryMb(),
+      listDisks(),
+    ]);
     return SystemInfo(
       platform: results[0] as String,
       memoryMb: results[1] as int,
@@ -152,14 +160,12 @@ class InstallService {
   /// Idempotent: if `/proc/swaps` already has any device, this
   /// is a no-op (logged as such).
   Future<({bool wasNeeded, bool succeeded, List<String> log})>
-      ensureSwapForInstall() async {
+  ensureSwapForInstall() async {
     final log = <String>[];
     int memTotal = 0;
     int swapTotal = 0;
     try {
-      memTotal = parseMemTotalBytes(
-        await File('/proc/meminfo').readAsString(),
-      );
+      memTotal = parseMemTotalBytes(await File('/proc/meminfo').readAsString());
     } catch (e) {
       log.add('  (could not read /proc/meminfo: $e — skipping swap setup)');
       LogService.warn('ensureSwapForInstall: meminfo unreadable: $e');
@@ -206,10 +212,12 @@ class InstallService {
   /// → swapon. Each step's failure is captured in [log] and the
   /// caller decides whether to proceed.
   Future<bool> _enableZramSwap(int sizeBytes, List<String> log) async {
-    final modprobe = await Process.run(
-      'sudo',
-      ['-n', 'modprobe', 'zram', 'num_devices=1'],
-    );
+    final modprobe = await Process.run('sudo', [
+      '-n',
+      'modprobe',
+      'zram',
+      'num_devices=1',
+    ]);
     if (modprobe.exitCode != 0) {
       log.add('  modprobe zram failed: ${(modprobe.stderr as String).trim()}');
       return false;
@@ -218,11 +226,11 @@ class InstallService {
     // would need a shell; piping through tee is cleaner and
     // avoids shell-quoting concerns even though `sizeBytes` is
     // produced by us, not the user.
-    final tee = await Process.start(
-      'sudo',
-      ['-n', 'tee', '/sys/block/zram0/disksize'],
-      mode: ProcessStartMode.normal,
-    );
+    final tee = await Process.start('sudo', [
+      '-n',
+      'tee',
+      '/sys/block/zram0/disksize',
+    ], mode: ProcessStartMode.normal);
     tee.stdin.writeln('$sizeBytes');
     await tee.stdin.close();
     // Drain stdout/stderr so the process can exit cleanly.
@@ -233,18 +241,18 @@ class InstallService {
       log.add('  failed to set zram disksize: exit $teeCode');
       return false;
     }
-    final mkswap = await Process.run(
-      'sudo',
-      ['-n', 'mkswap', '/dev/zram0'],
-    );
+    final mkswap = await Process.run('sudo', ['-n', 'mkswap', '/dev/zram0']);
     if (mkswap.exitCode != 0) {
       log.add('  mkswap failed: ${(mkswap.stderr as String).trim()}');
       return false;
     }
-    final swapon = await Process.run(
-      'sudo',
-      ['-n', 'swapon', '-p', '100', '/dev/zram0'],
-    );
+    final swapon = await Process.run('sudo', [
+      '-n',
+      'swapon',
+      '-p',
+      '100',
+      '/dev/zram0',
+    ]);
     if (swapon.exitCode != 0) {
       log.add('  swapon failed: ${(swapon.stderr as String).trim()}');
       return false;
@@ -266,12 +274,22 @@ class InstallService {
     final controller = StreamController<String>();
     final exitCodeFuture = () async {
       final process = await Process.start('sudo', [
-        '-n', 'disko-install',
-        '--flake', '$flakePath#$attribute',
-        '--disk', 'main', diskPath,
+        '-n',
+        'disko-install',
+        '--flake',
+        '$flakePath#$attribute',
+        '--disk',
+        'main',
+        diskPath,
       ]);
-      process.stdout.transform(const SystemEncoding().decoder).transform(const LineSplitter()).listen((line) => controller.add(line));
-      process.stderr.transform(const SystemEncoding().decoder).transform(const LineSplitter()).listen((line) => controller.add(line));
+      process.stdout
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) => controller.add(line));
+      process.stderr
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) => controller.add(line));
       final code = await process.exitCode;
       await controller.close();
       return code;
@@ -290,7 +308,10 @@ class InstallService {
 
     // Run nixos-generate-config to detect hardware
     final genResult = await Process.run('sudo', [
-      '-n', 'nixos-generate-config', '--root', mountPoint,
+      '-n',
+      'nixos-generate-config',
+      '--root',
+      mountPoint,
     ]);
     if (genResult.exitCode != 0) {
       LogService.error('nixos-generate-config failed: ${genResult.stderr}');
@@ -306,7 +327,12 @@ class InstallService {
       return false;
     }
 
-    final copyResult = await Process.run('sudo', ['-n', 'cp', hwConfigSrc, hwConfigDst]);
+    final copyResult = await Process.run('sudo', [
+      '-n',
+      'cp',
+      hwConfigSrc,
+      hwConfigDst,
+    ]);
     if (copyResult.exitCode != 0) {
       LogService.error('Failed to copy hardware config: ${copyResult.stderr}');
       return false;
@@ -335,11 +361,21 @@ class InstallService {
     if (mountCheck.exitCode != 0) {
       LogService.warn('$mountPoint is not mounted, attempting to mount');
       // disko-install may have unmounted — try to remount
-      await Process.run('sudo', ['-n', 'mount', '/dev/disk/by-partlabel/disk-main-root', mountPoint]);
+      await Process.run('sudo', [
+        '-n',
+        'mount',
+        '/dev/disk/by-partlabel/disk-main-root',
+        mountPoint,
+      ]);
     }
 
     // Create target directory
-    var result = await Process.run('sudo', ['-n', 'mkdir', '-p', targetConfigDir]);
+    var result = await Process.run('sudo', [
+      '-n',
+      'mkdir',
+      '-p',
+      targetConfigDir,
+    ]);
     if (result.exitCode != 0) {
       LogService.error('Failed to create target dir: ${result.stderr}');
       return false;
@@ -347,16 +383,27 @@ class InstallService {
 
     // Copy config directory (try rsync, fall back to cp)
     result = await Process.run('sudo', [
-      '-n', 'rsync', '-av', '--delete', '$sourceDir/', '$targetConfigDir/',
+      '-n',
+      'rsync',
+      '-av',
+      '--delete',
+      '$sourceDir/',
+      '$targetConfigDir/',
     ]);
     if (result.exitCode != 0) {
       LogService.warn('rsync failed (${result.exitCode}): ${result.stderr}');
       LogService.info('Falling back to cp -r');
       result = await Process.run('sudo', [
-        '-n', 'cp', '-r', '$sourceDir/.', '$targetConfigDir/',
+        '-n',
+        'cp',
+        '-r',
+        '$sourceDir/.',
+        '$targetConfigDir/',
       ]);
       if (result.exitCode != 0) {
-        LogService.error('cp also failed (${result.exitCode}): ${result.stderr}');
+        LogService.error(
+          'cp also failed (${result.exitCode}): ${result.stderr}',
+        );
         return false;
       }
     }
@@ -365,7 +412,10 @@ class InstallService {
     if (File(logFile).existsSync()) {
       LogService.info('Copying install log to $targetLogDir/nixblitz.log');
       result = await Process.run('sudo', [
-        '-n', 'cp', logFile, '$targetLogDir/nixblitz.log',
+        '-n',
+        'cp',
+        logFile,
+        '$targetLogDir/nixblitz.log',
       ]);
       if (result.exitCode != 0) {
         LogService.warn('Failed to copy log file: ${result.stderr}');
@@ -375,7 +425,11 @@ class InstallService {
 
     // Fix ownership (UID 1000 = first normal user "admin")
     result = await Process.run('sudo', [
-      '-n', 'chown', '-R', '1000:100', targetConfigDir,
+      '-n',
+      'chown',
+      '-R',
+      '1000:100',
+      targetConfigDir,
     ]);
     if (result.exitCode != 0) {
       LogService.warn('Failed to chown config dir: ${result.stderr}');
@@ -383,7 +437,10 @@ class InstallService {
 
     // Fix log file ownership too
     await Process.run('sudo', [
-      '-n', 'chown', '1000:100', '$targetLogDir/nixblitz.log',
+      '-n',
+      'chown',
+      '1000:100',
+      '$targetLogDir/nixblitz.log',
     ]);
 
     LogService.info('Config and log copied to target successfully');
@@ -392,7 +449,8 @@ class InstallService {
 
   static String? parseDiskoStep(String line) {
     if (line.contains('sgdisk')) return 'Partitioning disk...';
-    if (line.contains('mkfs') || line.contains('formatting')) return 'Formatting partitions...';
+    if (line.contains('mkfs') || line.contains('formatting'))
+      return 'Formatting partitions...';
     if (line.contains('mount ')) return 'Mounting filesystems...';
     if (line.contains('copying')) return 'Copying NixOS store paths...';
     if (line.contains('boot loader')) return 'Installing bootloader...';

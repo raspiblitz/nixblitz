@@ -145,9 +145,7 @@ class _LogDemoViewState extends State<LogDemoView> {
             // `focused: true` so j/k, PgUp/PgDn, and / search are wired
             // to the log itself. Keys the log doesn't consume bubble up
             // to the outer Focusable for s/a/m/c/Esc.
-            Expanded(
-              child: ScrollableLog(lines: lines, focused: true),
-            ),
+            Expanded(child: ScrollableLog(lines: lines, focused: true)),
           ],
         ),
       ),

@@ -46,9 +46,7 @@ class LightningTile extends StatelessComponent {
             footer: 'unavailable — blitz-api is off',
           );
         }
-        final pk = s.pubkey.isEmpty
-            ? '?'
-            : '${s.pubkey.substring(0, 10)}…';
+        final pk = s.pubkey.isEmpty ? '?' : '${s.pubkey.substring(0, 10)}…';
         return Tile(
           title: 'Lightning',
           accent: _accent,

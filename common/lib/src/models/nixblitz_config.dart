@@ -277,7 +277,8 @@ class NixblitzConfig {
     }
 
     // Run migrations if needed (noop if already current version)
-    final migrated = json.containsKey('version') &&
+    final migrated =
+        json.containsKey('version') &&
             (json['version'] as int) >= currentConfigVersion
         ? json
         : migrateConfig(json);
@@ -300,7 +301,9 @@ class NixblitzConfig {
           ? SystemConfig.fromJson(migrated['system'] as Map<String, dynamic>)
           : SystemConfig.defaults(),
       bitcoind: migrated['bitcoind'] != null
-          ? BitcoindConfig.fromJson(migrated['bitcoind'] as Map<String, dynamic>)
+          ? BitcoindConfig.fromJson(
+              migrated['bitcoind'] as Map<String, dynamic>,
+            )
           : BitcoindConfig.defaults(),
       lnd: migrated['lnd'] != null
           ? LndConfig.fromJson(migrated['lnd'] as Map<String, dynamic>)
@@ -309,12 +312,17 @@ class NixblitzConfig {
           ? ClnConfig.fromJson(migrated['cln'] as Map<String, dynamic>)
           : ClnConfig.defaults(),
       blitzApi: migrated['blitz_api'] != null
-          ? BlitzApiConfig.fromJson(migrated['blitz_api'] as Map<String, dynamic>)
+          ? BlitzApiConfig.fromJson(
+              migrated['blitz_api'] as Map<String, dynamic>,
+            )
           : BlitzApiConfig.defaults(),
       blitzWeb: migrated['blitz_web'] != null
-          ? BlitzWebConfig.fromJson(migrated['blitz_web'] as Map<String, dynamic>)
+          ? BlitzWebConfig.fromJson(
+              migrated['blitz_web'] as Map<String, dynamic>,
+            )
           : BlitzWebConfig.defaults(),
-      plugins: (migrated['plugins'] as List<dynamic>?)
+      plugins:
+          (migrated['plugins'] as List<dynamic>?)
               ?.map((e) => PluginEntry.fromJson(e as Map<String, dynamic>))
               .toList(growable: false) ??
           const [],
@@ -336,8 +344,7 @@ class NixblitzConfig {
     ..._extra,
   };
 
-  String toJsonString() =>
-      const JsonEncoder.withIndent('  ').convert(toJson());
+  String toJsonString() => const JsonEncoder.withIndent('  ').convert(toJson());
 
   /// Returns a human-readable description of changes from [other] to this.
   String diffFrom(NixblitzConfig other) {

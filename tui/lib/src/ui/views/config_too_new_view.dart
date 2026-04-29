@@ -36,8 +36,9 @@ class ConfigTooNewView extends StatelessComponent {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.keyC) {
-            context.read(currentViewProvider.notifier).state =
-                initialized ? AppView.dashboard : AppView.setup;
+            context.read(currentViewProvider.notifier).state = initialized
+                ? AppView.dashboard
+                : AppView.setup;
             return true;
           }
           if (event.logicalKey == LogicalKey.keyQ) {
@@ -79,10 +80,7 @@ class ConfigTooNewView extends StatelessComponent {
             ),
             const SizedBox(height: 1),
             Expanded(
-              child: ScrollableLog(
-                lines: rawConfig.split('\n'),
-                focused: true,
-              ),
+              child: ScrollableLog(lines: rawConfig.split('\n'), focused: true),
             ),
             const SizedBox(height: 1),
             const Text(

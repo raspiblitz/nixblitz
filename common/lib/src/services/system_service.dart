@@ -12,16 +12,12 @@ const int restartExitCode = 42;
 /// Symlink NixOS keeps pointing at the currently-active generation's
 /// copy of the TUI binary. Used to detect that a rebuild has landed a
 /// new nixblitz-bin in the store.
-const String _currentSystemBin =
-    '/run/current-system/sw/bin/nixblitz-bin';
+const String _currentSystemBin = '/run/current-system/sw/bin/nixblitz-bin';
 
 /// Result of [SystemService.updateLock]: did we actually move the
 /// flake.lock forward, and (if not) why?
 class LockUpdateResult {
-  const LockUpdateResult({
-    required this.exitCode,
-    required this.committed,
-  });
+  const LockUpdateResult({required this.exitCode, required this.committed});
 
   /// Exit code of the underlying `nix flake update` invocation. Non-
   /// zero means the lock-update step itself failed and the rest of
@@ -85,7 +81,10 @@ class SystemService {
 
   Future<ServiceStatus> getServiceStatus(String serviceName) async {
     final result = await Process.run('systemctl', [
-      'show', serviceName, '--property=ActiveState,SubState', '--no-pager',
+      'show',
+      serviceName,
+      '--property=ActiveState,SubState',
+      '--no-pager',
     ]);
     return parseServiceStatus(serviceName, result.stdout as String);
   }
@@ -109,7 +108,13 @@ class SystemService {
   }
 
   Future<List<ServiceStatus>> getAllServiceStatuses() async {
-    final services = ['bitcoind', 'lnd', 'clightning', 'blitz-api', 'blitz-web'];
+    final services = [
+      'bitcoind',
+      'lnd',
+      'clightning',
+      'blitz-api',
+      'blitz-web',
+    ];
     return Future.wait(services.map(getServiceStatus));
   }
 
@@ -121,10 +126,7 @@ class SystemService {
   /// to proceed to [previewPackageDiff] / [rebuild]. When
   /// `committed` is false the flow can short-circuit ("nothing to
   /// preview").
-  ({
-    Stream<String> output,
-    Future<LockUpdateResult> result,
-  }) updateLock({
+  ({Stream<String> output, Future<LockUpdateResult> result}) updateLock({
     required String flakePath,
     required List<String> updateArgs,
     required String commitMessage,
@@ -135,7 +137,8 @@ class SystemService {
       controller.add('');
 
       final update = await Process.start(
-        'nix', updateArgs,
+        'nix',
+        updateArgs,
         workingDirectory: flakePath,
       );
       update.stdout
@@ -154,10 +157,12 @@ class SystemService {
       // Even when nothing moves, `nix flake update` rewrites the
       // file with a fresh `lastModified`. Use git as the source of
       // truth on whether the pins actually changed.
-      final diff = await Process.run(
-        'git', ['diff', '--quiet', '--exit-code', 'flake.lock'],
-        workingDirectory: flakePath,
-      );
+      final diff = await Process.run('git', [
+        'diff',
+        '--quiet',
+        '--exit-code',
+        'flake.lock',
+      ], workingDirectory: flakePath);
       final lockChanged = diff.exitCode != 0;
       if (!lockChanged) {
         controller.add('');
@@ -168,17 +173,17 @@ class SystemService {
 
       controller.add('');
       controller.add('> git commit flake.lock');
-      await Process.run('git', ['add', 'flake.lock'],
-          workingDirectory: flakePath);
-      final commit = await Process.run(
-        'git', ['commit', '-m', commitMessage],
-        workingDirectory: flakePath,
-      );
+      await Process.run('git', [
+        'add',
+        'flake.lock',
+      ], workingDirectory: flakePath);
+      final commit = await Process.run('git', [
+        'commit',
+        '-m',
+        commitMessage,
+      ], workingDirectory: flakePath);
       await controller.close();
-      return LockUpdateResult(
-        exitCode: 0,
-        committed: commit.exitCode == 0,
-      );
+      return LockUpdateResult(exitCode: 0, committed: commit.exitCode == 0);
     }();
     return (output: controller.stream, result: result);
   }
@@ -193,17 +198,19 @@ class SystemService {
   /// [PackageDiffResult.errorMessage] holds the reason; the UI
   /// should let the user revert the lock commit and bail out before
   /// kicking off a doomed rebuild.
-  ({
-    Stream<String> output,
-    Future<PackageDiffResult> result,
-  }) previewPackageDiff({required String flakePath}) {
+  ({Stream<String> output, Future<PackageDiffResult> result})
+  previewPackageDiff({required String flakePath}) {
     final controller = StreamController<String>();
     final result = () async {
-      controller.add('> nix build --no-link --print-out-paths '
-          '.#nixosConfigurations.nixblitz.config.system.build.toplevel');
-      controller.add('  (realizing new system — pulls from binary cache, '
-          'compiles anything not cached; first run after a flake bump '
-          'can take a few minutes)');
+      controller.add(
+        '> nix build --no-link --print-out-paths '
+        '.#nixosConfigurations.nixblitz.config.system.build.toplevel',
+      );
+      controller.add(
+        '  (realizing new system — pulls from binary cache, '
+        'compiles anything not cached; first run after a flake bump '
+        'can take a few minutes)',
+      );
       controller.add('');
 
       // `nix build --no-link --print-out-paths` realizes the
@@ -214,22 +221,21 @@ class SystemService {
       // store doesn't actually contain yet. Bonus: by building here,
       // the subsequent `nixos-rebuild switch` is essentially
       // activation-only — everything's already in the store.
-      final eval = await Process.start(
-        'nix',
-        [
-          'build', '--no-link', '--print-out-paths',
-          '$flakePath#nixosConfigurations.nixblitz.config.system.build.toplevel',
-        ],
-        workingDirectory: flakePath,
-      );
+      final eval = await Process.start('nix', [
+        'build',
+        '--no-link',
+        '--print-out-paths',
+        '$flakePath#nixosConfigurations.nixblitz.config.system.build.toplevel',
+      ], workingDirectory: flakePath);
 
       final stdoutBuf = StringBuffer();
       final stdoutDone = Completer<void>();
-      eval.stdout.transform(const SystemEncoding().decoder).listen(
-        stdoutBuf.write,
-        onDone: () =>
-            stdoutDone.isCompleted ? null : stdoutDone.complete(),
-      );
+      eval.stdout
+          .transform(const SystemEncoding().decoder)
+          .listen(
+            stdoutBuf.write,
+            onDone: () => stdoutDone.isCompleted ? null : stdoutDone.complete(),
+          );
       eval.stderr
           .transform(const SystemEncoding().decoder)
           .listen(controller.add);
@@ -238,7 +244,8 @@ class SystemService {
       await stdoutDone.future;
 
       if (evalCode != 0) {
-        final msg = 'Build failed (exit $evalCode). The new lock '
+        final msg =
+            'Build failed (exit $evalCode). The new lock '
             "can't build cleanly — fix the underlying error or "
             'discard the update.';
         controller.add('');
@@ -253,7 +260,8 @@ class SystemService {
 
       final newTop = parseToplevel(stdoutBuf.toString());
       if (newTop == null) {
-        const msg = 'Could not parse new system store path from '
+        const msg =
+            'Could not parse new system store path from '
             'nix-build output.';
         controller.add('');
         controller.add(msg);
@@ -274,9 +282,11 @@ class SystemService {
       // ProcessException as a soft failure so the user still gets
       // a preview screen and can proceed/discard.
       try {
-        final nvd = await Process.run(
-          'nvd', ['diff', '/run/current-system', newTop],
-        );
+        final nvd = await Process.run('nvd', [
+          'diff',
+          '/run/current-system',
+          newTop,
+        ]);
         final nvdOut = (nvd.stdout as String) + (nvd.stderr as String);
         controller.add(nvdOut);
         await controller.close();
@@ -322,14 +332,13 @@ class SystemService {
   /// tree returns to its pre-Update state. Idempotent.
   Future<bool> revertLastFlakeCommit(String flakePath) async {
     try {
-      final r = await Process.run(
-        'git', ['reset', '--hard', 'HEAD~1'],
-        workingDirectory: flakePath,
-      );
+      final r = await Process.run('git', [
+        'reset',
+        '--hard',
+        'HEAD~1',
+      ], workingDirectory: flakePath);
       if (r.exitCode != 0) {
-        LogService.warn(
-          'revertLastFlakeCommit: git reset failed: ${r.stderr}',
-        );
+        LogService.warn('revertLastFlakeCommit: git reset failed: ${r.stderr}');
       }
       return r.exitCode == 0;
     } catch (e, st) {
@@ -365,9 +374,12 @@ class SystemService {
     String flakePath, {
     String attribute = 'nixblitz',
   }) {
-    return sudoSession.runStreaming(
-      ['nixos-rebuild', 'switch', '--flake', '$flakePath#$attribute'],
-    );
+    return sudoSession.runStreaming([
+      'nixos-rebuild',
+      'switch',
+      '--flake',
+      '$flakePath#$attribute',
+    ]);
   }
 }
 

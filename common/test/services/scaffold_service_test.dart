@@ -22,7 +22,10 @@ void main() {
       final targetDir = Directory('${tempDir.path}/nixblitz');
       expect(targetDir.existsSync(), true);
       expect(File('${targetDir.path}/flake.nix').existsSync(), true);
-      expect(File('${targetDir.path}/modules/apps/bitcoind.nix').existsSync(), true);
+      expect(
+        File('${targetDir.path}/modules/apps/bitcoind.nix').existsSync(),
+        true,
+      );
       expect(File('${targetDir.path}/hardware/x86.nix').existsSync(), true);
       expect(File('${targetDir.path}/hosts/default.nix').existsSync(), true);
     });

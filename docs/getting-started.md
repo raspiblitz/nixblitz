@@ -394,11 +394,11 @@ automatically per `rebuildAttributeFor`), dashboard appears.
 
 ### What runs where
 
-| Step | Flake target | Architecture |
-| --- | --- | --- |
-| Live image (USB stick) | `nvmd/nixos-raspberrypi#installerImages.rpi5` | aarch64-linux |
-| `disko-install` (lays down the installed system) | `<repo>#nixblitz-pi5-installer` | aarch64-linux |
-| Post-first-boot rebuilds (Apply, Update) | `<repo>#nixblitz-pi5` | aarch64-linux |
+| Step                                             | Flake target                                  | Architecture  |
+| ------------------------------------------------ | --------------------------------------------- | ------------- |
+| Live image (USB stick)                           | `nvmd/nixos-raspberrypi#installerImages.rpi5` | aarch64-linux |
+| `disko-install` (lays down the installed system) | `<repo>#nixblitz-pi5-installer`               | aarch64-linux |
+| Post-first-boot rebuilds (Apply, Update)         | `<repo>#nixblitz-pi5`                         | aarch64-linux |
 
 The `installer` target only differs from the installed target in
 its passwordless sudo override; same kernel, firmware, and disko

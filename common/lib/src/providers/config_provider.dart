@@ -14,8 +14,8 @@ final configServiceProvider = Provider<ConfigService>((ref) {
 
 final configProvider =
     StateNotifierProvider<ConfigNotifier, AsyncValue<NixblitzConfig>>((ref) {
-  return ConfigNotifier(ref.watch(configServiceProvider));
-});
+      return ConfigNotifier(ref.watch(configServiceProvider));
+    });
 
 class ConfigNotifier extends StateNotifier<AsyncValue<NixblitzConfig>> {
   final ConfigService _configService;

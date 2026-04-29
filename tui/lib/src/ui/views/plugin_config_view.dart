@@ -81,9 +81,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   @override
   Component build(BuildContext context) {
     final entry = component.entry;
-    final notifier = context.read(
-      pluginConfigProvider(entry.dirName).notifier,
-    );
+    final notifier = context.read(pluginConfigProvider(entry.dirName).notifier);
 
     final PluginManifest manifest;
     try {
@@ -306,36 +304,42 @@ class _PluginConfigViewState extends State<PluginConfigView> {
       // row and the first action row, when both are present.
       if (row is _ActionRow && hasFields && !sawActionsHeading) {
         out.add(const SizedBox(height: 1));
-        out.add(const Text(
-          'Actions',
-          style: TextStyle(
-            color: Color.fromRGB(247, 147, 26),
-            fontWeight: FontWeight.bold,
+        out.add(
+          const Text(
+            'Actions',
+            style: TextStyle(
+              color: Color.fromRGB(247, 147, 26),
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ));
+        );
         sawActionsHeading = true;
       }
       // If the plugin only has actions, also show the heading.
       if (row is _ActionRow && !hasFields && !sawActionsHeading) {
-        out.add(const Text(
-          'Actions',
-          style: TextStyle(
-            color: Color.fromRGB(247, 147, 26),
-            fontWeight: FontWeight.bold,
+        out.add(
+          const Text(
+            'Actions',
+            style: TextStyle(
+              color: Color.fromRGB(247, 147, 26),
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ));
+        );
         sawActionsHeading = true;
       }
 
       final focused = i == _selectedIndex;
       switch (row) {
         case _FieldRow(:final key, :final spec):
-          out.add(PluginFieldRow(
-            spec: spec,
-            fieldKey: key,
-            value: cfg[key] ?? spec.defaultValue,
-            focused: focused,
-          ));
+          out.add(
+            PluginFieldRow(
+              spec: spec,
+              fieldKey: key,
+              value: cfg[key] ?? spec.defaultValue,
+              focused: focused,
+            ),
+          );
         case _ActionRow(:final key, :final action):
           out.add(_actionRow(key, action, focused));
       }
@@ -349,10 +353,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
         ? const Color.fromRGB(247, 147, 26)
         : const Color.fromRGB(200, 200, 200);
     final hint = action.confirm ? '  (requires confirmation)' : '';
-    return Text(
-      '$prefix${action.label}$hint',
-      style: TextStyle(color: color),
-    );
+    return Text('$prefix${action.label}$hint', style: TextStyle(color: color));
   }
 
   Component _confirmOverlay(PluginAction action) {
@@ -420,15 +421,15 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     final headerColor = !isDone
         ? const Color.fromRGB(247, 147, 26)
         : (exit == 0
-            ? const Color.fromRGB(110, 220, 110)
-            : const Color.fromRGB(220, 180, 100));
+              ? const Color.fromRGB(110, 220, 110)
+              : const Color.fromRGB(220, 180, 100));
     final statusText = !isDone
         ? '${action.label} — running…'
         : (exit == 0
-            ? '${action.label} — done (exit 0)'
-            : (exit == 124
-                ? '${action.label} — timed out (exit 124)'
-                : '${action.label} — failed (exit $exit)'));
+              ? '${action.label} — done (exit 0)'
+              : (exit == 124
+                    ? '${action.label} — timed out (exit 124)'
+                    : '${action.label} — failed (exit $exit)'));
 
     return Focusable(
       focused: true,
@@ -540,12 +541,15 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     try {
       final cycled = cyclePrimitiveValue(spec, cfg[key] ?? spec.defaultValue);
       if (cycled != null) {
-        notifier.updateField(key, cycled).then((_) {
-          if (mounted) setState(() => _errorMessage = null);
-        }).catchError((e, st) {
-          LogService.error('plugin field cycle failed', e, st);
-          if (mounted) setState(() => _errorMessage = e.toString());
-        });
+        notifier
+            .updateField(key, cycled)
+            .then((_) {
+              if (mounted) setState(() => _errorMessage = null);
+            })
+            .catchError((e, st) {
+              LogService.error('plugin field cycle failed', e, st);
+              if (mounted) setState(() => _errorMessage = e.toString());
+            });
         return;
       }
     } on UnimplementedError catch (e) {
@@ -594,7 +598,10 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   }
 
   void _streamAction(
-      String id, PluginActionRunner runner, PluginAction action) {
+    String id,
+    PluginActionRunner runner,
+    PluginAction action,
+  ) {
     final r = runner.run(action);
     _actionSub = r.output.listen(
       (line) {
@@ -612,16 +619,16 @@ class _PluginConfigViewState extends State<PluginConfigView> {
         LogService.error('plugin action stream error', e, st);
       },
     );
-    r.exitCode.then((code) {
-      LogService.info(
-        'plugin action finished: $id exit=$code',
-      );
-      if (!mounted) return;
-      setState(() => _actionExitCode = code);
-    }).catchError((e, st) {
-      LogService.error('plugin action exitCode threw', e, st);
-      if (!mounted) return;
-      setState(() => _actionExitCode = -1);
-    });
+    r.exitCode
+        .then((code) {
+          LogService.info('plugin action finished: $id exit=$code');
+          if (!mounted) return;
+          setState(() => _actionExitCode = code);
+        })
+        .catchError((e, st) {
+          LogService.error('plugin action exitCode threw', e, st);
+          if (!mounted) return;
+          setState(() => _actionExitCode = -1);
+        });
   }
 }

@@ -23,16 +23,15 @@ class PasswordOverlay extends StatelessComponent {
     if (pending == null) return const SizedBox.shrink();
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color.fromRGB(24, 24, 36),
-      ),
+      decoration: const BoxDecoration(color: Color.fromRGB(24, 24, 36)),
       padding: const EdgeInsets.all(2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           PasswordInput(
             title: pending.reason,
-            subtitle: 'sudo wants your admin password. '
+            subtitle:
+                'sudo wants your admin password. '
                 'Enter to submit, Esc to cancel.',
             minLength: 1,
             requireConfirmation: false,

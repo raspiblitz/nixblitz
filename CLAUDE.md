@@ -68,6 +68,7 @@ These are hard-won lessons from debugging. Follow them strictly:
 Setting a `StateProvider` value triggers an immediate rebuild of the component tree. If you do this inside an `onKeyEvent` callback, the rest of your handler code after the state change **will not execute** — nocterm rebuilds the widget, which discards the current call stack.
 
 **Bad:**
+
 ```dart
 onKeyEvent: (event) {
   context.read(someProvider.notifier).state = newValue; // triggers rebuild
@@ -77,6 +78,7 @@ onKeyEvent: (event) {
 ```
 
 **Good — use a plain instance variable for guards:**
+
 ```dart
 bool _working = false;
 
@@ -95,6 +97,7 @@ onKeyEvent: (event) {
 nocterm's `runApp` creates its own error zone. Uncaught exceptions in key handlers are caught by nocterm's zone, NOT by your `runZonedGuarded` in main. If your `try/catch` doesn't wrap the full body, exceptions before the `try` silently disappear from your log.
 
 **Bad:**
+
 ```dart
 final config = buildConfig(); // can throw, but unprotected
 try {
@@ -105,6 +108,7 @@ try {
 ```
 
 **Good:**
+
 ```dart
 try {
   final config = buildConfig();

@@ -40,14 +40,11 @@ List<List<int>> assignColumns(int n, int cols) {
   final rows = (n + cols - 1) ~/ cols;
   final lastRowStart = (rows - 1) * cols;
   final lastRowCount = n - lastRowStart;
-  final shift = rows > 1 && lastRowCount < cols
-      ? cols - lastRowCount
-      : 0;
+  final shift = rows > 1 && lastRowCount < cols ? cols - lastRowCount : 0;
 
   final columns = List.generate(cols, (_) => <int>[]);
   for (var i = 0; i < n; i++) {
-    final col =
-        i < lastRowStart ? i % cols : (i - lastRowStart + shift);
+    final col = i < lastRowStart ? i % cols : (i - lastRowStart + shift);
     columns[col].add(i);
   }
   return columns;
@@ -79,10 +76,7 @@ List<Component> tileRows(List<Component> tiles, int cols) {
   // Single column: just stack everything top to bottom.
   if (cols <= 1) {
     return [
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: tiles,
-      ),
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: tiles),
     ];
   }
 
@@ -105,9 +99,6 @@ List<Component> tileRows(List<Component> tiles, int cols) {
   }
 
   return [
-    Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: rowChildren,
-    ),
+    Row(crossAxisAlignment: CrossAxisAlignment.start, children: rowChildren),
   ];
 }

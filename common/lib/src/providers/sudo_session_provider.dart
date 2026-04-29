@@ -16,8 +16,9 @@ class PendingSudoPrompt {
   final Completer<Uint8List?> completer;
 }
 
-final pendingSudoPromptProvider =
-    StateProvider<PendingSudoPrompt?>((_) => null);
+final pendingSudoPromptProvider = StateProvider<PendingSudoPrompt?>(
+  (_) => null,
+);
 
 /// Process-wide [SudoSession]. The password callback is wired here
 /// (rather than registered separately by the TUI) so any provider
@@ -26,8 +27,10 @@ final sudoSessionProvider = Provider<SudoSession>((ref) {
   final s = SudoSession();
   s.setPasswordCallback((reason) async {
     final completer = Completer<Uint8List?>();
-    ref.read(pendingSudoPromptProvider.notifier).state =
-        PendingSudoPrompt(reason: reason, completer: completer);
+    ref.read(pendingSudoPromptProvider.notifier).state = PendingSudoPrompt(
+      reason: reason,
+      completer: completer,
+    );
     try {
       return await completer.future;
     } finally {

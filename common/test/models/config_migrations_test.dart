@@ -67,11 +67,9 @@ void main() {
     test('migration function signature matches contract', () {
       // Sanity check that the migration map type accepts a realistic migration.
       Map<String, dynamic> migrate(Map<String, dynamic> json) {
-        return {
-          ...json,
-          'new_field': 'default_value',
-        };
+        return {...json, 'new_field': 'default_value'};
       }
+
       migrations[1] = migrate;
       try {
         final result = migrations[1]!({'version': 1, 'existing': 'value'});

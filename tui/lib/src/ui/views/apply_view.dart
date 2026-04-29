@@ -65,13 +65,16 @@ class _ApplyViewState extends State<ApplyView> {
     if (_diffLoading) return;
     _diffLoading = true;
     final git = context.read(gitServiceProvider);
-    git.diff().then((text) {
-      context.read(_applyDiffProvider.notifier).state = text;
-    }).catchError((e, st) {
-      LogService.error('Failed to load diff', e, st);
-      context.read(_applyDiffProvider.notifier).state =
-          'Failed to load diff: $e';
-    });
+    git
+        .diff()
+        .then((text) {
+          context.read(_applyDiffProvider.notifier).state = text;
+        })
+        .catchError((e, st) {
+          LogService.error('Failed to load diff', e, st);
+          context.read(_applyDiffProvider.notifier).state =
+              'Failed to load diff: $e';
+        });
   }
 
   void _reset() {
@@ -142,64 +145,67 @@ class _ApplyViewState extends State<ApplyView> {
   ) {
     try {
       _append('> git add -A && git commit -m "Apply settings"');
-      git.commitAll('Apply settings').then((committed) {
-        _append(
-          committed ? 'Committed.' : 'Nothing staged (no changes to commit).',
-        );
-        // Pick the rebuild attribute from the just-applied
-        // platform; the config notifier holds the up-to-date
-        // copy because the Configure view updated it before we
-        // got here.
-        final platform = context
-                .read(configProvider)
-                .value
-                ?.system
-                .platform ??
-            'x86';
-        final attr = rebuildAttributeFor(platform);
-        _append('');
-        _append(
-          '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
-        );
-        _append('');
+      git
+          .commitAll('Apply settings')
+          .then((committed) {
+            _append(
+              committed
+                  ? 'Committed.'
+                  : 'Nothing staged (no changes to commit).',
+            );
+            // Pick the rebuild attribute from the just-applied
+            // platform; the config notifier holds the up-to-date
+            // copy because the Configure view updated it before we
+            // got here.
+            final platform =
+                context.read(configProvider).value?.system.platform ?? 'x86';
+            final attr = rebuildAttributeFor(platform);
+            _append('');
+            _append('> sudo nixos-rebuild switch --flake $baseDirPath#$attr');
+            _append('');
 
-        final (:output, :exitCode) =
-            systemService.rebuild(baseDirPath, attribute: attr);
-        _outputSub = output.listen(
-          (line) {
-            LogService.info('[apply] $line');
-            _append(line);
-          },
-          onError: (e, st) {
-            LogService.error('Apply output stream error', e, st);
-          },
-        );
-        exitCode
-            .then((code) async {
-              LogService.info('apply: rebuild exited with code $code');
-              if (code == 0) {
-                final startup = context.read(startupBinaryProvider);
-                final updated = await systemService.hasNewerBinary(startup);
-                context.read(_applyBinaryUpdatedProvider.notifier).state =
-                    updated;
-              }
-              context.read(_applyExitCodeProvider.notifier).state = code;
-              context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
-              _started = false;
-            })
-            .catchError((e, st) {
-              LogService.error('Apply rebuild failed', e, st);
-              context.read(_applyExitCodeProvider.notifier).state = 1;
-              context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
-              _started = false;
-            });
-      }).catchError((e, st) {
-        LogService.error('Apply commit failed', e, st);
-        _append('Commit failed: $e');
-        context.read(_applyExitCodeProvider.notifier).state = 1;
-        context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
-        _started = false;
-      });
+            final (:output, :exitCode) = systemService.rebuild(
+              baseDirPath,
+              attribute: attr,
+            );
+            _outputSub = output.listen(
+              (line) {
+                LogService.info('[apply] $line');
+                _append(line);
+              },
+              onError: (e, st) {
+                LogService.error('Apply output stream error', e, st);
+              },
+            );
+            exitCode
+                .then((code) async {
+                  LogService.info('apply: rebuild exited with code $code');
+                  if (code == 0) {
+                    final startup = context.read(startupBinaryProvider);
+                    final updated = await systemService.hasNewerBinary(startup);
+                    context.read(_applyBinaryUpdatedProvider.notifier).state =
+                        updated;
+                  }
+                  context.read(_applyExitCodeProvider.notifier).state = code;
+                  context.read(_applyModeProvider.notifier).state =
+                      _ApplyMode.done;
+                  _started = false;
+                })
+                .catchError((e, st) {
+                  LogService.error('Apply rebuild failed', e, st);
+                  context.read(_applyExitCodeProvider.notifier).state = 1;
+                  context.read(_applyModeProvider.notifier).state =
+                      _ApplyMode.done;
+                  _started = false;
+                });
+          })
+          .catchError((e, st) {
+            LogService.error('Apply commit failed', e, st);
+            _append('Commit failed: $e');
+            context.read(_applyExitCodeProvider.notifier).state = 1;
+            context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+            _started = false;
+          });
     } catch (e, st) {
       LogService.error('Apply continueApply failed', e, st);
       _append('Error: $e');
@@ -212,17 +218,20 @@ class _ApplyViewState extends State<ApplyView> {
   void _discard() {
     try {
       final git = context.read(gitServiceProvider);
-      git.discardAll().then((ok) {
-        if (!ok) {
-          LogService.warn('git checkout -- . failed during discard');
-        }
-        // Reload config from disk so the in-memory notifier matches.
-        context.read(configProvider.notifier).reload();
-        _leave();
-      }).catchError((e, st) {
-        LogService.error('Discard failed', e, st);
-        _leave();
-      });
+      git
+          .discardAll()
+          .then((ok) {
+            if (!ok) {
+              LogService.warn('git checkout -- . failed during discard');
+            }
+            // Reload config from disk so the in-memory notifier matches.
+            context.read(configProvider.notifier).reload();
+            _leave();
+          })
+          .catchError((e, st) {
+            LogService.error('Discard failed', e, st);
+            _leave();
+          });
     } catch (e, st) {
       LogService.error('Discard threw', e, st);
       _leave();

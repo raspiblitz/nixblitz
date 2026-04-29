@@ -1,8 +1,8 @@
 # Plugin trust models — comparison
 
 > Sibling doc to `plugins.md`, focused on a narrower question:
-> what should the consent prompt verify *about who published the
-> plugin*, beyond the metadata in `manifest.json`? Two candidate
+> what should the consent prompt verify _about who published the
+> plugin_, beyond the metadata in `manifest.json`? Two candidate
 > mechanisms are compared honestly, with explicit notes on what
 > each does and doesn't prevent.
 
@@ -21,7 +21,7 @@ about that:
 
 That trust model is unchanged by anything in this doc. Both
 approaches discussed here are **identity-continuity tools** —
-they help the operator notice when the *publisher* changes. They
+they help the operator notice when the _publisher_ changes. They
 do not audit code, they do not score safety, they cannot be
 combined into a system that "checked the plugin for you."
 
@@ -29,7 +29,7 @@ If the framing of either section starts to drift toward
 "installing this plugin is now safe," stop reading and re-read
 this preface. The mistake to avoid is the one #10 (permission
 preview) and #17 (regex risk surface) made: a programmatic
-signal that *looks* like verification but isn't.
+signal that _looks_ like verification but isn't.
 
 ---
 
@@ -47,7 +47,7 @@ What it deliberately does **not** show: any field labelled
 "permissions" or "verification status." That's intentional — see
 D14.
 
-The remaining gap is *identity continuity*. The operator consents
+The remaining gap is _identity continuity_. The operator consents
 to a 40-char SHA, and that's it. Today's prompt cannot answer:
 
 - "Did the same person who published the rev I trusted last time
@@ -62,33 +62,36 @@ underlying "the publisher could be malicious" question.
 
 ## 2. What each approach actually verifies
 
-| Question                                                | A: Git+TOFU    | B: Nostr WoT      |
-| ------------------------------------------------------- | -------------- | ----------------- |
-| "Is this commit signed by the key I trusted last time?" | Yes            | No                |
-| "Is the publisher followed by people I trust?"          | No             | Yes               |
-| "Is the publisher's identity widely known?"             | No             | Partial[^1]       |
-| "Does this plugin do what it claims to do?"             | No             | No                |
-| "Can a compromised publisher push malicious code?"      | Yes (accepted) | Yes (accepted)    |
-| "Can a malicious-from-day-one publisher pass the check?" | Yes (TOFU)    | Yes (sybil-able)  |
-| "Can a malicious forge MITM the install?"               | No (sig fails) | Partial[^2]       |
-| "Can a malicious relay MITM the install?"               | n/a            | Partial[^2]       |
+| Question                                                 | A: Git+TOFU    | B: Nostr WoT     |
+| -------------------------------------------------------- | -------------- | ---------------- |
+| "Is this commit signed by the key I trusted last time?"  | Yes            | No               |
+| "Is the publisher followed by people I trust?"           | No             | Yes              |
+| "Is the publisher's identity widely known?"              | No             | Partial[^1]      |
+| "Does this plugin do what it claims to do?"              | No             | No               |
+| "Can a compromised publisher push malicious code?"       | Yes (accepted) | Yes (accepted)   |
+| "Can a malicious-from-day-one publisher pass the check?" | Yes (TOFU)     | Yes (sybil-able) |
+| "Can a malicious forge MITM the install?"                | No (sig fails) | Partial[^2]      |
+| "Can a malicious relay MITM the install?"                | n/a            | Partial[^2]      |
 
-[^1]: "Widely known" is a synthesis of zaps targeting the
-publisher, NIP-05 verification, follower count, and overlap with
-the operator's own follow list. None of those individually proves
-identity — they cluster.
+[^1]:
+    "Widely known" is a synthesis of zaps targeting the
+    publisher, NIP-05 verification, follower count, and overlap with
+    the operator's own follow list. None of those individually proves
+    identity — they cluster.
 
-[^2]: Nostr event signatures prove the metadata event was signed
-by the publisher's pubkey. They don't bind the metadata to a
-specific git rev unless the manifest explicitly does so. Zap
-Store solves the analogous problem by embedding the APK SHA-256
-+ certificate hashes in the metadata event; an equivalent bind
-for NixBlitz would put the git rev (already in the URL) inside
-the Nostr release event.
+[^2]:
+    Nostr event signatures prove the metadata event was signed
+    by the publisher's pubkey. They don't bind the metadata to a
+    specific git rev unless the manifest explicitly does so. Zap
+    Store solves the analogous problem by embedding the APK SHA-256
+
+- certificate hashes in the metadata event; an equivalent bind
+  for NixBlitz would put the git rev (already in the URL) inside
+  the Nostr release event.
 
 The most important row in this table is the third-from-bottom:
 **both approaches accept a compromised publisher**. They detect
-*changes* in publisher identity, not malice from a stable
+_changes_ in publisher identity, not malice from a stable
 identity.
 
 ---
@@ -99,7 +102,7 @@ identity.
 
 1. After the plugin tmpdir is cloned, run `git verify-commit HEAD`
    against it. The exit code reports whether the rev is signed by
-   *any* valid key the operator's git config recognises.
+   _any_ valid key the operator's git config recognises.
 2. Capture the signing key fingerprint via
    `git log -1 --format='%GF'` (SSH-signed) or `'%GP'` (GPG).
    These format placeholders return the public key fingerprint in
@@ -194,7 +197,7 @@ fingerprint, one consent.
 The existing `hermeticGitConfigArgs` in
 `common/test/test_helpers/git_isolation.dart` explicitly disables
 signing (`commit.gpgsign=false`, `tag.gpgsign=false`). That stays
-— production code path needs the *opposite*: explicitly *allow*
+— production code path needs the _opposite_: explicitly _allow_
 signature config to flow through to `git verify-commit`. Two
 distinct git-env profiles: one for hermetic tests (no signing),
 one for verification (operator's actual GPG / SSH config visible).
@@ -224,7 +227,7 @@ one for verification (operator's actual GPG / SSH config visible).
 - **TOFU doesn't help against day-one malice.** "First install
   was secure" is an assumption the system can't verify.
 - **No identity introduction.** Tells the operator nothing about
-  *who* the publisher is — only that they're the same as last
+  _who_ the publisher is — only that they're the same as last
   time.
 - **SSH signing UX on the publisher side is fragile.** The
   `x11-ssh-askpass` issue this session bumped into is exactly
@@ -337,7 +340,7 @@ the non-Android pieces are platform-agnostic):
 - `lib/services/catalog_fetcher.dart` — incremental relay
   fetching with batched REQ construction.
 - `lib/widgets/relevant_who_follow_container.dart` — DVM request
-  + WoT display rendering.
+  - WoT display rendering.
 - `lib/services/trusted_signers_service.dart` — TOFU pubkey
   storage pattern.
 - Underlying packages (`models`, `purplebase`) are the heavy
@@ -345,7 +348,7 @@ the non-Android pieces are platform-agnostic):
 
 ### 4.3 Operator key story (the bootstrap problem)
 
-To get any *personalised* WoT signal, the operator needs a Nostr
+To get any _personalised_ WoT signal, the operator needs a Nostr
 identity with a follow list. Options:
 
 - **Generate at first launch.** NixBlitz creates a node-bound
@@ -466,7 +469,7 @@ they fill both halves of the consent question.
 ### 5.1 Overlap
 
 The pubkey pin and the SSH/GPG fingerprint pin are doing the same
-thing at different layers. A plugin that ships *both* a Nostr
+thing at different layers. A plugin that ships _both_ a Nostr
 release event AND signed git commits ends up with two pinned
 identities to verify on every refresh. That's redundant but not
 contradictory — it's defence-in-depth at the cost of some
@@ -525,9 +528,9 @@ trust the source + commit + signing key + publisher pubkey above.
 Proceed? [y/N]:
 ```
 
-Note the warning text doesn't say *"this plugin has been
-verified."* It says *"if you don't already trust [the signals
-above], read the code."* The signals are inputs to the operator's
+Note the warning text doesn't say _"this plugin has been
+verified."_ It says _"if you don't already trust [the signals
+above], read the code."_ The signals are inputs to the operator's
 decision, not a substitute for it.
 
 ### 5.4 Tamper detection — protecting the trust state itself
@@ -543,7 +546,7 @@ can:
   attacker key, so A's "key changed" warning never fires.
 - Rewrite its own `publisherPubkey` to match the new attacker's
   Nostr identity, so B's "publisher changed" warning never fires.
-- Rewrite *another plugin's* trust signals to set up a future
+- Rewrite _another plugin's_ trust signals to set up a future
   compromise of that plugin's update path.
 - Tombstone all other plugins to clear out competing watchers.
 
@@ -567,7 +570,7 @@ decreasing miss rate:
 #### Layer 1: working-tree dirty check at TUI launch (cheap)
 
 On TUI start, run `git -C ~/nixblitz status --porcelain`. Any
-non-empty output means *something* modified the tracked tree
+non-empty output means _something_ modified the tracked tree
 between the last Apply and now. Cases:
 
 - Operator was hand-editing `config.json` for a power-user tweak
@@ -625,7 +628,7 @@ for, can:
   legitimate while the working tree contains the malicious
   change.
 - Replace `nixblitz-bin` in the next-generation store path so
-  the *next* TUI launch runs attacker code that skips the
+  the _next_ TUI launch runs attacker code that skips the
   checks entirely.
 - Forge author / committer / trailer fields on its own commits
   once it's read our source.
@@ -635,8 +638,8 @@ This is the same framing as everything else in this doc and
 in `plugins.md` D14: detection raises the bar against
 opportunistic / lazy attackers. It does not prevent a
 sophisticated attacker who has already gotten root via a
-plugin install. The only thing that closes that hole is *not
-giving root to plugin authors you don't trust* — which is the
+plugin install. The only thing that closes that hole is _not
+giving root to plugin authors you don't trust_ — which is the
 trust model the consent prompt is enforcing in the first place.
 
 #### Recommendation
@@ -707,7 +710,7 @@ verdict.
   Cross-link this doc.
 - **Do not introduce intermediate "trust score" mechanisms.** The
   feedback rule from #10 / #17 stands: don't surface a number
-  that *looks* like verification but isn't. The consent prompt
+  that _looks_ like verification but isn't. The consent prompt
   shows raw signals (fingerprint, mutual-follow count, zap
   count); the operator interprets them.
 

