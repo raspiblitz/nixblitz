@@ -12,6 +12,10 @@ void main() {
       expect(config.system.hostname, 'nixblitz');
       expect(config.system.timezone, 'UTC');
       expect(config.system.platform, 'x86');
+      // Empty by default — set by the install wizard from the
+      // operator's chosen disk. Falls back to the disko module's
+      // per-platform default at eval time when empty.
+      expect(config.system.diskDevice, '');
       expect(config.bitcoind.enabled, true);
       expect(config.bitcoind.network, 'mainnet');
       expect(config.bitcoind.pruned, true);
@@ -20,6 +24,52 @@ void main() {
       expect(config.cln.enabled, false);
       expect(config.blitzApi.enabled, true);
       expect(config.blitzWeb.enabled, true);
+    });
+
+    test('disk_device round-trips through JSON', () {
+      // The post-install grub-install regression on bare-metal
+      // x86 was caused by this field NOT being persisted, so the
+      // installed system kept defaulting `disko.devices.disk.main.device`
+      // to /dev/vda even though disko-install partitioned /dev/sda.
+      // Pin the round-trip so a future refactor can't quietly
+      // drop the field.
+      final config = NixblitzConfig.defaults().copyWith(
+        system: NixblitzConfig.defaults().system.copyWith(
+          diskDevice: '/dev/sda',
+        ),
+      );
+      final json =
+          jsonDecode(jsonEncode(config.toJson())) as Map<String, dynamic>;
+      expect(
+        (json['system'] as Map<String, dynamic>)['disk_device'],
+        '/dev/sda',
+      );
+      final restored = NixblitzConfig.fromJson(json);
+      expect(restored.system.diskDevice, '/dev/sda');
+    });
+
+    test('disk_device defaults to empty when missing from JSON', () {
+      // Configs from before v15 don't have disk_device. Reading
+      // them must not throw — the field falls through to the
+      // disko module's default. Regression guard for older
+      // installs upgrading.
+      final json = {
+        'version': 14,
+        'initialized': false,
+        'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
+        'bitcoind': {
+          'enabled': true,
+          'network': 'mainnet',
+          'pruned': true,
+          'prune_size_gb': 550,
+        },
+        'lnd': {'enabled': false, 'alias': ''},
+        'cln': {'enabled': false},
+        'blitz_api': {'enabled': false},
+        'blitz_web': {'enabled': false},
+      };
+      final config = NixblitzConfig.fromJson(json);
+      expect(config.system.diskDevice, '');
     });
 
     test('should include version in serialized JSON', () {

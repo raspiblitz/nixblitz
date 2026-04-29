@@ -673,12 +673,26 @@ class _InstallViewState extends State<InstallView> {
       final configNotifier = context.read(configProvider.notifier);
       final configService = context.read(configServiceProvider);
 
+      // Persist the disk path the operator picked alongside the
+      // other config bits — disko-x86's `device` reads it on
+      // every subsequent rebuild. Without this, post-install
+      // rebuilds on bare metal try to install GRUB onto the
+      // disko default (`/dev/vda`) instead of the actual install
+      // target, which fails with `cannot find a GRUB drive`.
+      final selectedDisk = context.read(selectedDiskProvider);
+      final diskDevice = selectedDisk?.path ?? '';
+
       LogService.info(
-        'Save config start: network=${_networks[networkIndex]}, lightning=${_lightningLabel(lightningChoice)}, platform=$platform',
+        'Save config start: network=${_networks[networkIndex]}, '
+        'lightning=${_lightningLabel(lightningChoice)}, '
+        'platform=$platform, disk=$diskDevice',
       );
 
       final updatedConfig = config.copyWith(
-        system: config.system.copyWith(platform: platform),
+        system: config.system.copyWith(
+          platform: platform,
+          diskDevice: diskDevice,
+        ),
         bitcoind: config.bitcoind.copyWith(network: _networks[networkIndex]),
         lnd: config.lnd.copyWith(
           enabled: lightningChoice == _LightningChoice.lnd,

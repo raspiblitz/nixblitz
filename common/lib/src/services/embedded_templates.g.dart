@@ -336,8 +336,16 @@ in {
   # rebuild. See templates/modules/system/update-check.nix.
   features.system.updateCheck.enable = initialized;
 
-  # Disk layout — enable the appropriate disko config for the platform
+  # Disk layout — enable the appropriate disko config for the platform.
+  # `disk_device` carries the operator's choice from the install wizard
+  # forward to subsequent rebuilds; without it, post-install rebuilds
+  # default the disko `device` to `/dev/vda` and grub-install fails on
+  # bare metal where the disk is `/dev/sda`. Empty string falls back to
+  # the disko module's per-platform default for VMs that pre-date the
+  # field.
   features.system.disko-x86.enable = sys.platform == "vm" || sys.platform == "x86";
+  features.system.disko-x86.device =
+    if (sys.disk_device or "") != "" then sys.disk_device else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
   features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
@@ -460,7 +468,10 @@ in {
       enable = true;
       dataDir = "/mnt/data/bitcoind";
       regtest = cfg.network == "regtest";
-      prune = if cfg.pruned then cfg.pruneSizeGb * 1000 else 0;
+      prune =
+        if cfg.pruned
+        then cfg.pruneSizeGb * 1000
+        else 0;
       # nix-bitcoin writes `[regtest]` and the regtest-scoped options
       # before our extraConfig, so anything here lands inside the
       # regtest section.
@@ -757,8 +768,25 @@ const String _modulesSystemDiskoX86 = r'''
 }: let
   cfg = config.features.system.disko-x86;
 in {
-  options.features.system.disko-x86.enable =
-    lib.mkEnableOption "x86 disk layout (GPT, BIOS-boot + ESP + ext4 root)";
+  options.features.system.disko-x86 = {
+    enable = lib.mkEnableOption
+      "x86 disk layout (GPT, BIOS-boot + ESP + ext4 root)";
+
+    device = lib.mkOption {
+      type = lib.types.str;
+      default = "/dev/vda";
+      description = ''
+        Block device to install onto. Defaults to `/dev/vda`
+        (the qemu virtio default, fine for VMs); overridden to
+        the operator's actual install target on bare metal.
+        Without an override, post-install rebuilds on bare-metal
+        x86 try to install GRUB onto a non-existent /dev/vda.
+        Set by `installed.nix` from `system.disk_device` in
+        `config.json`, which the install wizard records before
+        running disko-install.
+      '';
+    };
+  };
 
   config = lib.mkIf cfg.enable {
     # Hybrid GPT layout — boots on both BIOS (qemu/Proxmox/older
@@ -779,7 +807,7 @@ in {
     # bare-metal install. Adding the ESP costs 512 MB and makes
     # the same image portable across firmware modes.
     disko.devices.disk.main = {
-      device = lib.mkDefault "/dev/vda";
+      device = cfg.device;
       type = "disk";
       content = {
         type = "gpt";

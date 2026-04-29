@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 14;
+const int currentConfigVersion = 15;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -131,6 +131,15 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
       // can declare `pluginCfg` as a module arg and read its own config
       // without `builtins.readFile` (see plugins.md D14).
       13: (json) => json,
+      // v14 → v15: additive — `system.disk_device` records the path
+      // the operator picked at install time. disko-x86 used to default
+      // `device = "/dev/vda"` (qemu virtio), and post-install rebuilds
+      // on bare-metal x86 then tried to install GRUB onto a non-existent
+      // /dev/vda. The new field carries the actual install device
+      // through to subsequent rebuilds. Existing configs on virtio
+      // hosts get an empty string and fall back to the disko-x86
+      // default — so VMs continue to work without re-installing.
+      14: (json) => json,
     };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

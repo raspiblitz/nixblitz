@@ -5,8 +5,26 @@
 }: let
   cfg = config.features.system.disko-x86;
 in {
-  options.features.system.disko-x86.enable =
-    lib.mkEnableOption "x86 disk layout (GPT, BIOS-boot + ESP + ext4 root)";
+  options.features.system.disko-x86 = {
+    enable =
+      lib.mkEnableOption
+      "x86 disk layout (GPT, BIOS-boot + ESP + ext4 root)";
+
+    device = lib.mkOption {
+      type = lib.types.str;
+      default = "/dev/vda";
+      description = ''
+        Block device to install onto. Defaults to `/dev/vda`
+        (the qemu virtio default, fine for VMs); overridden to
+        the operator's actual install target on bare metal.
+        Without an override, post-install rebuilds on bare-metal
+        x86 try to install GRUB onto a non-existent /dev/vda.
+        Set by `installed.nix` from `system.disk_device` in
+        `config.json`, which the install wizard records before
+        running disko-install.
+      '';
+    };
+  };
 
   config = lib.mkIf cfg.enable {
     # Hybrid GPT layout — boots on both BIOS (qemu/Proxmox/older
@@ -27,7 +45,7 @@ in {
     # bare-metal install. Adding the ESP costs 512 MB and makes
     # the same image portable across firmware modes.
     disko.devices.disk.main = {
-      device = lib.mkDefault "/dev/vda";
+      device = cfg.device;
       type = "disk";
       content = {
         type = "gpt";

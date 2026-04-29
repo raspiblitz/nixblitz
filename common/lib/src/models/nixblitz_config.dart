@@ -7,38 +7,54 @@ class SystemConfig {
   final String timezone;
   final String platform;
 
+  /// The block device the operator picked at install time
+  /// (e.g. `/dev/sda`, `/dev/nvme0n1`). Threaded through to
+  /// `disko.devices.disk.main.device` so post-install rebuilds
+  /// install GRUB onto the same disk that disko-install
+  /// partitioned. Empty string falls back to the disko module's
+  /// per-platform default (`/dev/vda` on x86 — fine for qemu
+  /// virtio VMs but wrong on bare metal). Set by the install
+  /// wizard before save-config.
+  final String diskDevice;
+
   const SystemConfig({
     required this.hostname,
     required this.timezone,
     required this.platform,
+    this.diskDevice = '',
   });
 
   factory SystemConfig.defaults() => const SystemConfig(
     hostname: 'nixblitz',
     timezone: 'UTC',
     platform: 'x86',
+    diskDevice: '',
   );
 
   factory SystemConfig.fromJson(Map<String, dynamic> json) => SystemConfig(
     hostname: json['hostname'] as String? ?? 'nixblitz',
     timezone: json['timezone'] as String? ?? 'UTC',
     platform: json['platform'] as String? ?? 'x86',
+    diskDevice: json['disk_device'] as String? ?? '',
   );
 
   Map<String, dynamic> toJson() => {
     'hostname': hostname,
     'timezone': timezone,
     'platform': platform,
+    'disk_device': diskDevice,
   };
 
   SystemConfig copyWith({
     String? hostname,
     String? timezone,
     String? platform,
+    String? diskDevice,
   }) => SystemConfig(
     hostname: hostname ?? this.hostname,
     timezone: timezone ?? this.timezone,
     platform: platform ?? this.platform,
+    diskDevice: diskDevice ?? this.diskDevice,
   );
 
   @override
@@ -46,10 +62,11 @@ class SystemConfig {
       other is SystemConfig &&
       other.hostname == hostname &&
       other.timezone == timezone &&
-      other.platform == platform;
+      other.platform == platform &&
+      other.diskDevice == diskDevice;
 
   @override
-  int get hashCode => Object.hash(hostname, timezone, platform);
+  int get hashCode => Object.hash(hostname, timezone, platform, diskDevice);
 }
 
 class BitcoindConfig {

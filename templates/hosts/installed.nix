@@ -28,8 +28,18 @@ in {
   # rebuild. See templates/modules/system/update-check.nix.
   features.system.updateCheck.enable = initialized;
 
-  # Disk layout — enable the appropriate disko config for the platform
+  # Disk layout — enable the appropriate disko config for the platform.
+  # `disk_device` carries the operator's choice from the install wizard
+  # forward to subsequent rebuilds; without it, post-install rebuilds
+  # default the disko `device` to `/dev/vda` and grub-install fails on
+  # bare metal where the disk is `/dev/sda`. Empty string falls back to
+  # the disko module's per-platform default for VMs that pre-date the
+  # field.
   features.system.disko-x86.enable = sys.platform == "vm" || sys.platform == "x86";
+  features.system.disko-x86.device =
+    if (sys.disk_device or "") != ""
+    then sys.disk_device
+    else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
   features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
