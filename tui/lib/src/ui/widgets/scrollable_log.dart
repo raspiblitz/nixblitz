@@ -75,6 +75,12 @@ class _ScrollableLogState extends State<ScrollableLog> {
   String _lastIndexedQuery = '';
   int _lastIndexedRowCount = -1;
 
+  // Tracks the vim `gg` chord: a single `g` arms this; the
+  // following `g` jumps to the top; any other key disarms it.
+  // No timeout (vim itself doesn't have one — you can think
+  // between keys).
+  bool _pendingG = false;
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -371,6 +377,30 @@ class _ScrollableLogState extends State<ScrollableLog> {
 
   bool _handleScrollKey(KeyboardEvent event) {
     final k = event.logicalKey;
+
+    // Vim `gg` chord: first lower-case g arms `_pendingG`,
+    // second jumps to the top. Capital `G` is independent —
+    // single keypress to jump to the bottom. Both checks live
+    // before the j/k/PgUp/PgDn block so they win on plain `g`
+    // / `G` (and a stale `_pendingG` gets cleared by anything
+    // else that falls through this handler).
+    if (event.character == 'g') {
+      if (_pendingG) {
+        _pendingG = false;
+        _scrollController.scrollToStart();
+      } else {
+        _pendingG = true;
+      }
+      return true;
+    }
+    if (event.character == 'G') {
+      _pendingG = false;
+      _scrollController.scrollToEnd();
+      return true;
+    }
+    // Anything that isn't `g` disarms the pending state.
+    _pendingG = false;
+
     if (k == LogicalKey.arrowUp || k == LogicalKey.keyK) {
       _scrollController.scrollUp();
       return true;
