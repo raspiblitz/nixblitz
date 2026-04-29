@@ -29,7 +29,7 @@ in {
   features.system.updateCheck.enable = initialized;
 
   # Disk layout — enable the appropriate disko config for the platform
-  features.system.disko-vm.enable = sys.platform == "vm" || sys.platform == "x86";
+  features.system.disko-x86.enable = sys.platform == "vm" || sys.platform == "x86";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
   features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
