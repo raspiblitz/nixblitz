@@ -49,7 +49,15 @@ class _InstallViewState extends State<InstallView> {
   StreamSubscription<String>? _outputSub;
   bool _saving = false;
   Timer? _elapsedTimer;
-  int _elapsedSeconds = 0;
+
+  /// Seconds since the install kicked off — drives the
+  /// "Installing NixOS (Xs)" header. Never reset between steps.
+  int _totalSeconds = 0;
+
+  /// Seconds since the current disko step began — drives the
+  /// per-step label "mounting drive (Ys)". Reset to 0 each time
+  /// `parseDiskoStep` matches a new line.
+  int _stepSeconds = 0;
   @override
   void dispose() {
     _outputSub?.cancel();
@@ -58,15 +66,20 @@ class _InstallViewState extends State<InstallView> {
   }
 
   void _startElapsedTimer() {
-    _elapsedSeconds = 0;
+    _totalSeconds = 0;
+    _stepSeconds = 0;
     _elapsedTimer?.cancel();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _elapsedSeconds++;
-      // Force a rebuild by updating the step label with elapsed time
+      _totalSeconds++;
+      _stepSeconds++;
+      // Force a rebuild by re-stamping the step label's "(Ys)"
+      // suffix. The header's total elapsed reads `_totalSeconds`
+      // directly; the rebuild triggered by this provider write
+      // re-reads it for free.
       final stepLabel = context.read(installCurrentStepLabelProvider);
       final base = stepLabel.replaceAll(RegExp(r' \(\d+s\)$'), '');
       context.read(installCurrentStepLabelProvider.notifier).state =
-          '$base (${_elapsedSeconds}s)';
+          '$base (${_stepSeconds}s)';
     });
   }
 
@@ -177,7 +190,9 @@ class _InstallViewState extends State<InstallView> {
           context.read(installLogProvider.notifier).state = [...current, line];
           final stepLabel = InstallService.parseDiskoStep(line);
           if (stepLabel != null) {
-            _elapsedSeconds = 0; // reset timer on new step
+            // Only the per-step counter resets; the install-wide
+            // total keeps ticking so the header stays useful.
+            _stepSeconds = 0;
             context.read(installCurrentStepLabelProvider.notifier).state =
                 stepLabel;
           }
@@ -829,7 +844,7 @@ class _InstallViewState extends State<InstallView> {
             children: [
               Spinner(label: 'Installing NixOS...'),
               Text(
-                ' (${_formatElapsed(_elapsedSeconds)})',
+                ' (${_formatElapsed(_totalSeconds)})',
                 style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
               ),
             ],

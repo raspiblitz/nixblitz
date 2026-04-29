@@ -26,6 +26,14 @@ final _setupStepProvider = StateProvider<SetupStep>(
 final _buildServicesLogProvider = StateProvider<List<String>>((ref) => []);
 final _buildServicesExitCodeProvider = StateProvider<int?>((ref) => null);
 
+/// Seconds since the first-boot service-build step started.
+/// Drives the elapsed counter next to the "Building services"
+/// spinner — same shape as the install_view header so the two
+/// progress views feel symmetric. Lives in a provider rather
+/// than a plain instance variable so the per-second tick
+/// triggers a UI rebuild via context.watch.
+final _buildServicesElapsedProvider = StateProvider<int>((ref) => 0);
+
 class SetupView extends StatefulComponent {
   const SetupView({super.key});
 
@@ -36,11 +44,34 @@ class SetupView extends StatefulComponent {
 class _SetupViewState extends State<SetupView> {
   StreamSubscription<String>? _buildServicesSub;
   bool _buildServicesStarted = false;
+  Timer? _elapsedTimer;
 
   @override
   void dispose() {
     _buildServicesSub?.cancel();
+    _elapsedTimer?.cancel();
     super.dispose();
+  }
+
+  void _startElapsedTimer() {
+    _elapsedTimer?.cancel();
+    context.read(_buildServicesElapsedProvider.notifier).state = 0;
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final current = context.read(_buildServicesElapsedProvider);
+      context.read(_buildServicesElapsedProvider.notifier).state = current + 1;
+    });
+  }
+
+  void _stopElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+  }
+
+  String _formatElapsed(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    if (m > 0) return '${m}m ${s}s';
+    return '${s}s';
   }
 
   void _startBuildServices() {
@@ -86,6 +117,7 @@ class _SetupViewState extends State<SetupView> {
       _appendBuildLog('');
 
       final systemService = context.read(systemServiceProvider);
+      _startElapsedTimer();
       final (:output, :exitCode) = systemService.rebuild(
         baseDirPath,
         attribute: attr,
@@ -104,6 +136,7 @@ class _SetupViewState extends State<SetupView> {
       exitCode
           .then((code) {
             LogService.info('BuildServices: rebuild exited with code $code');
+            _stopElapsedTimer();
             context.read(_buildServicesExitCodeProvider.notifier).state = code;
             if (code == 0) {
               context.read(_setupStepProvider.notifier).state =
@@ -112,6 +145,7 @@ class _SetupViewState extends State<SetupView> {
           })
           .catchError((e, st) {
             LogService.error('BuildServices rebuild failed', e, st);
+            _stopElapsedTimer();
             context.read(_buildServicesExitCodeProvider.notifier).state = 1;
           });
     } catch (e, st) {
@@ -130,8 +164,10 @@ class _SetupViewState extends State<SetupView> {
     _buildServicesSub?.cancel();
     _buildServicesSub = null;
     _buildServicesStarted = false;
+    _stopElapsedTimer();
     context.read(_buildServicesLogProvider.notifier).state = [];
     context.read(_buildServicesExitCodeProvider.notifier).state = null;
+    context.read(_buildServicesElapsedProvider.notifier).state = 0;
   }
 
   @override
@@ -205,12 +241,21 @@ class _SetupViewState extends State<SetupView> {
     final isRunning = exitCode == null;
 
     if (isRunning) {
+      final elapsed = context.watch(_buildServicesElapsedProvider);
       return Container(
         padding: const EdgeInsets.all(2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Spinner(label: 'Building services')]),
+            Row(
+              children: [
+                Spinner(label: 'Building services'),
+                Text(
+                  ' (${_formatElapsed(elapsed)})',
+                  style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+                ),
+              ],
+            ),
             const Text(
               'Running nixos-rebuild. This may take several minutes.',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
