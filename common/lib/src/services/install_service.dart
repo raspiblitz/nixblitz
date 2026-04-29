@@ -17,8 +17,27 @@ class InstallService {
     final devices = json['blockdevices'] as List<dynamic>;
     return devices
         .where((d) => (d['type'] as String) == 'disk')
+        .where((d) => !isVirtualDiskName(d['name'] as String))
         .map((d) => DiskInfo.fromLsblkJson(d as Map<String, dynamic>))
         .toList();
+  }
+
+  /// True for kernel-virtual block devices that show up in
+  /// `lsblk --type disk` but are never legitimate install
+  /// targets: compressed-RAM swap (`zram*`), loopback files
+  /// (`loop*`), device-mapper / encrypted / LVM (`dm-*`), MD
+  /// software RAID virtual blocks (`md*`), and read-only optical
+  /// (`sr*`). Filtering these is unconditional — there's no
+  /// flow where you'd want to install NixBlitz onto zram. Other
+  /// "non-viable" cases (zero-byte card readers, the live boot
+  /// device, undersized disks) belong behind the Show-all toggle
+  /// proposed in issue #19; this is the unconditional half.
+  static bool isVirtualDiskName(String name) {
+    return name.startsWith('zram') ||
+        name.startsWith('loop') ||
+        name.startsWith('dm-') ||
+        name.startsWith('md') ||
+        name.startsWith('sr');
   }
 
   Future<String> detectPlatform() async {

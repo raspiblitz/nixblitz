@@ -68,6 +68,31 @@ void main() {
     });
   });
 
+  group('isVirtualDiskName', () {
+    test('hides zram / loop / dm / md / sr', () {
+      // Each of these is a kernel-virtual block device that
+      // lsblk --type disk lists but you'd never install onto:
+      //   zram0  - compressed-RAM swap (the zram we add at
+      //            pre-install becomes 1TB-class disk in lsblk).
+      //   loop0  - loopback file (e.g. the live ISO's squashfs).
+      //   dm-0   - device-mapper / cryptsetup / LVM virtual.
+      //   md0    - software RAID composite.
+      //   sr0    - read-only optical.
+      for (final n in ['zram0', 'zram12', 'loop0', 'dm-0', 'md0', 'sr0']) {
+        expect(InstallService.isVirtualDiskName(n), isTrue, reason: n);
+      }
+    });
+
+    test('keeps real-disk names', () {
+      // sda / nvme / mmcblk are the canonical install targets;
+      // vda is the qemu/KVM virtio block. None of these should
+      // ever be filtered.
+      for (final n in ['sda', 'sdb', 'nvme0n1', 'mmcblk0', 'vda']) {
+        expect(InstallService.isVirtualDiskName(n), isFalse, reason: n);
+      }
+    });
+  });
+
   group('parseLsblkOutput', () {
     test('drops zram from the install-target list', () {
       // Reproduces the symptom the operator hit: after pre-install
