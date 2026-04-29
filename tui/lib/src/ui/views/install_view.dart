@@ -11,6 +11,12 @@ import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
 
 final _diskSelectionIndexProvider = StateProvider<int>((ref) => 0);
+
+/// "Show all" toggle for the disk picker. When false (default),
+/// disks with a [DiskFilterReason] are hidden — only viable
+/// install targets render. `[s]` flips this on the picker
+/// screen.
+final _showAllDisksProvider = StateProvider<bool>((ref) => false);
 final _confirmProvider = StateProvider<bool>((ref) => false);
 final _confirmSelectionProvider = StateProvider<int>(
   (ref) => 1,
@@ -291,6 +297,7 @@ class _InstallViewState extends State<InstallView> {
   Component _buildSelectDisk() {
     final systemInfoAsync = context.watch(systemInfoProvider);
     final selectedIndex = context.watch(_diskSelectionIndexProvider);
+    final showAll = context.watch(_showAllDisksProvider);
     return systemInfoAsync.when(
       loading: () => const Text('Loading...'),
       error: (e, _) => Text('Error: $e'),
@@ -301,29 +308,54 @@ class _InstallViewState extends State<InstallView> {
             child: const Text('No disks found. Cannot install.'),
           );
         }
+        // Default mode: only viable disks. If filtering would
+        // leave the picker empty (e.g. operator booted from the
+        // only attached disk and inserted nothing else), fall
+        // back to the unfiltered list — better to surface a
+        // tagged warning than no choices at all.
+        final viableDisks = info.disks
+            .where((d) => d.filterReason == null)
+            .toList();
+        final visibleDisks = (showAll || viableDisks.isEmpty)
+            ? info.disks
+            : viableDisks;
+        // Keep the selection inside bounds when the visible list
+        // shrinks — otherwise toggling Show-all off after picking
+        // a filtered disk indexes off the end.
+        final clampedIndex = selectedIndex
+            .clamp(0, visibleDisks.length - 1)
+            .toInt();
         return Focusable(
           focused: true,
           onKeyEvent: (event) {
             try {
               if (event.logicalKey == LogicalKey.keyJ ||
                   event.logicalKey == LogicalKey.arrowDown) {
-                if (selectedIndex < info.disks.length - 1) {
+                if (clampedIndex < visibleDisks.length - 1) {
                   context.read(_diskSelectionIndexProvider.notifier).state =
-                      selectedIndex + 1;
+                      clampedIndex + 1;
                 }
                 return true;
               }
               if (event.logicalKey == LogicalKey.keyK ||
                   event.logicalKey == LogicalKey.arrowUp) {
-                if (selectedIndex > 0) {
+                if (clampedIndex > 0) {
                   context.read(_diskSelectionIndexProvider.notifier).state =
-                      selectedIndex - 1;
+                      clampedIndex - 1;
                 }
+                return true;
+              }
+              if (event.logicalKey == LogicalKey.keyS) {
+                // Toggle Show-all. Reset the selection so the
+                // cursor doesn't land on a hidden disk on the
+                // way back to filtered mode.
+                context.read(_showAllDisksProvider.notifier).state = !showAll;
+                context.read(_diskSelectionIndexProvider.notifier).state = 0;
                 return true;
               }
               if (event.logicalKey == LogicalKey.enter) {
                 context.read(selectedDiskProvider.notifier).state =
-                    info.disks[selectedIndex];
+                    visibleDisks[clampedIndex];
                 context.read(installStepProvider.notifier).state =
                     InstallStep.configureServices;
                 return true;
@@ -352,23 +384,61 @@ class _InstallViewState extends State<InstallView> {
                   style: const TextStyle(color: Color.fromRGB(255, 80, 80)),
                 ),
                 const SizedBox(height: 1),
-                ...List.generate(info.disks.length, (i) {
-                  final disk = info.disks[i];
-                  final prefix = i == selectedIndex ? '> ' : '  ';
-                  final color = i == selectedIndex
+                ...List.generate(visibleDisks.length, (i) {
+                  final disk = visibleDisks[i];
+                  final prefix = i == clampedIndex ? '> ' : '  ';
+                  final color = i == clampedIndex
                       ? const Color.fromRGB(247, 147, 26)
+                      : disk.filterReason != null
+                      ? const Color.fromRGB(150, 150, 180)
                       : const Color.fromRGB(200, 200, 200);
+                  // Annotate filtered disks with their reason so
+                  // the operator can see WHY they'd normally be
+                  // hidden if they show-all'd to find them.
+                  final tag = disk.filterReason == null
+                      ? ''
+                      : '   [${disk.filterReason!.label}]';
                   return Text(
-                    '$prefix${disk.displayName}',
+                    '$prefix${disk.displayName}$tag',
                     style: TextStyle(color: color),
                   );
                 }),
+                const SizedBox(height: 1),
+                _buildDiskPickerFooter(
+                  showAll: showAll,
+                  hiddenCount: info.disks.length - viableDisks.length,
+                ),
               ],
             ),
           ),
         );
       },
     );
+  }
+
+  /// Footer hint for the disk picker. Reflects whether the
+  /// "Show all" toggle is currently on, and how many disks the
+  /// filter is hiding (so the operator knows the toggle is
+  /// useful even if every visible disk happens to be viable).
+  Component _buildDiskPickerFooter({
+    required bool showAll,
+    required int hiddenCount,
+  }) {
+    final dim = const TextStyle(color: Color.fromRGB(150, 150, 180));
+    if (showAll) {
+      return Text(
+        '[↑/↓ j/k] move   [Enter] select   [s] hide non-viable',
+        style: dim,
+      );
+    }
+    if (hiddenCount > 0) {
+      return Text(
+        '[↑/↓ j/k] move   [Enter] select   '
+        '[s] show all ($hiddenCount hidden)',
+        style: dim,
+      );
+    }
+    return Text('[↑/↓ j/k] move   [Enter] select', style: dim);
   }
 
   Component _buildConfigureServices() {

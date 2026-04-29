@@ -1,4 +1,5 @@
 import 'package:test/test.dart';
+import 'package:common/src/models/install_state.dart';
 import 'package:common/src/services/install_service.dart';
 
 void main() {
@@ -125,6 +126,169 @@ void main() {
 ''';
       final disks = InstallService.parseLsblkOutput(output);
       expect(disks.map((d) => d.name).toList(), ['sda']);
+    });
+  });
+
+  group('partitionToParentDisk', () {
+    test('strips digit suffix from SCSI / IDE / virtio names', () {
+      // sdaN, vdaN, hdaN — all share the simple <letters><digits>
+      // partition naming. Common on x86 SATA and qemu virtio.
+      expect(InstallService.partitionToParentDisk('sda1'), 'sda');
+      expect(InstallService.partitionToParentDisk('sdb12'), 'sdb');
+      expect(InstallService.partitionToParentDisk('vda3'), 'vda');
+    });
+
+    test('strips pN suffix from NVMe / mmcblk / loop names', () {
+      // NVMe and mmcblk use `<disk>p<N>`, so the disk root itself
+      // ends in a digit; a naive trailing-digit strip would
+      // mangle it. loop devices follow the same pattern; they're
+      // already filtered upstream but the helper should still
+      // round-trip them correctly.
+      expect(InstallService.partitionToParentDisk('nvme0n1p1'), 'nvme0n1');
+      expect(InstallService.partitionToParentDisk('mmcblk0p2'), 'mmcblk0');
+      expect(InstallService.partitionToParentDisk('loop0'), 'loop0');
+    });
+
+    test('returns bare disk names unchanged', () {
+      expect(InstallService.partitionToParentDisk('sda'), 'sda');
+      expect(InstallService.partitionToParentDisk('nvme0n1'), 'nvme0n1');
+      expect(InstallService.partitionToParentDisk('mmcblk0'), 'mmcblk0');
+    });
+  });
+
+  group('parseProcMountsBootDevice', () {
+    test('returns the parent disk for /iso (NixOS live ISO)', () {
+      // Real /proc/mounts shape: device, mountpoint, fs, opts,
+      // dump, pass — space-separated. Reproduces the layout
+      // the operator hit (USB stick at /iso, squashfs loop,
+      // tmpfs /run).
+      const mounts = '''
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sdb1 /iso vfat rw,relatime,fmask=0022 0 0
+/dev/loop0 /nix/.ro-store squashfs ro,relatime 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,size=2G 0 0
+''';
+      expect(InstallService.parseProcMountsBootDevice(mounts), 'sdb');
+    });
+
+    test('returns null when no live mount is present', () {
+      // Installed system: /iso isn't mounted, /run/initramfs/live
+      // either. Annotation just doesn't fire and the picker
+      // shows the raw lsblk list.
+      const mounts = '''
+proc /proc proc rw 0 0
+/dev/sda2 / ext4 rw 0 0
+''';
+      expect(InstallService.parseProcMountsBootDevice(mounts), isNull);
+    });
+
+    test('falls back to /run/initramfs/live for non-NixOS images', () {
+      // Some other live distributions mount their boot media at
+      // /run/initramfs/live. We don't currently install on top
+      // of those, but the helper should handle the convention
+      // so the code stays portable.
+      const mounts = '''
+/dev/nvme0n1p1 /run/initramfs/live vfat rw 0 0
+''';
+      expect(InstallService.parseProcMountsBootDevice(mounts), 'nvme0n1');
+    });
+  });
+
+  group('annotateDisks', () {
+    test('flags zero-byte disks as noMedia', () {
+      // The empty multi-card-reader case. Trivially uninstallable;
+      // hide it so the operator doesn't waste time picking it.
+      final disks = [
+        const DiskInfo(
+          name: 'sdc',
+          path: '/dev/sdc',
+          sizeBytes: 0,
+          model: 'Multi-Card',
+          removable: true,
+        ),
+      ];
+      final annotated = InstallService.annotateDisks(disks);
+      expect(annotated.first.filterReason, DiskFilterReason.noMedia);
+    });
+
+    test('flags the boot device', () {
+      // The user's reported case: they booted from a 64 GB USB
+      // stick (`sdb`); picking it would corrupt the live image
+      // mid-install. Tag it so it's hidden by default.
+      final disks = [
+        const DiskInfo(
+          name: 'sda',
+          path: '/dev/sda',
+          sizeBytes: 1000204886016,
+          model: 'Samsung SSD',
+          removable: false,
+        ),
+        const DiskInfo(
+          name: 'sdb',
+          path: '/dev/sdb',
+          sizeBytes: 64 * 1000 * 1000 * 1000,
+          model: 'SanDisk',
+          removable: true,
+        ),
+      ];
+      final annotated = InstallService.annotateDisks(
+        disks,
+        bootDeviceName: 'sdb',
+      );
+      expect(annotated[0].filterReason, isNull);
+      expect(annotated[1].filterReason, DiskFilterReason.bootDevice);
+    });
+
+    test('flags disks below the documented minimum', () {
+      // 30 GB threshold matches getting-started.md's stated
+      // minimum. 16 GB SD cards or small thumb drives shouldn't
+      // tempt the operator into a doomed install.
+      final disks = [
+        const DiskInfo(
+          name: 'sda',
+          path: '/dev/sda',
+          sizeBytes: 16 * 1000 * 1000 * 1000,
+          model: 'Small thumb',
+          removable: true,
+        ),
+      ];
+      final annotated = InstallService.annotateDisks(disks);
+      expect(annotated.first.filterReason, DiskFilterReason.tooSmall);
+    });
+
+    test('priority order: noMedia > bootDevice > tooSmall', () {
+      // A zero-byte disk that happens to share the boot-device
+      // name still reads as "no media" first — the operator's
+      // takeaway is "no card inserted", not "would corrupt
+      // boot." Pin the precedence so a refactor can't quietly
+      // re-order it.
+      final disks = [
+        const DiskInfo(
+          name: 'sdb',
+          path: '/dev/sdb',
+          sizeBytes: 0,
+          model: '',
+          removable: true,
+        ),
+      ];
+      final annotated = InstallService.annotateDisks(
+        disks,
+        bootDeviceName: 'sdb',
+      );
+      expect(annotated.first.filterReason, DiskFilterReason.noMedia);
+    });
+
+    test('viable disks pass through unchanged', () {
+      const disk = DiskInfo(
+        name: 'sda',
+        path: '/dev/sda',
+        sizeBytes: 1000204886016,
+        model: 'Samsung SSD 860 EVO 1TB',
+        removable: false,
+      );
+      final annotated = InstallService.annotateDisks([disk]);
+      expect(annotated.first.filterReason, isNull);
+      expect(identical(annotated.first, disk), isTrue);
     });
   });
 

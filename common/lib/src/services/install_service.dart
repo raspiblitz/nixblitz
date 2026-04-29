@@ -13,7 +13,100 @@ class InstallService {
       'NAME,SIZE,MODEL,RM,TYPE',
       '--nodeps',
     ]);
-    return parseLsblkOutput(result.stdout as String);
+    final rawDisks = parseLsblkOutput(result.stdout as String);
+
+    // Tag the disk that backs the live image we booted from so
+    // the picker can hide it by default — picking it would
+    // corrupt the install mid-flow when disko wipes the
+    // partition table out from under the running system.
+    // Best-effort: if /proc/mounts is unreadable we just don't
+    // annotate, and the operator gets the unfiltered list.
+    String? bootDevice;
+    try {
+      final mounts = await File('/proc/mounts').readAsString();
+      bootDevice = parseProcMountsBootDevice(mounts);
+    } catch (e) {
+      LogService.warn('Could not read /proc/mounts: $e');
+    }
+
+    return annotateDisks(rawDisks, bootDeviceName: bootDevice);
+  }
+
+  /// Read `/proc/mounts` text and return the parent disk name
+  /// (e.g. `sda`, `nvme0n1`) of whatever backs the live image.
+  /// Returns null when no recognisable live mount is present —
+  /// typical on installed systems, where this whole annotation
+  /// path is harmless no-op.
+  ///
+  /// We look for `/iso` first (NixOS live ISO mounts the source
+  /// USB / SD partition there), then `/run/initramfs/live`
+  /// (other distributions' convention) as a fallback.
+  static String? parseProcMountsBootDevice(String contents) {
+    const liveMountPoints = ['/iso', '/run/initramfs/live'];
+    for (final line in contents.split('\n')) {
+      final fields = line.split(' ');
+      if (fields.length < 2) continue;
+      final dev = fields[0];
+      final mountPoint = fields[1];
+      if (!liveMountPoints.contains(mountPoint)) continue;
+      if (!dev.startsWith('/dev/')) continue;
+      final partName = dev.substring('/dev/'.length);
+      return partitionToParentDisk(partName);
+    }
+    return null;
+  }
+
+  /// Given a partition name (e.g. `sda1`, `nvme0n1p2`,
+  /// `mmcblk0p1`), return the parent disk name (`sda`,
+  /// `nvme0n1`, `mmcblk0`). Bare disk names are returned
+  /// unchanged. Lets the boot-device check match against
+  /// `lsblk --nodeps` output (which only lists parent disks).
+  static String partitionToParentDisk(String partName) {
+    // NVMe / mmcblk / loop use a `<disk>p<N>` partition naming
+    // scheme. Match the disk root and strip an optional `pN`
+    // suffix in one regex.
+    final nvmeStyle = RegExp(
+      r'^(nvme\d+n\d+|mmcblk\d+|loop\d+)(?:p\d+)?$',
+    ).firstMatch(partName);
+    if (nvmeStyle != null) return nvmeStyle.group(1)!;
+
+    // SCSI / IDE / virtio: `<letters><digits>` — strip the
+    // trailing partition number to recover the parent disk.
+    final scsiStyle = RegExp(r'^([a-z]+)\d*$').firstMatch(partName);
+    if (scsiStyle != null) return scsiStyle.group(1)!;
+
+    // Fallback: return as-is. lsblk's parent-disk list won't
+    // contain this name, so the boot-device match just won't
+    // hit; better than crashing.
+    return partName;
+  }
+
+  /// Annotate each disk with a [DiskFilterReason] if it
+  /// shouldn't appear in the picker by default. Applied in
+  /// priority order: `noMedia` (uninstallable) > `bootDevice`
+  /// (would corrupt the install) > `tooSmall` (under the
+  /// documented minimum). Disks that pass all checks come back
+  /// with `filterReason == null` and render normally.
+  ///
+  /// Default `undersizedThresholdBytes` matches the doc's "30
+  /// GB minimum" note. Pi 5 microSD installs onto 32 GB cards
+  /// land just over the threshold.
+  static List<DiskInfo> annotateDisks(
+    List<DiskInfo> disks, {
+    String? bootDeviceName,
+    int undersizedThresholdBytes = 30 * 1000 * 1000 * 1000,
+  }) {
+    return disks.map((d) {
+      DiskFilterReason? reason;
+      if (d.sizeBytes == 0) {
+        reason = DiskFilterReason.noMedia;
+      } else if (bootDeviceName != null && d.name == bootDeviceName) {
+        reason = DiskFilterReason.bootDevice;
+      } else if (d.sizeBytes < undersizedThresholdBytes) {
+        reason = DiskFilterReason.tooSmall;
+      }
+      return reason == null ? d : d.copyWith(filterReason: reason);
+    }).toList();
   }
 
   static List<DiskInfo> parseLsblkOutput(String output) {
@@ -449,8 +542,9 @@ class InstallService {
 
   static String? parseDiskoStep(String line) {
     if (line.contains('sgdisk')) return 'Partitioning disk...';
-    if (line.contains('mkfs') || line.contains('formatting'))
+    if (line.contains('mkfs') || line.contains('formatting')) {
       return 'Formatting partitions...';
+    }
     if (line.contains('mount ')) return 'Mounting filesystems...';
     if (line.contains('copying')) return 'Copying NixOS store paths...';
     if (line.contains('boot loader')) return 'Installing bootloader...';
