@@ -236,25 +236,32 @@ class InstallService {
     );
   }
 
-  /// Run `sudo disko-install --flake <path>#<attr> --disk main <disk>`.
+  /// Pre-install environment check. Two responsibilities:
   ///
-  /// [attribute] selects which `nixosConfigurations.<name>` target
-  /// gets installed onto [diskPath]; pick it via
-  /// [installerAttributeFor] from the platform detected by
-  /// [detectPlatform]. Defaults to `nixblitz-installer`, the
-  /// Pre-install memory check. Reads RAM + active swap, and if
-  /// the live ISO has no swap configured, sets up zram-backed
-  /// swap sized to RAM. Returns a record with the lines the TUI
-  /// should append to its install log and a success flag — even
-  /// on failure the install continues, since plenty of RAM
-  /// makes zram unnecessary and we'd rather burn a few extra
-  /// log lines than block a healthy install.
+  /// 1. Set up zram-backed swap if no swap is configured. Live
+  ///    NixOS ISOs ship without swap; without it the kernel
+  ///    can't relieve memory pressure when the eval grows.
+  /// 2. Bump the size caps on the live ISO's tmpfs filesystems
+  ///    (`/` and `/nix/.rw-store`). Default tmpfs sizing is 50 %
+  ///    of RAM, which on 8 GB hosts caps the eval intermediates
+  ///    at ~4 GB and produces `error: writing to file: No space
+  ///    left on device` mid-eval. Bumping the caps lets the
+  ///    kernel grow tmpfs into the zram we just created instead
+  ///    of refusing writes outright.
   ///
-  /// Idempotent: if `/proc/swaps` already has any device, this
-  /// is a no-op (logged as such).
+  /// Returns a record of (ran-something, succeeded, log lines).
+  /// Even on failure the install continues — plenty of RAM
+  /// makes the whole thing unnecessary, and we'd rather emit a
+  /// "WARNING:" line than block a healthy install.
+  ///
+  /// Idempotent: existing swap and adequately-sized tmpfs are
+  /// both detected and skipped (logged as such).
   Future<({bool wasNeeded, bool succeeded, List<String> log})>
   ensureSwapForInstall() async {
     final log = <String>[];
+    var anyAction = false;
+    var allSucceeded = true;
+
     int memTotal = 0;
     int swapTotal = 0;
     try {
@@ -289,15 +296,119 @@ class InstallService {
             ? '  swap already configured; skipping zram setup'
             : '  RAM info unavailable; skipping zram setup',
       );
-      return (wasNeeded: false, succeeded: true, log: log);
+    } else {
+      log.add(
+        '  no swap detected — enabling ${_humanGiB(zramTarget)} GB zram '
+        '(compresses ~2-3×; lazy-allocated, no upfront RAM cost)',
+      );
+      anyAction = true;
+      allSucceeded &= await _enableZramSwap(zramTarget, log);
     }
 
+    // tmpfs cap bumps. Rough sizing rationale:
+    //   /                  → 8 GB (was 4 GB on 8 GB host)
+    //   /nix/.rw-store     → 16 GB (overlay's upper layer, where
+    //                        new store paths land — needs the most
+    //                        room since the eval materialises the
+    //                        whole closure here)
+    // Targets are CAPS, not pre-allocations: tmpfs only consumes
+    // RAM for actual contents. With zram in place, anything over
+    // RAM compresses into swap rather than ENOSPC'ing.
+    final tmpfsTargets = <(String, int)>[
+      ('/', 8 * 1024 * 1024 * 1024),
+      ('/nix/.rw-store', 16 * 1024 * 1024 * 1024),
+    ];
+    for (final (path, target) in tmpfsTargets) {
+      final result = await _ensureTmpfsCapacity(path, target, log);
+      anyAction |= result.bumped;
+      allSucceeded &= result.succeeded;
+    }
+
+    return (wasNeeded: anyAction, succeeded: allSucceeded, log: log);
+  }
+
+  /// Inspect the tmpfs at [path] via `findmnt` and `mount -o
+  /// remount,size=…` it bigger if currently below [minBytes].
+  /// Skips silently when the path isn't mounted (e.g.
+  /// `/nix/.rw-store` on installed systems where the store
+  /// lives on the real disk) or isn't a tmpfs (some non-live
+  /// install environments have a different layout — we only
+  /// touch tmpfs).
+  Future<({bool bumped, bool succeeded})> _ensureTmpfsCapacity(
+    String path,
+    int minBytes,
+    List<String> log,
+  ) async {
+    if (!Directory(path).existsSync()) {
+      log.add('  tmpfs $path: not present, skipping');
+      return (bumped: false, succeeded: true);
+    }
+    final findmnt = await Process.run('findmnt', [
+      '-bn',
+      '-o',
+      'SIZE,FSTYPE',
+      '--target',
+      path,
+    ]);
+    if (findmnt.exitCode != 0) {
+      log.add(
+        '  tmpfs $path: findmnt failed '
+        '(${(findmnt.stderr as String).trim()}); skipping',
+      );
+      return (bumped: false, succeeded: false);
+    }
+    final parsed = parseFindmntOutput(findmnt.stdout as String);
+    if (parsed == null) {
+      log.add('  tmpfs $path: findmnt output unparseable; skipping');
+      return (bumped: false, succeeded: false);
+    }
+    if (parsed.fstype != 'tmpfs') {
+      log.add('  $path is ${parsed.fstype} (not tmpfs); leaving as-is');
+      return (bumped: false, succeeded: true);
+    }
+    if (parsed.sizeBytes >= minBytes) {
+      log.add(
+        '  tmpfs $path already at '
+        '${_humanGiB(parsed.sizeBytes)} GB — leaving as-is',
+      );
+      return (bumped: false, succeeded: true);
+    }
     log.add(
-      '  no swap detected — enabling ${_humanGiB(zramTarget)} GB zram '
-      '(compresses ~2-3×; lazy-allocated, no upfront RAM cost)',
+      '  tmpfs $path at ${_humanGiB(parsed.sizeBytes)} GB '
+      '— remounting to ${_humanGiB(minBytes)} GB',
     );
-    final ok = await _enableZramSwap(zramTarget, log);
-    return (wasNeeded: true, succeeded: ok, log: log);
+    final remount = await Process.run('sudo', [
+      '-n',
+      'mount',
+      '-o',
+      'remount,size=$minBytes',
+      path,
+    ]);
+    if (remount.exitCode != 0) {
+      log.add(
+        '  tmpfs $path remount failed: '
+        '${(remount.stderr as String).trim()}',
+      );
+      return (bumped: false, succeeded: false);
+    }
+    log.add('  tmpfs $path remounted to ${_humanGiB(minBytes)} GB');
+    return (bumped: true, succeeded: true);
+  }
+
+  /// Parse a single line of `findmnt -bn -o SIZE,FSTYPE
+  /// --target PATH` output. Returns null on empty / malformed
+  /// input so callers can treat it as "skip this path".
+  ///
+  /// Sample input:
+  ///   `4137459712 tmpfs`
+  static ({int sizeBytes, String fstype})? parseFindmntOutput(String output) {
+    final trimmed = output.trim();
+    if (trimmed.isEmpty) return null;
+    final parts = trimmed.split(RegExp(r'\s+'));
+    if (parts.length < 2) return null;
+    final size = int.tryParse(parts[0]);
+    if (size == null) return null;
+    return (sizeBytes: size, fstype: parts[1]);
   }
 
   /// Run the four-step zram setup the user would otherwise type

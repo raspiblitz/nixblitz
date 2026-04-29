@@ -340,6 +340,40 @@ Filename Type Size Used Priority
     });
   });
 
+  group('parseFindmntOutput', () {
+    test('parses size + fstype from findmnt output', () {
+      // `findmnt -bn -o SIZE,FSTYPE --target /` shape: a single
+      // line with two whitespace-separated fields.
+      final r = InstallService.parseFindmntOutput('4137459712 tmpfs');
+      expect(r, isNotNull);
+      expect(r!.sizeBytes, 4137459712);
+      expect(r.fstype, 'tmpfs');
+    });
+
+    test('handles trailing newline (real findmnt output)', () {
+      final r = InstallService.parseFindmntOutput('4137459712 tmpfs\n');
+      expect(r!.sizeBytes, 4137459712);
+      expect(r.fstype, 'tmpfs');
+    });
+
+    test('returns null on empty input', () {
+      // Empty stdout — caller treats as "skip this path" rather
+      // than crashing.
+      expect(InstallService.parseFindmntOutput(''), isNull);
+      expect(InstallService.parseFindmntOutput('   \n'), isNull);
+    });
+
+    test('returns null when size column is non-numeric', () {
+      // findmnt sometimes prints '0' or '-' for unknown sizes;
+      // treat non-int values as "skip" rather than guessing.
+      expect(InstallService.parseFindmntOutput('- tmpfs'), isNull);
+    });
+
+    test('returns null when only one field is present', () {
+      expect(InstallService.parseFindmntOutput('4137459712'), isNull);
+    });
+  });
+
   group('recommendedZramBytes', () {
     test('returns 0 when swap already exists', () {
       // Operator already configured swap (manual mkswap, NixOS
