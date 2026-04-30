@@ -41,6 +41,20 @@ just vm-clean          # Delete disk image
 
 Single test: `cd common && dart test test/services/config_service_test.dart`
 
+## Post-task verification
+
+Before reporting a task done or drafting a commit message, run the trio in order:
+
+```bash
+just test
+just analyze
+just format
+```
+
+Keeps the working tree in a consistent state across the three quality gates: tests passing, zero analyzer issues, uniform formatting. Skip only for purely discussion / no-code tasks, or when only `docs/` was touched.
+
+Once the trio passes, **print a commit message — don't ask whether the user wants one**. Subject line + concise body focused on the why, no `#N` issue refs, Co-Authored-By footer. Treat the commit message as part of the deliverable, not a follow-up question.
+
 ## Architecture
 
 - **`common` package** — all business logic. Only package that calls `Process.start()`/`Process.runSync()`. Models, services, providers.
@@ -133,3 +147,15 @@ Not all nocterm widgets support `const` constructors (e.g., `Expanded`, `Center`
 ## Nix Build
 
 Requires a custom nixpkgs fork (`github:fusion44/nixpkgs/dart-workspace-member-filter`) for Dart workspace support. After changing Dart dependencies: `just gen-locks`.
+
+### Flake input rules
+
+When adding a flake input to either `flake.nix` or `templates/flake.nix`, **always set `inputs.nixpkgs.follows = "nixpkgs"`** unless there's a deliberate, documented reason not to. Skipping this:
+
+- **Bloats the closure.** Each input's pinned nixpkgs is a separate snapshot — operators end up with two, three, four versions of every C library on disk.
+- **Breaks downstream overlays.** A flake input that captures `pkgs = nixpkgs.legacyPackages.${system}` from its own pinned nixpkgs won't see your `nixpkgs.overlays` declarations at NixOS module level. The Pi 5's blitz-api / uv jemalloc-sys saga (issue #24 thread) bit us exactly because `blitz-api` had no follows — its uv was captured at blitz-api flake-eval time, and our overlay couldn't reach it. **Always follows.**
+- **Reduces binary-cache hit rate.** The combinatorial explosion of pinned-nixpkgs versions means cache.nixos.org / our future Attic cache substitutes fewer paths.
+
+Same rule applies for any other shared input in scope (`disko`, `nixos-raspberrypi`, …) — if input A depends on input B and we already pin B, A should follow.
+
+**Documented exception:** `flake.nix`'s `nixpkgs-unstable` deliberately stays separate because the Dart-workspace-member-filter patch lives there. If you find yourself wanting another exception, add a comment immediately above the input explaining why so the rule stays understandable to the next contributor.

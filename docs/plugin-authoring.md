@@ -494,6 +494,20 @@ when bumping versions.
   Use them for "this plugin requires
   `features.apps.lnd.enable`" — clearer error than a confusing
   service failure later.
+- **`builtins.getFlake` doesn't follow.** When you load an
+  upstream flake via `getFlake "github:foo/bar/<rev>"` (the
+  pattern the LNBits plugin uses), the upstream brings its own
+  pinned `nixpkgs` — your `nixpkgs.overlays = [...]`
+  declarations at NixOS-module level **don't reach** the
+  upstream's pre-built package outputs. They were captured at
+  upstream-flake-eval time. If the upstream needs a 16K-page
+  jemalloc-sys override (Pi 5 quirk) or any other overlay
+  surgery, you'll need to fork upstream and patch its flake to
+  apply the overlay at its own eval time, OR rebuild the
+  package from source via your local `pkgs`. There's no
+  follows mechanism for `getFlake` calls — that's a flake-input
+  feature only. CLAUDE.md's "Flake input rules" section
+  covers the static-input case; getFlake is the loose end.
 
 ## Publishing
 

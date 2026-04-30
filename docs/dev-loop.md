@@ -104,9 +104,34 @@ just vm-deploy
 
 This builds the new binary via `nix build .#nixblitz-unwrapped`,
 scp's it to `/tmp/nixblitz` on the VM, and replaces the running
-binary in-place. Works for any pure-Dart change; doesn't pick up
-template / Nix-module changes (those need `nixos-rebuild switch`
-inside the VM via the TUI's `Refresh Nix templates` flow).
+binary in-place. Works for any pure-Dart change; **picks up
+template / Nix-module changes too** because the new binary
+embeds the latest `templates/` and the TUI auto-detects drift
+on launch — the dashboard shows a yellow `[r] Refresh templates`
+banner. Press `[r]` to write the binary's templates over disk,
+then `[a]` to review the diff and apply. (Pre-drift detection
+this required a manual "Refresh Nix templates" action; that's
+gone now.)
+
+### Trying the debug menu
+
+`Shift-D` from the dashboard opens the Debug menu. Most entries
+are gated on regtest (`features.apps.bitcoind.network = "regtest"`):
+
+- **Generate regtest blocks.** Numeric input (digits append,
+  Backspace trims, `↑/↓` switch field). `[g]` to mine. Useful
+  for quick "advance the chain by N" testing.
+- **Regtest auto-miner (background).** Starts a transient
+  systemd unit (`nixblitz-regtest-automine.service`) that mines
+  one block on a random `[min, max]` second cadence. Survives
+  TUI exit; dies on reboot. Verify with
+  `systemctl status nixblitz-regtest-automine.service` from a
+  shell or `bitcoin-cli -regtest getblockcount` for the
+  end-to-end check.
+- **Test LN: status / fund / channel / pay.** Driven against
+  the auto-spawned `lnd-test` instance (regtest-only). See
+  `templates/modules/system/test-lnd.nix` for the unit
+  definition.
 
 ## Test, analyze, format
 

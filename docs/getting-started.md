@@ -191,9 +191,51 @@ streams live. ~5-10 minutes on regtest, mostly bootstrap of:
 - blitz-api (FastAPI; waits for lnd's macaroon)
 - blitz-web (the React UI behind nginx)
 
-When done, you land on the **dashboard**.
+> If `nixos-rebuild` exits with code 4, the wizard shows a yellow
+> "completed with warnings" banner instead of failing outright.
+> The new system was activated, just one or more units failed to
+> start — most commonly NixOS's `logrotate-checkconf` against
+> `/var/log/nginx` on first activation, which is harmless. Press
+> `[Enter]` to continue past the warning, or `[R]` to retry.
+
+### Back up the LND wallet seed
+
+Once `lnd` has come up, the wizard asks what to do with its
+freshly-generated 24-word aezeed seed:
+
+- `[A]` **Show on screen** — renders the words as a 6×4 numbered
+  grid. Best in private. After confirming with `[Y]` the words
+  are wiped from process memory; the on-disk file persists for
+  recovery via `sudo cat /mnt/data/lnd/lnd-seed-mnemonic`.
+- `[B]` **Continue without showing** — for public / livestreamed
+  / recorded environments. Same recovery command applies.
+
+Either way, copy the words to durable offline storage. **The seed
+restores ON-CHAIN funds only** — Lightning channels also need a
+separate Static Channel Backup (`channel.backup`, maintained by
+LND). Both are tracked under issue #21.
+
+> The seed is LND aezeed format, not BIP-39. It restores into
+> LND only; hardware wallets like Trezor / Ledger won't recognise
+> it.
+
+### Resume after Ctrl+C
+
+If you exit the wizard mid-flow (Ctrl+C, SSH drop, kernel panic),
+the next launch picks up at the next undone step automatically.
+NixBlitz tracks the last completed step in `config.json`'s
+`setup_step_completed` field — you'll never re-do something you
+already finished, and you'll never accidentally drop to the
+dashboard with the seed unbacked.
+
+When the summary screen says "Setup Complete!", press `[Enter]`
+and you land on the **dashboard**.
 
 ## Tour the dashboard
+
+The header strip shows `NIXBLITZ` on the left, `<lnd alias> | <platform>`
+in the middle (e.g. `MyNode | Pi 5`), and the build version on the
+right. Below that:
 
 | Tile          | What                                                    |
 | ------------- | ------------------------------------------------------- |
@@ -204,12 +246,22 @@ When done, you land on the **dashboard**.
 
 Plus any tiles installed plugins added (none yet).
 
-Footer hints show shortcuts:
+Footer hints show shortcuts. Some only appear when relevant:
 
 - `[c]` Configure — open the typed-options editor
 - `[a]` Apply — review pending changes + commit + rebuild
+  (only shown when there are pending changes)
 - `[u]` Update — pull TUI + plugin + flake updates
+- `[r]` Refresh templates — only shown when the binary's
+  embedded templates differ from `~/nixblitz/templates/`
+  (e.g. you updated the TUI and the new binary ships a fix
+  to a NixOS module). Pressing `[r]` rewrites the on-disk
+  copy from the binary and routes you to `[a]` Apply to
+  review the diff.
 - `[D]` Debug — service health, log tail, regtest helpers
+  (numeric block-count input, plus a "Regtest auto-miner"
+  that runs as a transient systemd unit and survives TUI
+  exit)
 - `[?]` Help
 
 Walk through Configure for a moment. Tab through the service
