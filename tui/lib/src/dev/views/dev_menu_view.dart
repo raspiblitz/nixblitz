@@ -61,6 +61,13 @@ const _entries = [
         'content sizes — for iterating on tile spacing and alignment',
     DevView.dashboard,
   ),
+  _DevMenuEntry(
+    'Seed Reveal Flow',
+    'First-boot LND seed disclosure: choice → display → confirm, '
+        'with a fake mnemonic so it can be exercised without a real '
+        'install.',
+    DevView.seedReveal,
+  ),
 ];
 
 class DevMenuView extends StatelessComponent {

@@ -10,6 +10,7 @@ import 'views/help_popup_demo_view.dart';
 import 'views/log_demo_view.dart';
 import 'views/option_editor_demo_view.dart';
 import 'views/password_input_demo_view.dart';
+import 'views/seed_demo_view.dart';
 import 'views/select_popup_demo_view.dart';
 import 'views/service_card_demo_view.dart';
 import 'views/spinner_demo_view.dart';
@@ -26,6 +27,7 @@ enum DevView {
   serviceCard,
   helpPopup,
   dashboard,
+  seedReveal,
 }
 
 final currentDevViewProvider = StateProvider<DevView>((ref) => DevView.menu);
@@ -134,6 +136,7 @@ class _DevShell extends StatelessComponent {
                 DevView.serviceCard => const ServiceCardDemoView(),
                 DevView.helpPopup => const HelpPopupDemoView(),
                 DevView.dashboard => const DashboardDemoView(),
+                DevView.seedReveal => const SeedDemoView(),
               },
             ),
           ],

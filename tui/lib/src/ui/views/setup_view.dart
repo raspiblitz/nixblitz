@@ -6,10 +6,18 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/lnd_seed_panel.dart';
 import '../widgets/password_input.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
+
+/// On-disk path of LND's aezeed mnemonic. nix-bitcoin's lnd
+/// module writes the file to `${cfg.dataDir}/lnd-seed-mnemonic`
+/// on first start, mode 0400 owned by the lnd user, and never
+/// removes it after wallet creation. We read it via SudoSession
+/// so the operator sees the words once during the setup flow.
+const _kLndSeedPath = '/mnt/data/lnd/lnd-seed-mnemonic';
 
 enum SetupStep {
   setPassword,
@@ -46,10 +54,42 @@ class _SetupViewState extends State<SetupView> {
   bool _buildServicesStarted = false;
   Timer? _elapsedTimer;
 
+  /// Held in plain instance state (NOT a Riverpod provider) so
+  /// the seed never lands in long-lived app state where a
+  /// debug-overlay scrape or a developer's accidental log call
+  /// could surface it. Goes out of scope when the setup view
+  /// disposes.
+  List<String>? _lndSeedWords;
+
+  /// Polls the on-disk seed file every 2s until it appears (LND
+  /// preStart can take 5-30s after `nixos-rebuild switch`
+  /// returns), then reads the file and populates [_lndSeedWords].
+  Timer? _lndSeedPollTimer;
+
+  /// Set when the seed-load pipeline tripped on something the
+  /// operator needs to act on (sudo cancelled, file unreadable,
+  /// truncated content, etc.). Surfaced in the UI so the user
+  /// can retry without restarting the whole flow.
+  String? _lndSeedError;
+
+  /// Defensive guard against re-entering the load path while a
+  /// previous attempt is still mid-flight (the timer ticks every
+  /// 2s but a sudo round-trip can briefly outlast that).
+  bool _lndSeedLoading = false;
+
+  /// True once the operator has explicitly chosen to show the
+  /// seed on screen (option A on the choice prompt). Until then,
+  /// the seed words live in memory but are NOT rendered — public
+  /// or recorded environments can pick option B and skip the
+  /// reveal entirely. We keep `_lndSeedWords` populated so a
+  /// post-choice retry doesn't need another sudo round-trip.
+  bool _lndSeedShowConfirmed = false;
+
   @override
   void dispose() {
     _buildServicesSub?.cancel();
     _elapsedTimer?.cancel();
+    _lndSeedPollTimer?.cancel();
     super.dispose();
   }
 
@@ -376,30 +416,154 @@ class _SetupViewState extends State<SetupView> {
     );
   }
 
+  /// Kicks off the seed-file polling loop. Idempotent — safe to
+  /// call from a build() microtask without guarding the call
+  /// site, because the timer slot itself is the single source
+  /// of truth.
+  void _startLndSeedPoll() {
+    if (_lndSeedPollTimer != null) return;
+    if (_lndSeedWords != null || _lndSeedError != null) return;
+    _tryLoadLndSeed();
+    _lndSeedPollTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _tryLoadLndSeed(),
+    );
+  }
+
+  void _stopLndSeedPoll() {
+    _lndSeedPollTimer?.cancel();
+    _lndSeedPollTimer = null;
+  }
+
+  Future<void> _tryLoadLndSeed() async {
+    if (_lndSeedLoading) return;
+    if (_lndSeedWords != null || _lndSeedError != null) return;
+    _lndSeedLoading = true;
+    try {
+      final session = context.read(sudoSessionProvider);
+      final ok = await session.ensureFresh();
+      if (!ok) {
+        setState(() {
+          _lndSeedError = 'Sudo authorization cancelled.';
+        });
+        _stopLndSeedPoll();
+        return;
+      }
+      // Probe existence first — nix-bitcoin's lnd preStart can
+      // take 5-30s to drop the file, and we'd rather show a
+      // spinner than a confusing "cat: No such file" error
+      // during that window.
+      final probe = await session.runOneShot(['test', '-f', _kLndSeedPath]);
+      if (probe.exitCode != 0) {
+        return;
+      }
+      final res = await session.runOneShot(['cat', _kLndSeedPath]);
+      if (res.exitCode != 0) {
+        setState(() {
+          _lndSeedError =
+              'Could not read seed file (exit ${res.exitCode}): '
+              '${res.stderr.trim()}';
+        });
+        _stopLndSeedPoll();
+        return;
+      }
+      final words = res.stdout
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim()
+          .split(' ')
+          .where((w) => w.isNotEmpty)
+          .toList(growable: false);
+      if (words.length != 24) {
+        setState(() {
+          _lndSeedError =
+              'Seed file has ${words.length} words; expected 24. '
+              'Aborting display.';
+        });
+        _stopLndSeedPoll();
+        return;
+      }
+      setState(() {
+        _lndSeedWords = words;
+      });
+      _stopLndSeedPoll();
+    } catch (e, st) {
+      LogService.error('LND seed load failed', e, st);
+      setState(() {
+        _lndSeedError = 'Error reading seed: $e';
+      });
+      _stopLndSeedPoll();
+    } finally {
+      _lndSeedLoading = false;
+    }
+  }
+
   Component _buildInitLightning() {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
-    final hasLightning =
-        config != null && (config.lnd.enabled || config.cln.enabled);
+    final lndEnabled = config != null && config.lnd.enabled;
+    final clnEnabled = config != null && config.cln.enabled;
 
-    if (!hasLightning) {
+    if (config == null) {
+      return const Text('Loading config...');
+    }
+    if (!lndEnabled && !clnEnabled) {
       Future.microtask(() {
         context.read(_setupStepProvider.notifier).state = SetupStep.summary;
       });
       return const Text('Skipping Lightning setup (none enabled)...');
     }
 
+    if (lndEnabled) {
+      // Kick off (or resume) the loader. Multiple microtask
+      // schedulings are safe — _startLndSeedPoll is idempotent.
+      if (_lndSeedWords == null && _lndSeedError == null) {
+        Future.microtask(_startLndSeedPoll);
+        return _buildLndSeedWaiting();
+      }
+      if (_lndSeedError != null) {
+        return _buildLndSeedError();
+      }
+      // Words are loaded. Gate the actual reveal on an explicit
+      // operator choice — public / recorded environments need
+      // an opt-out that doesn't flash the seed on the screen
+      // even briefly.
+      if (!_lndSeedShowConfirmed) {
+        return _buildLndSeedChoice(alsoCln: clnEnabled);
+      }
+      return _buildLndSeedDisplay(words: _lndSeedWords!, alsoCln: clnEnabled);
+    }
+
+    // CLN-only path: keep the original static message until the
+    // CLN seed-display follow-up lands.
+    return _buildClnOnlyMessage();
+  }
+
+  Component _buildLndSeedChoice({required bool alsoCln}) {
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         try {
-          if (event.logicalKey == LogicalKey.enter) {
+          final c = event.character?.toLowerCase();
+          if (c == 'a') {
+            setState(() {
+              _lndSeedShowConfirmed = true;
+            });
+            return true;
+          }
+          if (c == 'b') {
+            // Skip the reveal. Wipe the in-memory copy now so
+            // even a Riverpod-inspector dump can't surface the
+            // words after the choice; the on-disk file stays
+            // for later recovery.
+            setState(() {
+              _lndSeedWords = null;
+            });
             context.read(_setupStepProvider.notifier).state = SetupStep.summary;
             return true;
           }
           return false;
         } catch (e, st) {
-          LogService.error('Init lightning key handler failed', e, st);
+          LogService.error('LND seed choice handler failed', e, st);
           return true;
         }
       },
@@ -416,10 +580,276 @@ class _SetupViewState extends State<SetupView> {
               ),
             ),
             const SizedBox(height: 1),
-            if (config.lnd.enabled)
-              const Text('LND: A new wallet will be created on first start.'),
-            if (config.cln.enabled)
-              const Text('CLN: A new wallet will be created on first start.'),
+            Text(
+              'IMPORTANT: This 24-word seed restores ONLY the',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'on-chain wallet. Lightning channels need a separate',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'channel.backup that LND updates automatically.',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'Without BOTH, funds are lost if this disk fails.',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            const Text('Choose:'),
+            const SizedBox(height: 1),
+            const Text('  [A] Show the seed on screen now'),
+            const Text(
+              '      Have pen and paper ready. Best in private —',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            const Text(
+              '      no cameras, recordings, or shoulder-surfers.',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            const SizedBox(height: 1),
+            const Text('  [B] Continue without showing'),
+            const Text(
+              '      Safer in public / livestreamed / recorded',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            const Text(
+              '      environments. Read the seed later with:',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            Text(
+              '        sudo cat $_kLndSeedPath',
+              style: const TextStyle(color: Color.fromRGB(200, 200, 100)),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              'Either choice: copy the words to durable offline',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'storage (paper or steel) as soon as practical. The',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'on-disk file is NOT a substitute for an offline backup.',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (alsoCln) ...[
+              const SizedBox(height: 1),
+              const Text(
+                'CLN: a separate seed-display flow lands in a',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+              const Text(
+                'follow-up release; it is not affected by this choice.',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+            ],
+            const SizedBox(height: 1),
+            const Text('Press [A] to show, [B] to continue.'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Component _buildLndSeedWaiting() {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Lightning Wallet Setup',
+            style: const TextStyle(
+              color: Color.fromRGB(247, 147, 26),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Spinner(label: 'Waiting for LND to create wallet seed'),
+          const SizedBox(height: 1),
+          const Text(
+            'LND generates the 24-word seed during its first start;',
+            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+          ),
+          const Text(
+            'this usually takes a few seconds.',
+            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Component _buildLndSeedDisplay({
+    required List<String> words,
+    required bool alsoCln,
+  }) {
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          // Y advances. Anything else stays put — operator must
+          // consciously confirm they've copied the words before
+          // the seed leaves the screen.
+          final c = event.character?.toLowerCase();
+          if (c == 'y') {
+            // Wipe the in-memory copy now that the operator has
+            // acknowledged it. Defense-in-depth: shrinks the
+            // window an accidental log scrape or screen capture
+            // could grab. (The on-disk file is still there for
+            // wallet restore; we're only clearing live state.)
+            setState(() {
+              _lndSeedWords = null;
+            });
+            context.read(_setupStepProvider.notifier).state = SetupStep.summary;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('LND seed confirmation handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Lightning Wallet Setup',
+              style: const TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            LndSeedPanel(words: words),
+            const SizedBox(height: 1),
+            if (alsoCln) ...[
+              const Text(
+                'CLN: a separate wallet seed display will be added',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+              const Text(
+                'in a follow-up release.',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+              const SizedBox(height: 1),
+            ],
+            const Text('Press Y when you have written the seed down.'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Component _buildLndSeedError() {
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          final c = event.character?.toLowerCase();
+          if (c == 'r') {
+            setState(() {
+              _lndSeedError = null;
+            });
+            Future.microtask(_startLndSeedPoll);
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.enter) {
+            // Operator chose to skip the seed display. The file
+            // is still on disk; they can recover with `sudo cat
+            // /mnt/data/lnd/lnd-seed-mnemonic` later.
+            context.read(_setupStepProvider.notifier).state = SetupStep.summary;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('LND seed error handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Could not read LND seed',
+              style: const TextStyle(
+                color: Color.fromRGB(255, 80, 80),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(_lndSeedError ?? 'Unknown error'),
+            const SizedBox(height: 1),
+            const Text('You can recover the seed later with:'),
+            Text(
+              '  sudo cat $_kLndSeedPath',
+              style: const TextStyle(color: Color.fromRGB(200, 200, 100)),
+            ),
+            const SizedBox(height: 1),
+            const Text('[R] retry   [Enter] continue without showing'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Component _buildClnOnlyMessage() {
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.enter) {
+            context.read(_setupStepProvider.notifier).state = SetupStep.summary;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('CLN-only fallback handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Lightning Wallet Setup',
+              style: const TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            const Text('CLN: A new wallet will be created on first start.'),
             const SizedBox(height: 1),
             Text(
               'IMPORTANT: Back up your wallet seed after creation!',
