@@ -48,7 +48,15 @@ buildDartApplication {
   pubspecLock = lib.importJSON ./workspace_pubspec.lock.json;
 
   gitHashes = {
-    nocterm_riverpod = "sha256-wMHvhmFyu8Y3wf57MUACFmDELAxivFUIJXni3Bz9ssA=";
+    # Same hash for both: pub fetches the whole `nocterm` repo at
+    # the pinned ref and uses `path:` to locate `nocterm_riverpod`
+    # within it, so the on-disk content (and FOD hash) is identical
+    # for the two derivations. Bumping the nocterm `ref:` requires
+    # bumping BOTH hashes — the workstation tends to mask this via
+    # FOD substitution from its store cache, but a fresh build
+    # (e.g. live ISO) trips the mismatch every time.
+    nocterm = "sha256-tmw68lrrABuCV03jkSBIjotblOYp/9UVR0q2rAyykk4=";
+    nocterm_riverpod = "sha256-tmw68lrrABuCV03jkSBIjotblOYp/9UVR0q2rAyykk4=";
   };
 
   workspaceMembers = ["common" "tui"];

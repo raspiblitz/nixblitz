@@ -311,21 +311,22 @@
       "version": "2.0.0"
     },
     "nocterm": {
-      "dependency": "transitive",
+      "dependency": "direct overridden",
       "description": {
-        "name": "nocterm",
-        "sha256": "7569e6368b41a84c9c594c292d1b51c996dad95d55207083618b2c7af24112d0",
-        "url": "https://pub.dev"
+        "path": ".",
+        "ref": "6f6f5a51d337c3b5744e82c01c0fd4576bc64192",
+        "resolved-ref": "6f6f5a51d337c3b5744e82c01c0fd4576bc64192",
+        "url": "https://forge.f44.fyi/f44/nocterm"
       },
-      "source": "hosted",
+      "source": "git",
       "version": "0.6.0"
     },
     "nocterm_riverpod": {
       "dependency": "transitive",
       "description": {
         "path": "packages/nocterm_riverpod",
-        "ref": "HEAD",
-        "resolved-ref": "f451071db641330b8705a95d758e806a08b9ec19",
+        "ref": "6f6f5a51d337c3b5744e82c01c0fd4576bc64192",
+        "resolved-ref": "6f6f5a51d337c3b5744e82c01c0fd4576bc64192",
         "url": "https://forge.f44.fyi/f44/nocterm"
       },
       "source": "git",
