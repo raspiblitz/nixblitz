@@ -96,6 +96,19 @@
         (import pluginPath) {pluginCfg = cfg;};
     in
       map mkPluginModule (builtins.filter isPluginDir pluginDirs);
+
+    # Read enough of the operator's config to know which platform
+    # we're targeting. Used to alias `nixosConfigurations.${hostname}`
+    # to the platform-correct build below — without it, a plain
+    # `nixos-rebuild switch --flake .` defaults to
+    # `.#${hostname}` and the Pi 5 case grabs the x86 attribute,
+    # failing with `boot.loader.grub.devices` unset.
+    blitzCfg =
+      if builtins.pathExists ./config.json
+      then builtins.fromJSON (builtins.readFile ./config.json)
+      else {};
+    blitzPlatform = blitzCfg.system.platform or "x86";
+    blitzHostname = blitzCfg.system.hostname or "nixblitz";
   in {
     nixosModules.default = {
       imports =
@@ -113,55 +126,94 @@
         ];
     };
 
-    nixosConfigurations.nixblitz = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      specialArgs = {inherit nixblitz;};
-      modules = [
-        ./hosts/installed.nix
-        self.nixosModules.default
-      ];
-    };
+    # Build the four canonical configurations as a separate
+    # attrset, then merge in the hostname-keyed alias below. The
+    # split is purely so the alias can overwrite an existing key
+    # (e.g. operator's hostname is the default `nixblitz` on Pi
+    # 5 — alias overrides the x86 build under that name) without
+    # tripping Nix's "attribute already defined" error from two
+    # static assignments to the same key.
+    nixosConfigurations = let
+      canonical = {
+        nixblitz = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = {inherit nixblitz;};
+          modules = [
+            ./hosts/installed.nix
+            self.nixosModules.default
+          ];
+        };
 
-    # Live-ISO config used by `disko-install --flake .#nixblitz-installer`.
-    # Identical to nixosConfigurations.nixblitz except for passwordless
-    # sudo. See docs/decisions/plugins.md (sudo posture).
-    nixosConfigurations.nixblitz-installer = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      specialArgs = {inherit nixblitz;};
-      modules = [
-        ./hosts/installer.nix
-        self.nixosModules.default
-      ];
-    };
+        # Live-ISO config used by `disko-install --flake .#nixblitz-installer`.
+        # Identical to nixosConfigurations.nixblitz except for passwordless
+        # sudo. See docs/decisions/plugins.md (sudo posture).
+        nixblitz-installer = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = {inherit nixblitz;};
+          modules = [
+            ./hosts/installer.nix
+            self.nixosModules.default
+          ];
+        };
 
-    # Pi 5 build target. Use `nixos-raspberrypi.lib.nixosSystem`
-    # (not `nixpkgs.lib.nixosSystem`) so the upstream's bootloader
-    # / vendor-kernel / vendor-firmware / kernel-and-firmware
-    # overlays are auto-applied. The opt-in `pkgs` overlay
-    # (ffmpeg, kodi, etc.) is NOT applied — `nixosSystem` is the
-    # node-friendly variant; `nixosSystemFull` would pull in the
-    # media stack, which is wasted on a headless node.
-    nixosConfigurations.nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
-      specialArgs = {inherit nixblitz nixos-raspberrypi;};
-      modules = [
-        ./hosts/installed-pi5.nix
-        self.nixosModules.default
-      ];
-    };
+        # Pi 5 build target. Use `nixos-raspberrypi.lib.nixosSystem`
+        # (not `nixpkgs.lib.nixosSystem`) so the upstream's bootloader
+        # / vendor-kernel / vendor-firmware / kernel-and-firmware
+        # overlays are auto-applied. The opt-in `pkgs` overlay
+        # (ffmpeg, kodi, etc.) is NOT applied — `nixosSystem` is the
+        # node-friendly variant; `nixosSystemFull` would pull in the
+        # media stack, which is wasted on a headless node.
+        nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
+          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          modules = [
+            ./hosts/installed-pi5.nix
+            self.nixosModules.default
+          ];
+        };
 
-    # Pi 5 install target. Used by
-    # `disko-install --flake .#nixblitz-pi5-installer` from inside
-    # the live image (typically the upstream
-    # `nvmd/nixos-raspberrypi#installerImages.rpi5` flashed to a
-    # USB stick). Differs from `nixblitz-pi5` only in
-    # `installer-pi5.nix`'s passwordless sudo override; same
-    # bootloader / kernel / firmware / disko layout.
-    nixosConfigurations.nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
-      specialArgs = {inherit nixblitz nixos-raspberrypi;};
-      modules = [
-        ./hosts/installer-pi5.nix
-        self.nixosModules.default
-      ];
-    };
+        # Pi 5 install target. Used by
+        # `disko-install --flake .#nixblitz-pi5-installer` from inside
+        # the live image (typically the upstream
+        # `nvmd/nixos-raspberrypi#installerImages.rpi5` flashed to a
+        # USB stick). Differs from `nixblitz-pi5` only in
+        # `installer-pi5.nix`'s passwordless sudo override; same
+        # bootloader / kernel / firmware / disko layout.
+        nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
+          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          modules = [
+            ./hosts/installer-pi5.nix
+            self.nixosModules.default
+          ];
+        };
+      };
+
+      # Hostname-keyed alias. NixOS rebuild defaults to
+      # `${flake}#nixosConfigurations.${hostname}` when no `#attr`
+      # is given; without this alias a Pi 5 system whose hostname
+      # is the default `nixblitz` resolves to the x86 attribute
+      # and fails with `boot.loader.grub.devices` unset. Aliasing
+      # the hostname to the platform-correct build makes the bare
+      # `sudo nixos-rebuild switch --flake .` (and the TUI's
+      # update / apply paths that rely on the same default) DTRT
+      # on every platform without the operator having to know the
+      # `-pi5` attribute name.
+      #
+      # Default hostname `nixblitz` on x86: alias overwrites the
+      # canonical `nixblitz` with the same value — no-op.
+      # Default hostname `nixblitz` on Pi 5: alias overwrites the
+      # canonical x86 `nixblitz` to point at the Pi 5 build —
+      # exactly the footgun fix.
+      # Custom hostname (e.g. `loki`) on either platform: alias
+      # adds a new key pointing at the platform-correct build;
+      # canonical names stay available for explicit `#nixblitz-*`.
+      aliasTarget =
+        if blitzPlatform == "pi5"
+        then canonical.nixblitz-pi5
+        else canonical.nixblitz;
+    in
+      canonical
+      // {
+        ${blitzHostname} = aliasTarget;
+      };
   };
 }
