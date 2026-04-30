@@ -135,19 +135,7 @@ class _SetupViewState extends State<SetupView> {
       LogService.info('BuildServices: wrote initialized=true');
 
       _appendBuildLog('> git add + commit');
-      final gitAdd = Process.runSync('git', [
-        'add',
-        'config.json',
-      ], workingDirectory: baseDirPath);
-      if (gitAdd.exitCode != 0) {
-        _appendBuildLog('git add failed: ${gitAdd.stderr}');
-      }
-      final gitCommit = Process.runSync('git', [
-        'commit',
-        '-m',
-        'Enable services (first boot)',
-      ], workingDirectory: baseDirPath);
-      _appendBuildLog('git commit exit=${gitCommit.exitCode}');
+      _commitWizardFiles('Enable services (first boot)');
 
       context.read(configProvider.notifier).updateConfig(updated);
 
@@ -179,6 +167,7 @@ class _SetupViewState extends State<SetupView> {
             _stopElapsedTimer();
             context.read(_buildServicesExitCodeProvider.notifier).state = code;
             if (code == 0) {
+              _markStepCompleted(SetupStep.buildServices);
               context.read(_setupStepProvider.notifier).state =
                   SetupStep.waitBitcoind;
             }
@@ -200,6 +189,136 @@ class _SetupViewState extends State<SetupView> {
     context.read(_buildServicesLogProvider.notifier).state = [...current, line];
   }
 
+  /// Persist `setup_step_completed = step.name` to config.json
+  /// + commit. Lets the wizard resume at the right place if the
+  /// operator quits mid-flow on the next launch, and gates the
+  /// dashboard once the terminal step is recorded (see the
+  /// routing in `app.dart`).
+  ///
+  /// Tracking by step *name* (rather than a bool) means the
+  /// wizard can grow new steps over time without breaking
+  /// resume: an inserted step between A and B will be picked up
+  /// automatically by `_stepAfter` for any operator whose
+  /// `setup_step_completed` is still A.
+  ///
+  /// Idempotent — no-op if the recorded step is already this
+  /// one or later. Failures are logged but don't block the UI
+  /// advance; worst case the operator re-enters the wizard on
+  /// next launch.
+  void _markStepCompleted(SetupStep step) {
+    try {
+      final configAsync = context.read(configProvider);
+      final config = configAsync.value;
+      if (config == null) {
+        LogService.warn('markStepCompleted: config not loaded; skipping');
+        return;
+      }
+      // Don't downgrade the recorded step. If the operator
+      // somehow lands on an earlier-step's mark-complete after
+      // a later step already finished (race conditions, retries,
+      // etc.), keep the latest.
+      final currentIdx = _setupStepIndex(config.setupStepCompleted);
+      final newIdx = SetupStep.values.indexOf(step);
+      if (currentIdx >= newIdx) return;
+
+      final updated = config.copyWith(setupStepCompleted: () => step.name);
+
+      // Order matters here: when called from inside a nocterm
+      // onKeyEvent handler (the seed-flow Y/B confirm or the
+      // summary's Enter), updating a StateProvider triggers an
+      // immediate widget rebuild that aborts the rest of the
+      // handler — see "Nocterm Pitfalls" in CLAUDE.md. So all
+      // I/O (file write, git stage, git commit, logging) must
+      // run BEFORE we touch `configProvider.notifier.updateConfig`,
+      // otherwise the disk gets the new step but git's HEAD
+      // doesn't and the operator sees `M config.json` dirty
+      // post-summary.
+      final configService = context.read(configServiceProvider);
+      configService.writeConfigSync(updated);
+      LogService.info(
+        'markStepCompleted: wrote setup_step_completed=${step.name}',
+      );
+
+      _commitWizardFiles('Setup wizard: completed ${step.name}');
+
+      // Done with I/O — safe to update the provider now. If the
+      // tree rebuild aborts further handler code at this point,
+      // it doesn't matter: the on-disk state and git HEAD are
+      // already consistent.
+      context.read(configProvider.notifier).updateConfig(updated);
+    } catch (e, st) {
+      LogService.error('markStepCompleted failed', e, st);
+    }
+  }
+
+  /// Stage the wizard-managed files and create a commit. Stages
+  /// `config.json` (the source of truth) AND `flake.lock` —
+  /// `nixos-rebuild switch --flake` writes the lock file the
+  /// first time it runs, so without including it here it stays
+  /// untracked forever and the operator sees `A flake.lock`
+  /// dirty after the wizard finishes. Exit 1 from `git commit`
+  /// here typically means "nothing to commit" (the wizard
+  /// re-running over already-committed state); not treated as
+  /// an error.
+  void _commitWizardFiles(String message) {
+    try {
+      final baseDirPath = context.read(baseDirProvider);
+      final filesToStage = <String>['config.json'];
+      if (File('$baseDirPath/flake.lock').existsSync()) {
+        filesToStage.add('flake.lock');
+      }
+      final gitAdd = Process.runSync('git', [
+        'add',
+        ...filesToStage,
+      ], workingDirectory: baseDirPath);
+      if (gitAdd.exitCode != 0) {
+        LogService.warn('git add failed: ${gitAdd.stderr}');
+      }
+      final gitCommit = Process.runSync('git', [
+        'commit',
+        '-m',
+        message,
+      ], workingDirectory: baseDirPath);
+      LogService.info('git commit "$message" exit=${gitCommit.exitCode}');
+    } catch (e, st) {
+      LogService.error('commitWizardFiles failed', e, st);
+    }
+  }
+
+  /// Returns the next step the wizard should run given the most
+  /// recently completed step name (as recorded in config). Null
+  /// or unknown names → start from the first step (covers fresh
+  /// configs and any future rename / removal of a step the
+  /// operator was mid-way through). If the recorded step is the
+  /// terminal one, returns the terminal step itself — callers
+  /// should normally have routed to the dashboard before getting
+  /// this far, but the fallback is safe.
+  SetupStep _resumeStep(String? lastCompleted) {
+    if (lastCompleted == null || lastCompleted.isEmpty) {
+      return SetupStep.values.first;
+    }
+    final idx = SetupStep.values.indexWhere((s) => s.name == lastCompleted);
+    if (idx < 0) {
+      LogService.warn(
+        'Resume: unknown setup_step_completed=$lastCompleted; '
+        'restarting wizard from the first step',
+      );
+      return SetupStep.values.first;
+    }
+    if (idx >= SetupStep.values.length - 1) {
+      return SetupStep.values.last;
+    }
+    return SetupStep.values[idx + 1];
+  }
+
+  /// Resolve the index of a recorded step name. -1 for "no step
+  /// recorded yet" (so any step's index is greater) and for
+  /// names the wizard no longer recognises.
+  int _setupStepIndex(String? name) {
+    if (name == null || name.isEmpty) return -1;
+    return SetupStep.values.indexWhere((s) => s.name == name);
+  }
+
   void _retryBuildServices() {
     _buildServicesSub?.cancel();
     _buildServicesSub = null;
@@ -213,6 +332,27 @@ class _SetupViewState extends State<SetupView> {
   @override
   Component build(BuildContext context) {
     final step = context.watch(_setupStepProvider);
+    final configAsync = context.watch(configProvider);
+    final config = configAsync.value;
+
+    // Resume from where the wizard last left off if the operator
+    // bailed mid-flow (Ctrl+C at the seed reveal, etc.). The
+    // _setupStepProvider defaults to the first step; if the
+    // config records a more advanced last-completed step, jump
+    // to whatever comes after it. This auto-handles future
+    // wizard growth: insert a step between two existing ones
+    // and operators whose recorded step is the prior one will
+    // see the new step on next launch.
+    if (step == SetupStep.values.first && config != null) {
+      final resume = _resumeStep(config.setupStepCompleted);
+      if (resume != SetupStep.values.first) {
+        Future.microtask(() {
+          context.read(_setupStepProvider.notifier).state = resume;
+        });
+        return const Text('Resuming setup...');
+      }
+    }
+
     return switch (step) {
       SetupStep.setPassword => _buildSetPassword(),
       SetupStep.buildServices => _buildBuildServices(),
@@ -252,6 +392,7 @@ class _SetupViewState extends State<SetupView> {
             return;
           }
           LogService.info('Password set successfully');
+          _markStepCompleted(SetupStep.setPassword);
           context.read(_setupStepProvider.notifier).state =
               SetupStep.buildServices;
         });
@@ -312,11 +453,39 @@ class _SetupViewState extends State<SetupView> {
       );
     }
 
+    // `nixos-rebuild switch` exit codes:
+    //   0  full success
+    //   4  the new system WAS activated, but at least one unit
+    //      failed during start. Typical NixOS first-activation
+    //      quirk: `logrotate-checkconf.service` runs the upstream
+    //      nginx logrotate config in --debug, which switches euid
+    //      to nginx (uid 60) and tries to stat /var/log/nginx/*
+    //      — but the dir is still 0700 root:root because nginx's
+    //      own preStart hasn't run yet. Real-world impact is
+    //      zero; the actual logrotate timer runs fine on the
+    //      next boot.
+    //   anything else  real failure, retry needed.
+    //
+    // Treat 4 as a user-confirmable warning rather than a hard
+    // failure so the operator isn't stuck on a screen for a
+    // unit failure that doesn't matter.
+    final isWarning = exitCode == 4;
+
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
+            if (isWarning) {
+              _markStepCompleted(SetupStep.buildServices);
+              context.read(_setupStepProvider.notifier).state =
+                  SetupStep.waitBitcoind;
+            } else {
+              _retryBuildServices();
+            }
+            return true;
+          }
+          if (isWarning && (event.character?.toLowerCase() == 'r')) {
             _retryBuildServices();
             return true;
           }
@@ -327,7 +496,7 @@ class _SetupViewState extends State<SetupView> {
           }
           return false;
         } catch (e, st) {
-          LogService.error('BuildServices failure key handler failed', e, st);
+          LogService.error('BuildServices post-run key handler failed', e, st);
           return true;
         }
       },
@@ -336,20 +505,51 @@ class _SetupViewState extends State<SetupView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Service build failed',
-              style: const TextStyle(
-                color: Color.fromRGB(255, 80, 80),
-                fontWeight: FontWeight.bold,
+            if (isWarning) ...[
+              Text(
+                'Service build completed with warnings (exit $exitCode)',
+                style: const TextStyle(
+                  color: Color.fromRGB(255, 200, 80),
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 1),
+              const SizedBox(height: 1),
+              const Text(
+                'The new system was activated, but at least one unit failed',
+                style: TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+              const Text(
+                'to start. A common cause is the NixOS logrotate-checkconf',
+                style: TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+              const Text(
+                'first-activation quirk against /var/log/nginx — harmless;',
+                style: TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+              const Text(
+                'review the failed-unit names in the log to be sure.',
+                style: TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+              const SizedBox(height: 1),
+            ] else ...[
+              Text(
+                'Service build failed (exit $exitCode)',
+                style: const TextStyle(
+                  color: Color.fromRGB(255, 80, 80),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 1),
+            ],
             Expanded(child: ScrollableLog(lines: logLines, focused: true)),
             const SizedBox(height: 1),
-            const Text(
-              '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [g/G] top/bottom   [/] search   '
-              '[Enter] retry   [Esc] dashboard',
-              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            Text(
+              isWarning
+                  ? '[↑/↓ j/k] scroll   [/] search   '
+                        '[Enter] continue   [R] retry   [Esc] dashboard'
+                  : '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [g/G] top/bottom   [/] search   '
+                        '[Enter] retry   [Esc] dashboard',
+              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],
         ),
@@ -363,6 +563,7 @@ class _SetupViewState extends State<SetupView> {
 
     if (config != null && !config.bitcoind.enabled) {
       Future.microtask(() {
+        _markStepCompleted(SetupStep.waitBitcoind);
         context.read(_setupStepProvider.notifier).state =
             SetupStep.initLightning;
       });
@@ -396,6 +597,7 @@ class _SetupViewState extends State<SetupView> {
               );
               if (btcStatus.isRunning) {
                 Future.microtask(() {
+                  _markStepCompleted(SetupStep.waitBitcoind);
                   context.read(_setupStepProvider.notifier).state =
                       SetupStep.initLightning;
                 });
@@ -508,6 +710,7 @@ class _SetupViewState extends State<SetupView> {
     }
     if (!lndEnabled && !clnEnabled) {
       Future.microtask(() {
+        _markStepCompleted(SetupStep.initLightning);
         context.read(_setupStepProvider.notifier).state = SetupStep.summary;
       });
       return const Text('Skipping Lightning setup (none enabled)...');
@@ -558,6 +761,7 @@ class _SetupViewState extends State<SetupView> {
             setState(() {
               _lndSeedWords = null;
             });
+            _markStepCompleted(SetupStep.initLightning);
             context.read(_setupStepProvider.notifier).state = SetupStep.summary;
             return true;
           }
@@ -725,6 +929,7 @@ class _SetupViewState extends State<SetupView> {
             setState(() {
               _lndSeedWords = null;
             });
+            _markStepCompleted(SetupStep.initLightning);
             context.read(_setupStepProvider.notifier).state = SetupStep.summary;
             return true;
           }
@@ -784,6 +989,7 @@ class _SetupViewState extends State<SetupView> {
             // Operator chose to skip the seed display. The file
             // is still on disk; they can recover with `sudo cat
             // /mnt/data/lnd/lnd-seed-mnemonic` later.
+            _markStepCompleted(SetupStep.initLightning);
             context.read(_setupStepProvider.notifier).state = SetupStep.summary;
             return true;
           }
@@ -827,6 +1033,7 @@ class _SetupViewState extends State<SetupView> {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
+            _markStepCompleted(SetupStep.initLightning);
             context.read(_setupStepProvider.notifier).state = SetupStep.summary;
             return true;
           }
@@ -869,6 +1076,10 @@ class _SetupViewState extends State<SetupView> {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
+            // Final step — recording it as completed gates the
+            // dashboard from app.dart's startup routing on every
+            // future launch.
+            _markStepCompleted(SetupStep.summary);
             context.read(currentViewProvider.notifier).state =
                 AppView.dashboard;
             return true;

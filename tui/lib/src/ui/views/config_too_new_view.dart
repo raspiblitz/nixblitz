@@ -20,13 +20,15 @@ class ConfigTooNewView extends StatelessComponent {
 
     String rawConfig = '';
     int diskVersion = 0;
-    bool initialized = false;
+    bool setupComplete = false;
 
     try {
       rawConfig = File(path).readAsStringSync();
       final json = jsonDecode(rawConfig) as Map<String, dynamic>;
       diskVersion = (json['version'] as int?) ?? 0;
-      initialized = json['initialized'] == true;
+      // Wizard is fully done iff the last completed step is the
+      // terminal one. See the matching gate in `app.dart`.
+      setupComplete = (json['setup_step_completed'] as String?) == 'summary';
     } catch (e) {
       rawConfig = '(could not read $path: $e)';
     }
@@ -36,7 +38,7 @@ class ConfigTooNewView extends StatelessComponent {
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.keyC) {
-            context.read(currentViewProvider.notifier).state = initialized
+            context.read(currentViewProvider.notifier).state = setupComplete
                 ? AppView.dashboard
                 : AppView.setup;
             return true;

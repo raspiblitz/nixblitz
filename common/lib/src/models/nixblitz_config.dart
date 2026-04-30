@@ -233,6 +233,26 @@ class NixblitzConfig {
   final int configMinCompatibleVersion;
 
   final bool initialized;
+
+  /// Name of the last setup-wizard step the operator completed,
+  /// or null if no step has finished. The wizard records its
+  /// own [SetupStep] enum names here (`"setPassword"`,
+  /// `"buildServices"`, `"waitBitcoind"`, `"initLightning"`,
+  /// `"summary"`) so a Ctrl+C mid-wizard resumes at the next
+  /// undone step on the following launch.
+  ///
+  /// Tracked as a string rather than a typed enum on purpose —
+  /// it survives wizard refactors that rename/insert/remove
+  /// steps. When this field equals the terminal step name
+  /// (`"summary"`) the wizard is fully done and the app routes
+  /// straight to the dashboard.
+  ///
+  /// Distinct from [initialized]: that field flips at the very
+  /// first useful step (services build) so the NixOS modules
+  /// know to enable services, but it doesn't tell us whether
+  /// the operator finished the rest of the wizard.
+  final String? setupStepCompleted;
+
   final SystemConfig system;
   final BitcoindConfig bitcoind;
   final LndConfig lnd;
@@ -246,6 +266,7 @@ class NixblitzConfig {
     this.version = currentConfigVersion,
     this.configMinCompatibleVersion = minCompatibleVersion,
     required this.initialized,
+    this.setupStepCompleted,
     required this.system,
     required this.bitcoind,
     required this.lnd,
@@ -258,6 +279,7 @@ class NixblitzConfig {
 
   factory NixblitzConfig.defaults() => NixblitzConfig(
     initialized: false,
+    setupStepCompleted: null,
     system: SystemConfig.defaults(),
     bitcoind: BitcoindConfig.defaults(),
     lnd: LndConfig.defaults(),
@@ -270,6 +292,7 @@ class NixblitzConfig {
     'version',
     'min_compatible_version',
     'initialized',
+    'setup_step_completed',
     'system',
     'bitcoind',
     'lnd',
@@ -314,6 +337,24 @@ class NixblitzConfig {
           ? configMinVersion
           : minCompatibleVersion,
       initialized: migrated['initialized'] as bool? ?? false,
+      // Old configs predate this field. Two cases to handle on
+      // load:
+      //   - `initialized=false`: fresh / never started → null,
+      //     wizard begins at the first step.
+      //   - `initialized=true`: a previous wizard run ran the
+      //     services build before this field existed. We don't
+      //     know whether it then finished, so be conservative
+      //     and treat the operator as "got past buildServices
+      //     but no further" — wizard resumes at waitBitcoind.
+      //     Already-finished operators see one extra prompt
+      //     (which they confirm and never see again); the
+      //     alternative is leaving stuck-mid-wizard users
+      //     unable to resume.
+      setupStepCompleted:
+          migrated['setup_step_completed'] as String? ??
+          ((migrated['initialized'] as bool? ?? false)
+              ? 'buildServices'
+              : null),
       system: migrated['system'] != null
           ? SystemConfig.fromJson(migrated['system'] as Map<String, dynamic>)
           : SystemConfig.defaults(),
@@ -351,6 +392,7 @@ class NixblitzConfig {
     'version': version,
     'min_compatible_version': configMinCompatibleVersion,
     'initialized': initialized,
+    'setup_step_completed': setupStepCompleted,
     'system': system.toJson(),
     'bitcoind': bitcoind.toJson(),
     'lnd': lnd.toJson(),
@@ -369,6 +411,12 @@ class NixblitzConfig {
 
     if (initialized != other.initialized) {
       changes.add('initialized: ${other.initialized} → $initialized');
+    }
+    if (setupStepCompleted != other.setupStepCompleted) {
+      changes.add(
+        'setup_step_completed: ${other.setupStepCompleted ?? "(none)"} → '
+        '${setupStepCompleted ?? "(none)"}',
+      );
     }
 
     // Compare sub-configs via JSON serialization to catch any field changes.
@@ -405,6 +453,13 @@ class NixblitzConfig {
     int? version,
     int? configMinCompatibleVersion,
     bool? initialized,
+    // Wrapped in a function-typed sentinel because this field
+    // is nullable — a plain `String? setupStepCompleted` can't
+    // distinguish "leave as-is" from "explicitly clear to null".
+    // Pass `() => null` to clear, `() => "stepName"` to set,
+    // omit entirely to inherit. (Matches Dart's idiom for
+    // copyWith on optional nullable fields.)
+    String? Function()? setupStepCompleted,
     SystemConfig? system,
     BitcoindConfig? bitcoind,
     LndConfig? lnd,
@@ -418,6 +473,9 @@ class NixblitzConfig {
     configMinCompatibleVersion:
         configMinCompatibleVersion ?? this.configMinCompatibleVersion,
     initialized: initialized ?? this.initialized,
+    setupStepCompleted: setupStepCompleted == null
+        ? this.setupStepCompleted
+        : setupStepCompleted(),
     system: system ?? this.system,
     bitcoind: bitcoind ?? this.bitcoind,
     lnd: lnd ?? this.lnd,

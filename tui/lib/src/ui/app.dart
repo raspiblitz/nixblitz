@@ -114,7 +114,18 @@ class NixBlitzApp extends StatelessComponent {
         final content = File(configPath).readAsStringSync();
         final json = jsonDecode(content) as Map<String, dynamic>;
         final diskVersion = (json['version'] as int?) ?? 1;
-        final initialized = json['initialized'] == true;
+        // `setup_step_completed` is the name of the last wizard
+        // step the operator finished (the wizard's SetupStep
+        // enum names — `setPassword`, `buildServices`,
+        // `waitBitcoind`, `initLightning`, `summary`). The
+        // wizard is fully done when it equals the terminal step
+        // name; any other value (including null) means the
+        // operator quit mid-flow and should resume at the next
+        // undone step. The terminal name is hardcoded here so
+        // app-level routing doesn't need to import the wizard
+        // module's private enum.
+        final stepCompleted = json['setup_step_completed'] as String?;
+        final setupComplete = stepCompleted == 'summary';
 
         if (diskVersion > currentConfigVersion) {
           // Newer than we understand. Let the user choose whether to
@@ -133,7 +144,7 @@ class NixBlitzApp extends StatelessComponent {
             // diff and the user applies when ready.
             _autoUpgrade(baseDir);
           }
-          initialView = initialized ? AppView.dashboard : AppView.setup;
+          initialView = setupComplete ? AppView.dashboard : AppView.setup;
         }
       } catch (e, st) {
         LogService.error(
