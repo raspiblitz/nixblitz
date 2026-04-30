@@ -323,39 +323,95 @@ zstd -dc result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status
 
 > **About the upstream image's SSH keys**: the upstream's
 > `rpi5-installer` config has empty `authorizedKeys.keys`
-> placeholders. To SSH into the live image you'll either set a
-> password on the local console first, or fork the upstream and
-> drop your public key into `custom-user-config`. For an
-> on-the-VM-console install you can skip both.
+> placeholders. Either set the root password from the local
+> console (see the next section) and SSH in with that, or fork
+> the upstream and drop your public key into `custom-user-config`.
+> For an on-the-Pi-console install you can skip both.
 
 ### 2. Boot the Pi 5
 
 Insert the USB stick. If you're installing onto NVMe via M.2,
 make sure the NVMe drive is also seated. Power on. The Pi 5
-boots from USB (default boot order priority); you land at a NixOS
-console as user `nixos` with no password set.
+boots from USB (default boot order priority).
 
-If you want SSH access, set a password on the local console:
+> **Heads up: the upstream live image has a few rough edges
+> we don't currently paper over.** None block the install — but
+> worth knowing about up front:
+>
+> 1. **You log in as `root`, not `nixos`.** That's the upstream
+>    `sdimage-installer` module's choice; we don't override it.
+> 2. **A random root password is printed at first boot, BUT the
+>    printout often gets garbled by other boot output racing on
+>    the same console.** If you can read it, great — write it
+>    down. If you can't, hard-reset once and try again on the
+>    second boot when the boot chatter has settled, or just
+>    proceed to the next step and set a known password yourself.
+> 3. **SSH is enabled by default** with no authorized keys — login
+>    requires the root password.
+> 4. **`git` is not on PATH.** The bootstrap command in section 3
+>    needs it (`nix run` against a `git+https://…` URL); drop
+>    into `nix-shell -p git` first. The fully-installed system
+>    has git (we add it via `features.system.base`).
+> 5. **You MUST add the `nixos-raspberrypi.cachix.org` substituter
+>    or the bootstrap SIGBUSes mid-fetch.** The Pi 5 vendor kernel
+>    uses 16K pages; cache.nixos.org's standard aarch64 binaries
+>    are 4K-aligned. Mmap'ing them on a 16K-page kernel faults
+>    with SIGBUS the first time the binary is exercised, and
+>    `nix run` crashes hundreds of MB into the closure with
+>    `Bus error (core dumped)`. The upstream `nixos-raspberrypi`
+>    cachix bucket builds aarch64 closures with 16K alignment;
+>    the bootstrap command in section 3 includes the substituter
+>    - public key as flags so you don't have to configure it
+>      separately.
+>
+> Replacing the live image with a NixBlitz-branded one that uses
+> a known `admin` / "nixblitz" initial-password setup (matching
+> x86) — and bakes the closure in so none of the above matters —
+> is on the roadmap; not today.
+
+To set a known root password on the local console (recommended):
 
 ```bash
-passwd
+passwd                     # set a password you'll actually remember
 ip -4 addr | grep inet     # find the Pi's IP
 ```
 
-Then SSH in from your workstation.
+Then SSH in from your workstation as `root` with that password.
 
 ### 3. Bootstrap NixBlitz
 
-Same command as the x86 walkthrough:
+The bootstrap command on Pi 5 needs two preflight extras the x86
+walkthrough doesn't:
+
+- **`git` on PATH** — the upstream live image doesn't ship it,
+  and `nix run` against a `git+https://…` URL needs it.
+- **`nixos-raspberrypi.cachix.org` as an extra substituter** —
+  without it, nix substitutes 4K-aligned aarch64 binaries from
+  cache.nixos.org and the Pi 5's 16K-page kernel SIGBUSes the
+  first time it tries to run one. (See quirk #5 in the heads-up
+  callout above.)
+
+Drop into a shell with git first:
 
 ```bash
-nix run git+https://forge.f44.fyi/f44/nixblitz_ng \
-  --experimental-features "nix-command flakes" \
-  --no-write-lock-file --refresh
+nix-shell -p git
 ```
 
-First run takes 1-2 minutes (the TUI binary builds from source on
-aarch64; some closures pull from cache.nixos.org).
+Then run the bootstrap from inside that shell:
+
+```bash
+nix run \
+  --extra-substituters "https://nixos-raspberrypi.cachix.org" \
+  --extra-trusted-public-keys "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI=" \
+  --experimental-features "nix-command flakes" \
+  --no-write-lock-file --refresh \
+  git+https://forge.f44.fyi/f44/nixblitz_ng
+```
+
+First run takes 1-2 minutes on x86; on Pi 5 it's 5-30 minutes
+depending on which closures the cachix has pre-built. The Dart
+workspace bits are NixBlitz-specific (no upstream cache) so
+they always build locally on the Pi.
 
 The TUI launches into **install mode** (it detects tmpfs root —
 the live image is ephemeral, same trigger as x86).
