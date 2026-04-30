@@ -20,15 +20,46 @@ import '../providers/ui_state_provider.dart';
 
 final _helpVisibleProvider = StateProvider<bool>((ref) => false);
 
-/// Detect if running on a live NixOS ISO by checking if root is tmpfs.
-bool _isLiveIso() {
+/// Detect whether we're running inside a NixOS installer image —
+/// the x86 minimal ISO, the Pi 5 SD-image installer, etc. These
+/// are the environments where [AppView.install] is the right
+/// startup view and disk-wiping commands are safe to run.
+///
+/// Two signals, ORed together so each image variant is covered:
+///
+/// 1. **Root filesystem is tmpfs.** True on the upstream NixOS
+///    minimal ISO (the x86 walkthrough's path), where the rootfs
+///    overlays a tmpfs on top of the read-only squashfs. False
+///    on installer images that boot writable disk images
+///    (like nvmd's Pi 5 sdimage-installer, which roots on a
+///    real ext4 partition).
+///
+/// 2. **`VARIANT_ID=installer` in `/etc/os-release`.** Set by
+///    upstream nixos-images for every installer flavour. This
+///    is what catches the Pi 5 case the tmpfs check misses.
+///    Installed NixOS systems either omit `VARIANT_ID` or set
+///    it to something else.
+bool _isInstallerEnvironment() {
   try {
     final result = Process.runSync('stat', ['-f', '-c', '%T', '/']);
-    return (result.stdout as String).trim() == 'tmpfs';
+    if ((result.stdout as String).trim() == 'tmpfs') return true;
   } catch (e) {
-    LogService.warn('Could not detect live ISO: $e');
-    return false;
+    LogService.warn('Could not stat / for tmpfs check: $e');
   }
+  try {
+    final content = File('/etc/os-release').readAsStringSync();
+    // Match `VARIANT_ID=installer` (with or without quotes) on
+    // its own line. Avoid substring matches like
+    // `BUILD_ID=…installer…` — only the explicit field counts.
+    final hit = RegExp(
+      r'^VARIANT_ID="?installer"?$',
+      multiLine: true,
+    ).hasMatch(content);
+    if (hit) return true;
+  } catch (e) {
+    LogService.warn('Could not read /etc/os-release: $e');
+  }
+  return false;
 }
 
 /// Footer text for the current view. Dashboard omits `[a]: Apply` when
@@ -91,22 +122,24 @@ class NixBlitzApp extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    // Detect if we're on a live ISO (root filesystem is tmpfs).
-    // On a live ISO, always start in install mode regardless of existing config,
-    // so a failed install attempt can be retried.
-    final isLiveIso = _isLiveIso();
+    // Detect if we're inside a NixOS installer image (x86 minimal
+    // ISO, Pi 5 sdimage installer, etc.). On any installer image
+    // we always start in install mode regardless of existing
+    // config so a failed install attempt can be retried.
+    final isInstaller = _isInstallerEnvironment();
     final configPath = '$baseDir/config.json';
     final configExists = File(configPath).existsSync();
 
-    // Safety: if we're not on a live ISO AND there's no config, this is
-    // an installed non-NixBlitz system. Refuse to start to prevent accidents
-    // (install mode would try to wipe a disk).
-    if (!isLiveIso && !configExists) {
+    // Safety: if we're NOT in an installer image AND there's no
+    // config, this is an installed non-NixBlitz system. Refuse to
+    // start to prevent accidents (install mode would try to wipe
+    // a disk).
+    if (!isInstaller && !configExists) {
       return _RefusalScreen(message: _noConfigNonIsoMessage);
     }
 
     AppView initialView;
-    if (isLiveIso) {
+    if (isInstaller) {
       initialView = AppView.install;
     } else {
       // configExists is guaranteed true here (refusal above handles the else)
