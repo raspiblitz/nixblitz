@@ -7,6 +7,7 @@ import 'dashboard/lightning_tile.dart';
 import 'dashboard/plugin_tile.dart';
 import 'dashboard/system_tile.dart';
 import 'dashboard/tile_layout.dart';
+import '../../providers/ui_state_provider.dart';
 
 class DashboardView extends StatefulComponent {
   const DashboardView({super.key});
@@ -112,6 +113,39 @@ class _DashboardViewState extends State<DashboardView> {
     return lines;
   }
 
+  /// Surfaces template-content drift between the binary and
+  /// `~/nixblitz/`. Triggered when an updated TUI binary ships
+  /// new template content without bumping the config schema —
+  /// the case the page-size-16k fix slipped through. Operator
+  /// presses [r] (handled in app.dart's dashboard branch) to
+  /// refresh + advance to the apply view.
+  List<Component> _buildDriftBanner(BuildContext context) {
+    final drift = context.watch(templatesDriftProvider);
+    if (!drift.hasDrift) return const [];
+    final n = drift.totalChanged;
+    return [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '! $n template '
+              '${n == 1 ? "file differs" : "files differ"} '
+              'from this binary — press [r] to refresh',
+              style: const TextStyle(color: Color.fromRGB(255, 200, 80)),
+            ),
+            const Text(
+              '  refresh writes the binary\'s embedded copies over '
+              'the on-disk files, leaves the tree dirty for [a] Apply',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
   static String _humanizeAge(DateTime t) {
     final diff = DateTime.now().toUtc().difference(t.toUtc());
     if (diff.inMinutes < 1) return 'just now';
@@ -214,6 +248,7 @@ class _DashboardViewState extends State<DashboardView> {
                 ),
               ),
             ..._buildUpdateAvailableBanner(),
+            ..._buildDriftBanner(context),
             const SizedBox(height: 1),
             Expanded(
               child: Container(

@@ -31,6 +31,7 @@ export 'src/services/plugin_config_service.dart';
 export 'src/services/plugin_dashboard_service.dart';
 export 'src/services/plugin_service.dart';
 export 'src/services/scaffold_service.dart';
+export 'src/services/templates_drift.dart';
 export 'src/services/sudo_session.dart';
 export 'src/services/update_check_service.dart';
 export 'src/services/install_service.dart';

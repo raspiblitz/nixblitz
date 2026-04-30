@@ -62,17 +62,28 @@ bool _isInstallerEnvironment() {
   return false;
 }
 
-/// Footer text for the current view. Dashboard omits `[a]: Apply` when
-/// the working tree is clean — there's nothing to apply, so advertising
-/// the shortcut is noise.
-String _footerHint(AppView view, {required bool hasPending}) {
+/// Footer text for the current view. Dashboard omits `[a]:
+/// Apply` when the working tree is clean and only surfaces
+/// `[r]: Refresh templates` when drift was detected at launch
+/// — there's nothing to apply / refresh otherwise, so
+/// advertising the shortcut is noise.
+String _footerHint(
+  AppView view, {
+  required bool hasPending,
+  required bool hasDrift,
+}) {
   return switch (view) {
     AppView.install => '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
     AppView.setup => 'Setting up...  [?]: Help',
-    AppView.dashboard =>
-      hasPending
-          ? '[c]: Configure  [a]: Apply  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit'
-          : '[c]: Configure  [u]: Update  [D]: Debug  [?]: Help  [q]: Quit',
+    AppView.dashboard => [
+      '[c]: Configure',
+      if (hasPending) '[a]: Apply',
+      '[u]: Update',
+      if (hasDrift) '[r]: Refresh templates',
+      '[D]: Debug',
+      '[?]: Help',
+      '[q]: Quit',
+    ].join('  '),
     AppView.configure =>
       '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
     AppView.apply => '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
@@ -83,17 +94,21 @@ String _footerHint(AppView view, {required bool hasPending}) {
   };
 }
 
-/// Run when the on-disk config is older than this TUI expects: rewrite
-/// embedded templates, migrate config.json to [currentConfigVersion], leave
-/// the working tree dirty so the user reviews + applies via `[a]`.
-void _autoUpgrade(String baseDir) {
+/// Run when the on-disk config is older than this TUI expects:
+/// migrate `config.json` to [currentConfigVersion] and leave
+/// the working tree dirty so the user reviews + applies via
+/// `[a]`. Templates refresh used to live here too, but it's
+/// now a separate concern driven by drift detection (see
+/// [detectTemplatesDrift] + the dashboard's drift banner).
+/// Schema-version bumps are about config-shape migrations
+/// only; templates that change for bug-fix-only reasons (no
+/// schema bump) get caught by the drift check.
+void _autoMigrateConfig(String baseDir) {
   try {
-    final scaffold = ScaffoldService(targetDir: baseDir);
-    scaffold.refreshTemplatesSync();
-
-    // Read + re-write config so migrations run and the `version` field
-    // bumps. Synchronous path — ConfigService has both async and sync
-    // variants; we want sync here to block before the UI renders.
+    // Read + re-write config so migrations run and the
+    // `version` field bumps. Synchronous path — ConfigService
+    // has both async and sync variants; we want sync here to
+    // block before the UI renders.
     final configService = ConfigService(baseDir: baseDir);
     final json =
         jsonDecode(File('$baseDir/config.json').readAsStringSync())
@@ -102,11 +117,11 @@ void _autoUpgrade(String baseDir) {
     configService.writeConfigSync(config);
 
     LogService.info(
-      'Auto-upgrade complete: templates refreshed, config migrated to '
-      'v$currentConfigVersion. Working tree left dirty for user review.',
+      'Auto-migrate complete: config migrated to v$currentConfigVersion. '
+      'Working tree left dirty for user review.',
     );
   } catch (e, st) {
-    LogService.error('Auto-upgrade failed', e, st);
+    LogService.error('Auto-migrate failed', e, st);
   }
 }
 
@@ -171,11 +186,14 @@ class NixBlitzApp extends StatelessComponent {
           initialView = AppView.configTooNew;
         } else {
           if (diskVersion < currentConfigVersion) {
-            // Older NixBlitz on disk. Run migrations + refresh templates
-            // so the modules match this binary. Leaves the working tree
-            // dirty — the dashboard's pending-changes banner surfaces the
-            // diff and the user applies when ready.
-            _autoUpgrade(baseDir);
+            // Older NixBlitz config schema on disk. Run
+            // migrations to bring config.json up to date.
+            // Templates refresh is intentionally NOT done here
+            // anymore — drift detection on the dashboard owns
+            // that concern, so a templates-only release also
+            // gets caught (the case the page-size-16k fix
+            // missed because no schema bump fired).
+            _autoMigrateConfig(baseDir);
           }
           initialView = setupComplete ? AppView.dashboard : AppView.setup;
         }
@@ -189,11 +207,35 @@ class NixBlitzApp extends StatelessComponent {
       }
     }
 
+    // Compute templates drift once at launch. Cheap (diff
+    // ~20 short string blobs against on-disk files), and the
+    // underlying state only changes via out-of-process events
+    // (binary update, hand-edit). Result feeds the dashboard's
+    // refresh banner via `templatesDriftProvider`.
+    //
+    // Skipped on installer images — the templates we'd diff
+    // against don't exist yet (the install flow scaffolds
+    // them onto the target disk, not the live media). Drift
+    // detection is meaningful only on a fully-installed
+    // system.
+    final initialDrift = (isInstaller || !configExists)
+        ? TemplatesDrift.inSync
+        : detectTemplatesDrift(baseDir);
+    if (initialDrift.hasDrift) {
+      LogService.info(
+        'Templates drift detected at launch: '
+        '${initialDrift.modified.length} modified, '
+        '${initialDrift.missing.length} missing. '
+        'Modified=${initialDrift.modified}; missing=${initialDrift.missing}',
+      );
+    }
+
     return ProviderScope(
       overrides: [
         baseDirProvider.overrideWithValue(baseDir),
         startupBinaryProvider.overrideWithValue(startupBinary),
         currentViewProvider.overrideWith((ref) => initialView),
+        templatesDriftProvider.overrideWith((ref) => initialDrift),
       ],
       child: NoctermApp(
         title: 'NixBlitz',
@@ -262,6 +304,34 @@ class _Shell extends StatelessComponent {
                 if (event.matches(LogicalKey.keyD, shift: true)) {
                   context.read(currentViewProvider.notifier).state =
                       AppView.debug;
+                  return true;
+                }
+                if (event.logicalKey == LogicalKey.keyR) {
+                  // Refresh templates from the binary's
+                  // embedded copy. Gated on actual drift —
+                  // [r] is a no-op when the dashboard banner
+                  // isn't showing, so a stray keypress doesn't
+                  // overwrite hand-edited templates the
+                  // operator hasn't reviewed yet.
+                  final drift = context.read(templatesDriftProvider);
+                  if (!drift.hasDrift) return true;
+                  try {
+                    final dir = context.read(baseDirProvider);
+                    ScaffoldService(targetDir: dir).refreshTemplatesSync();
+                    LogService.info(
+                      'refresh: rewrote ${drift.totalChanged} drifted '
+                      'template ${drift.totalChanged == 1 ? "file" : "files"}',
+                    );
+                    // Drift just got resolved — clear the
+                    // banner. The apply view picks up the
+                    // dirty tree from the file-system change.
+                    context.read(templatesDriftProvider.notifier).state =
+                        TemplatesDrift.inSync;
+                    context.read(currentViewProvider.notifier).state =
+                        AppView.apply;
+                  } catch (e, st) {
+                    LogService.error('Templates refresh failed', e, st);
+                  }
                   return true;
                 }
                 if (event.logicalKey == LogicalKey.keyQ) {
@@ -343,6 +413,7 @@ class _Shell extends StatelessComponent {
                             data: (lines) => lines.isNotEmpty,
                             orElse: () => false,
                           ),
+                      hasDrift: context.watch(templatesDriftProvider).hasDrift,
                     ),
                     style: const TextStyle(
                       color: Color.fromRGB(247, 147, 26),
