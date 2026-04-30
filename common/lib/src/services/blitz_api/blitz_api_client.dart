@@ -60,6 +60,62 @@ class BlitzApiClient {
     unawaited(_runWithBackoff());
   }
 
+  /// One-shot authenticated GET. Used by the dashboard's REST
+  /// prime to populate snapshot tiles without waiting for the
+  /// SSE channel's first events. Reuses the JWT cached by the
+  /// SSE login path; logs in on demand if no JWT is held.
+  ///
+  /// Returns the decoded JSON body on 200, or null on any
+  /// other status / network error / parse failure (logged).
+  /// Best-effort by design — caller treats null as "feature
+  /// not primed; wait for SSE".
+  ///
+  /// Single 401 retry: if the cached JWT expired between login
+  /// and this call, drop it and re-login once before giving
+  /// up. Anything weirder than that bubbles up as null and
+  /// gets logged.
+  Future<dynamic> getJson(String path) async {
+    if (_disposed) return null;
+    if (_jwt == null) {
+      try {
+        await _login();
+      } catch (e) {
+        LogService.warn('BlitzApiClient.getJson($path): login failed: $e');
+        return null;
+      }
+    }
+    return _doGet(path, retryOn401: true);
+  }
+
+  Future<dynamic> _doGet(String path, {required bool retryOn401}) async {
+    try {
+      final resp = await _httpClient.get(
+        baseUrl.resolve(path),
+        headers: {'Authorization': 'Bearer $_jwt'},
+      );
+      if (resp.statusCode == 401 && retryOn401) {
+        _jwt = null;
+        try {
+          await _login();
+        } catch (e) {
+          LogService.warn('BlitzApiClient.getJson($path): re-login failed: $e');
+          return null;
+        }
+        return _doGet(path, retryOn401: false);
+      }
+      if (resp.statusCode != 200) {
+        LogService.warn(
+          'BlitzApiClient.getJson($path): HTTP ${resp.statusCode}',
+        );
+        return null;
+      }
+      return jsonDecode(resp.body);
+    } catch (e) {
+      LogService.warn('BlitzApiClient.getJson($path): $e');
+      return null;
+    }
+  }
+
   Future<void> dispose() async {
     _disposed = true;
     await _sseSub?.cancel();

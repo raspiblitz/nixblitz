@@ -45,14 +45,29 @@ class ApiDashboardSource implements DashboardDataSource {
   /// so on idle nodes updates can lag).
   DateTime? _bootTime;
 
-  /// [seedSystem] is the initial SystemSnapshot the caller hands in
-  /// (usually hostname/platform/network from config.json) so we can
-  /// render the System tile before the first `system_info` SSE event
-  /// lands.
-  ApiDashboardSource({BlitzApiClient? client, SystemSnapshot? seedSystem})
-    : _client = client ?? BlitzApiClient(),
-      _ownsClient = client == null {
+  /// Seeds let the caller pre-populate any of the four snapshots
+  /// before SSE delivers its first events. Two callers feed
+  /// these:
+  ///
+  /// - `dashboardDataSourceProvider`: passes the previous source's
+  ///   last-known snapshots back in when the data source is
+  ///   recreated (e.g. config-change-driven). Without this, every
+  ///   recreate flips all four tiles back to "loading".
+  /// - The same provider also passes a fresh [seedSystem] derived
+  ///   from `config.json` (hostname / platform / network) so the
+  ///   System tile populates immediately on first launch.
+  ApiDashboardSource({
+    BlitzApiClient? client,
+    SystemSnapshot? seedSystem,
+    HardwareSnapshot? seedHardware,
+    BtcSnapshot? seedBitcoin,
+    LnSnapshot? seedLightning,
+  }) : _client = client ?? BlitzApiClient(),
+       _ownsClient = client == null {
     _system = seedSystem;
+    _hardware = seedHardware;
+    _btc = seedBitcoin;
+    _ln = seedLightning;
     _start();
   }
 
@@ -90,8 +105,15 @@ class ApiDashboardSource implements DashboardDataSource {
   // ── private ──────────────────────────────────────────────────
 
   void _start() {
-    // Push the seed so late subscribers see something right away.
+    // Push every non-null seed so late subscribers (the dashboard
+    // tile providers) see something right away. Broadcast streams
+    // don't replay — without these explicit emits, a subscriber
+    // attaching after the seed was set would still wait for the
+    // next live event.
     if (_system != null) _systemCtrl.add(_system);
+    if (_hardware != null) _hardwareCtrl.add(_hardware);
+    if (_btc != null) _btcCtrl.add(_btc);
+    if (_ln != null) _lnCtrl.add(_ln);
 
     _sub = _client.events.listen(_onEvent);
     unawaited(
@@ -100,6 +122,19 @@ class ApiDashboardSource implements DashboardDataSource {
       }),
     );
 
+    // Fire-and-forget REST prime. Runs in parallel with the SSE
+    // startup so the first dashboard render gets data within a
+    // few hundred ms — without it, `Tile: waiting for event…`
+    // shows for as long as the SSE handshake + first push takes
+    // (visible on every cold start and every config-change-
+    // driven data-source recreate).
+    //
+    // Each REST endpoint returns the same JSON shape as its
+    // matching SSE event, so we feed the responses through the
+    // same `_dispatchEvent` parser to reuse all the conversion
+    // logic.
+    unawaited(_primeFromRest());
+
     // Systemd status for ancillary services isn't on the SSE stream;
     // poll locally and merge into the SystemSnapshot.
     _pollServices();
@@ -107,6 +142,46 @@ class ApiDashboardSource implements DashboardDataSource {
       _kServicePollInterval,
       (_) => _pollServices(),
     );
+  }
+
+  /// REST prime: hit the four blitz-api endpoints whose JSON
+  /// matches our handled SSE events, feed each response through
+  /// `_dispatchEvent` so all parsing logic stays in one place.
+  /// Best-effort — failures (auth not ready yet, network blip,
+  /// service starting up) leave the corresponding snapshot in
+  /// its current state (whatever the seed established) until
+  /// SSE delivers its first event.
+  ///
+  /// The five endpoints are independent so we fire them in
+  /// parallel via `Future.wait`. Race vs SSE is fine: whichever
+  /// arrives last is the one that wins, and since both produce
+  /// the same shape it's just a redundant identical emit.
+  Future<void> _primeFromRest() async {
+    try {
+      await Future.wait([
+        _primeOne('/bitcoin/btc-info', 'btc_info'),
+        _primeOne('/lightning/get-info', 'ln_info'),
+        _primeOne('/lightning/get-balance', 'wallet_balance'),
+        _primeOne('/system/get-system-info', 'system_info'),
+        _primeOne('/system/hardware-info', 'hardware_info'),
+      ]);
+    } catch (e, st) {
+      LogService.warn('ApiDashboardSource: REST prime batch failed: $e');
+      LogService.error('ApiDashboardSource REST prime trace', e, st);
+    }
+  }
+
+  Future<void> _primeOne(String path, String eventName) async {
+    final json = await _client.getJson(path);
+    if (json is! Map) return;
+    try {
+      _dispatchEvent(eventName, json.cast<String, dynamic>());
+    } catch (e, st) {
+      LogService.warn(
+        'ApiDashboardSource: REST prime dispatch $eventName failed: $e',
+      );
+      LogService.error('ApiDashboardSource prime dispatch trace', e, st);
+    }
   }
 
   Future<void> _pollServices() async {
