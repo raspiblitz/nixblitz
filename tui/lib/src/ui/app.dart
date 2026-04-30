@@ -62,6 +62,31 @@ bool _isInstallerEnvironment() {
   return false;
 }
 
+/// Center text for the top-of-screen header strip — sits
+/// between the "NIXBLITZ" logo and the version string. Surfaces
+/// the at-a-glance identity of the box: the operator-chosen LN
+/// node alias (when LND is enabled and they actually picked
+/// one) plus a prettified platform name.
+///
+/// Network and per-service status deliberately stay out of the
+/// header — both already show on the dashboard tiles + footer
+/// banners, and the header has limited horizontal real estate
+/// on narrower terminals.
+String _formatHeaderInfo(NixblitzConfig config) {
+  final parts = <String>[];
+  if (config.lnd.enabled && config.lnd.alias.isNotEmpty) {
+    parts.add(config.lnd.alias);
+  }
+  final platform = switch (config.system.platform) {
+    'pi5' => 'Pi 5',
+    'vm' => 'VM',
+    'x86' => 'x86',
+    final s => s,
+  };
+  if (platform.isNotEmpty) parts.add(platform);
+  return parts.join(' | ');
+}
+
 /// Footer text for the current view. Dashboard omits `[a]:
 /// Apply` when the working tree is clean and only surfaces
 /// `[r]: Refresh templates` when drift was detected at launch
@@ -361,13 +386,27 @@ class _Shell extends StatelessComponent {
                     ),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
                         'NIXBLITZ',
                         style: TextStyle(
                           color: Color.fromRGB(247, 147, 26),
                           fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            context
+                                .watch(configProvider)
+                                .maybeWhen(
+                                  data: _formatHeaderInfo,
+                                  orElse: () => '',
+                                ),
+                            style: const TextStyle(
+                              color: Color.fromRGB(180, 180, 200),
+                            ),
+                          ),
                         ),
                       ),
                       Text(
