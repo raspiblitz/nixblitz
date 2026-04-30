@@ -3,9 +3,19 @@
 
   inputs = {
     nixpkgs.url = "github:nixOS/nixpkgs/nixos-25.11";
+
+    # DELIBERATELY a separate nixpkgs — the dart-workspace-member-filter
+    # patch in this fork is what lets the TUI's Dart build evaluate.
+    # Following `nixpkgs` here would lose the patch. This is the one
+    # documented exception to the "every input follows nixpkgs" rule
+    # in CLAUDE.md.
     nixpkgs-unstable.url = "github:fusion44/nixpkgs/dart-workspace-member-filter";
+
+    # flake-utils + nix-filter are pure-lib flakes with no nixpkgs
+    # input themselves — nothing to follow.
     flake-utils.url = "github:numtide/flake-utils";
     nix-filter.url = "github:numtide/nix-filter";
+
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";

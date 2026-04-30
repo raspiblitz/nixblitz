@@ -13,15 +13,26 @@
     };
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     blitz-api = {
       url = "github:fusion44/blitz_api";
+      # CRITICAL on Pi 5: without this follows, blitz-api pulls
+      # in its own pinned nixos-unstable, captures `pkgs` from
+      # there at flake-eval time, and bakes a uv path into its
+      # pyproject install hook that we can't override. With the
+      # follows, blitz-api's eval uses our nixpkgs and our
+      # uv override (in installed-pi5.nix's `nixpkgs.overlays`)
+      # actually reaches the install hook. See the rule in
+      # CLAUDE.md about always following nixpkgs on new inputs.
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     blitz-web = {
       # Tracks the branch with the nix packaging in place (pending PR
       # back to raspiblitz/raspiblitz-web). Once merged upstream this
       # can point at github:raspiblitz/raspiblitz-web directly.
       url = "github:fusion44/raspiblitz-web";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
     # come from this third-party flake. Pinned to a tag so refreshes
