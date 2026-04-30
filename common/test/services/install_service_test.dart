@@ -194,6 +194,52 @@ proc /proc proc rw 0 0
     });
   });
 
+  group('parseProcMountsRootDevice', () {
+    test('returns parent disk for / on writable rootfs (Pi 5 sdimage)', () {
+      // Reproduces the Pi 5 `sdimage-installer` shape: ext4 root
+      // straight off the USB stick, no /iso. The picker would
+      // otherwise offer the boot stick as a valid install target.
+      const mounts = '''
+proc /proc proc rw 0 0
+/dev/sda2 / ext4 rw,relatime 0 0
+/dev/sda1 /boot vfat rw 0 0
+tmpfs /run tmpfs rw,nosuid 0 0
+''';
+      expect(InstallService.parseProcMountsRootDevice(mounts), 'sda');
+    });
+
+    test('returns null for tmpfs root (x86 NixOS minimal ISO overlay)', () {
+      // The x86 ISO overlays tmpfs over a squashfs, with the
+      // source media mounted at /iso. The /-on-tmpfs case must
+      // NOT match here — the boot device gets caught by
+      // parseProcMountsBootDevice via the /iso mount instead.
+      const mounts = '''
+proc /proc proc rw 0 0
+tmpfs / tmpfs rw,nosuid 0 0
+/dev/sdb1 /iso vfat rw 0 0
+/dev/loop0 /nix/.ro-store squashfs ro 0 0
+''';
+      expect(InstallService.parseProcMountsRootDevice(mounts), isNull);
+    });
+
+    test('returns null when / is missing entirely', () {
+      // Defensive — pathological /proc/mounts (e.g. a chroot
+      // setup) shouldn't crash the helper.
+      const mounts = '''
+proc /proc proc rw 0 0
+/dev/sda1 /boot ext4 rw 0 0
+''';
+      expect(InstallService.parseProcMountsRootDevice(mounts), isNull);
+    });
+
+    test('handles nvme partition naming for / device', () {
+      const mounts = '''
+/dev/nvme0n1p2 / ext4 rw 0 0
+''';
+      expect(InstallService.parseProcMountsRootDevice(mounts), 'nvme0n1');
+    });
+  });
+
   group('annotateDisks', () {
     test('flags zero-byte disks as noMedia', () {
       // The empty multi-card-reader case. Trivially uninstallable;

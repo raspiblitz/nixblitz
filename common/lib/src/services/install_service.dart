@@ -24,7 +24,18 @@ class InstallService {
     String? bootDevice;
     try {
       final mounts = await File('/proc/mounts').readAsString();
-      bootDevice = parseProcMountsBootDevice(mounts);
+      // Two image styles, two detection paths. The x86 NixOS
+      // minimal ISO mounts its source partition at /iso (or
+      // /run/initramfs/live for some other distros) and roots
+      // on a tmpfs+squashfs overlay; `parseProcMountsBootDevice`
+      // catches that. The Pi 5 `sdimage-installer` boots a
+      // writable ext4 rootfs straight off the USB stick — there
+      // IS no separate /iso mount, so we fall back to the parent
+      // disk of `/` itself. Either disk is the one disko-install
+      // would corrupt mid-flow if the operator picked it.
+      bootDevice =
+          parseProcMountsBootDevice(mounts) ??
+          parseProcMountsRootDevice(mounts);
     } catch (e) {
       LogService.warn('Could not read /proc/mounts: $e');
     }
@@ -50,6 +61,31 @@ class InstallService {
       final mountPoint = fields[1];
       if (!liveMountPoints.contains(mountPoint)) continue;
       if (!dev.startsWith('/dev/')) continue;
+      final partName = dev.substring('/dev/'.length);
+      return partitionToParentDisk(partName);
+    }
+    return null;
+  }
+
+  /// Fallback for installer images whose root IS the boot media
+  /// (e.g. `nvmd/nixos-raspberrypi#installerImages.rpi5` boots a
+  /// writable ext4 rootfs straight off the USB stick — there's
+  /// no separate /iso mount because the rootfs IS the source).
+  /// Returns the parent disk of whatever `/` is mounted from,
+  /// when that's a real block device.
+  ///
+  /// Returns null when `/` is on tmpfs / rootfs / overlay / NFS /
+  /// any other non-`/dev/` device, so the caller can chain this
+  /// after [parseProcMountsBootDevice] without false hits on
+  /// images that overlay tmpfs over the source media.
+  static String? parseProcMountsRootDevice(String contents) {
+    for (final line in contents.split('\n')) {
+      final fields = line.split(' ');
+      if (fields.length < 2) continue;
+      final dev = fields[0];
+      final mountPoint = fields[1];
+      if (mountPoint != '/') continue;
+      if (!dev.startsWith('/dev/')) return null;
       final partName = dev.substring('/dev/'.length);
       return partitionToParentDisk(partName);
     }
