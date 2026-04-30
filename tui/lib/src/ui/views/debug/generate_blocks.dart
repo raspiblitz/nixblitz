@@ -6,9 +6,12 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../../widgets/scrollable_log.dart';
 
-const _kBlocksPresets = [1, 6, 100, 1000];
-const _kDelayPresets = [0, 2, 5, 30];
-const _kIntervalPresets = [0, 1, 5, 30];
+/// Highest value any of the three numeric inputs can reach. One
+/// million blocks is well past anyone's regtest patience but
+/// safely under int32 — keeps the rendered text width sane and
+/// guards against accidental key-mash overflow into multi-second
+/// `Process.run` timeouts.
+const _kInputMax = 999999;
 
 enum _GbMode { configure, running, done }
 
@@ -16,9 +19,17 @@ enum _GbField { blocks, initialDelay, interval }
 
 final _gbModeProvider = StateProvider<_GbMode>((ref) => _GbMode.configure);
 final _gbFocusedField = StateProvider<_GbField>((ref) => _GbField.blocks);
-final _gbBlocksIdx = StateProvider<int>((ref) => 0);
-final _gbDelayIdx = StateProvider<int>((ref) => 0);
-final _gbIntervalIdx = StateProvider<int>((ref) => 0);
+
+/// Direct integer-valued inputs (replaced the preset-cycler).
+/// Default to a single-block dry run with no waits — typing
+/// digits appends, Backspace deletes one, Up/Down move between
+/// fields. The values persist across view re-entries (the
+/// providers live for the ProviderScope's lifetime), so a repeat
+/// run remembers what the operator just typed.
+final _gbBlocks = StateProvider<int>((ref) => 1);
+final _gbDelay = StateProvider<int>((ref) => 0);
+final _gbInterval = StateProvider<int>((ref) => 0);
+
 final _gbOutputProvider = StateProvider<List<String>>((ref) => []);
 final _gbExitCodeProvider = StateProvider<int?>((ref) => null);
 
@@ -177,28 +188,20 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
 
   Component _buildConfigure(BuildContext context) {
     final focused = context.watch(_gbFocusedField);
-    final bIdx = context.watch(_gbBlocksIdx);
-    final dIdx = context.watch(_gbDelayIdx);
-    final iIdx = context.watch(_gbIntervalIdx);
+    final blocks = context.watch(_gbBlocks);
+    final delay = context.watch(_gbDelay);
+    final interval = context.watch(_gbInterval);
 
-    void cycle(int delta) {
-      switch (focused) {
-        case _GbField.blocks:
-          final n = (bIdx + delta) % _kBlocksPresets.length;
-          context.read(_gbBlocksIdx.notifier).state = n < 0
-              ? n + _kBlocksPresets.length
-              : n;
-        case _GbField.initialDelay:
-          final n = (dIdx + delta) % _kDelayPresets.length;
-          context.read(_gbDelayIdx.notifier).state = n < 0
-              ? n + _kDelayPresets.length
-              : n;
-        case _GbField.interval:
-          final n = (iIdx + delta) % _kIntervalPresets.length;
-          context.read(_gbIntervalIdx.notifier).state = n < 0
-              ? n + _kIntervalPresets.length
-              : n;
-      }
+    /// Returns the StateProvider backing whichever field is
+    /// currently focused — used by the digit / Backspace
+    /// handlers below to mutate the right value without three
+    /// parallel switch arms.
+    StateProvider<int> currentProvider() {
+      return switch (focused) {
+        _GbField.blocks => _gbBlocks,
+        _GbField.initialDelay => _gbDelay,
+        _GbField.interval => _gbInterval,
+      };
     }
 
     return Focusable(
@@ -228,20 +231,37 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
             }
             return true;
           }
-          if (event.logicalKey == LogicalKey.arrowLeft) {
-            cycle(-1);
-            return true;
+          // Digit append: append the typed digit to the focused
+          // field's value, capped at [_kInputMax]. j/k get
+          // intercepted by the field-switch arm above so they
+          // can't be typed into Blocks — that's fine, we don't
+          // need 'jk' as digits.
+          final ch = event.character;
+          if (ch != null && ch.length == 1) {
+            final code = ch.codeUnitAt(0);
+            if (code >= 0x30 && code <= 0x39) {
+              final p = currentProvider();
+              final old = context.read(p);
+              final next = old * 10 + (code - 0x30);
+              context.read(p.notifier).state = next > _kInputMax
+                  ? _kInputMax
+                  : next;
+              return true;
+            }
           }
-          if (event.logicalKey == LogicalKey.arrowRight) {
-            cycle(1);
+          // Backspace: trim one digit off the focused field.
+          if (event.logicalKey == LogicalKey.backspace) {
+            final p = currentProvider();
+            context.read(p.notifier).state = context.read(p) ~/ 10;
             return true;
           }
           if (event.logicalKey == LogicalKey.keyG) {
-            _run(
-              _kBlocksPresets[bIdx],
-              _kDelayPresets[dIdx],
-              _kIntervalPresets[iIdx],
-            );
+            // Refuse to launch if blocks is zero — there's nothing
+            // to mine, the rest of the run would be no-op + log
+            // noise. The form keeps focus so the operator types a
+            // value first.
+            if (blocks == 0) return true;
+            _run(blocks, delay, interval);
             return true;
           }
           return false;
@@ -263,24 +283,16 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
               ),
             ),
             const SizedBox(height: 1),
-            _row(
-              'Blocks',
-              '${_kBlocksPresets[bIdx]}',
-              focused == _GbField.blocks,
-            ),
+            _row('Blocks', '$blocks', focused == _GbField.blocks),
             _row(
               'Initial delay',
-              '${_kDelayPresets[dIdx]}s',
+              '${delay}s',
               focused == _GbField.initialDelay,
             ),
-            _row(
-              'Interval',
-              '${_kIntervalPresets[iIdx]}s',
-              focused == _GbField.interval,
-            ),
+            _row('Interval', '${interval}s', focused == _GbField.interval),
             const SizedBox(height: 1),
             const Text(
-              '[↑/↓] field   [←/→] value   [g] generate   [Esc] back',
+              '[↑/↓] field   [0-9] type   [⌫] delete   [g] generate   [Esc] back',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],

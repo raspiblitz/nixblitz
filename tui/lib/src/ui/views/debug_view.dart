@@ -3,6 +3,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import 'debug/generate_blocks.dart';
+import 'debug/regtest_automine.dart';
 import 'debug/service_health.dart';
 import 'debug/show_password.dart';
 import 'debug/tail_log.dart';
@@ -22,6 +23,7 @@ enum DebugAction {
   showPassword,
   tailLog,
   generateBlocks,
+  regtestAutomine,
   testLnStatus,
   testLnFund,
   testLnChannel,
@@ -48,6 +50,9 @@ class DebugView extends StatelessComponent {
       ),
       DebugAction.tailLog => TailLogView(onExit: () => _backToMenu(context)),
       DebugAction.generateBlocks => GenerateBlocksView(
+        onExit: () => _backToMenu(context),
+      ),
+      DebugAction.regtestAutomine => RegtestAutomineView(
         onExit: () => _backToMenu(context),
       ),
       DebugAction.testLnStatus => TestLnStatusView(
@@ -106,6 +111,13 @@ class _DebugMenu extends StatelessComponent {
           DebugAction.generateBlocks,
           'Generate regtest blocks',
           'Mine N blocks with optional initial delay + interval.',
+        ),
+      if (regtest)
+        const _MenuEntry(
+          DebugAction.regtestAutomine,
+          'Regtest auto-miner (background)',
+          'Start / stop a transient systemd unit that mines one '
+              'block at a random interval. Survives TUI exit.',
         ),
       if (testLnAvailable) ...[
         const _MenuEntry(
