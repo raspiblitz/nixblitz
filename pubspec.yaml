@@ -7,3 +7,4 @@ environment:
 workspace:
   - common
   - tui
+  - website

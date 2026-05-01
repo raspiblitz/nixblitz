@@ -1,18 +1,14 @@
-# Plugin authoring
+---
+title: Plugins - NixBlitz
+---
 
-> Operator-facing version lives at `website/content/docs/plugins.md`;
-> keep them in sync when editing.
+# Plugin authoring
 
 How to build a NixBlitz plugin: directory layout, manifest
 reference, the load-bearing patterns that catch every first-time
 author, and worked examples cribbed from the tailscale + lnbits
 plugins shipped under
 [`nixblitz_official_plugins`](https://forge.f44.fyi/f44/nixblitz_official_plugins).
-
-This doc is the practical "how do I build one" companion to
-[`docs/decisions/plugins.md`](decisions/plugins.md), which
-captures the architectural rationale (D1-D18). Read this first if
-you just want to ship a plugin.
 
 ## What you're shipping
 
@@ -26,8 +22,7 @@ my-plugin/
 └── LICENSE          # (recommended)
 ```
 
-Plus, on the operator's installed system, after `nixblitz plugin
-add`:
+Plus, on the operator's installed system, after `nixblitz plugin add`:
 
 ```
 ~/nixblitz/plugins/my-plugin/
@@ -98,10 +93,7 @@ time, inlined into the store path. Today the values land in the
 store cleartext, where any process that can read `/nix/store` can
 recover them. **Treat any field passed via `pluginCfg` as
 publicly-readable on the node** — fine for switches and option
-strings, not fine for long-lived secrets. There's no near-term
-path to fix this short of moving secret material out of `pluginCfg`
-entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
-`docs/decisions/plugins.md` D14 for the trust-model framing.
+strings, not fine for long-lived secrets.
 
 ## Manifest reference
 
@@ -262,8 +254,7 @@ setuid wrapper, never through sudo.
 The polled command writes JSON to stdout. Shape: a flat object
 where reserved keys (`_status_label`, `_status_color`, `_footer`,
 `_footer_color`) drive the badge / footer chrome, and every other
-key/value pair becomes a `(label, value)` row in declared order
-(JSON object order is preserved by the TUI's parser).
+key/value pair becomes a `(label, value)` row in declared order.
 
 ```json
 {
@@ -288,27 +279,10 @@ Failure modes (handled by the runner, you don't need to):
 - Unparseable stdout → footer `"invalid JSON output"` in red.
 - First poll hasn't run yet → tile renders title with `loading…`.
 
-Author-side error states are explicit:
-
-```json
-{
-  "_status_label": "daemon down",
-  "_status_color": "error",
-  "_footer": "tailscaled.service is not responding",
-  "_footer_color": "error"
-}
-```
-
-— exit 0 still, just with `_status_color: "error"`. Distinguishes
-"plugin reports error" (operator action: read the footer) from
-"tile-state command itself failed" (operator action: check the
-log; something's broken in the plugin).
-
 ### `permissions` block (optional)
 
 Declarative for now (informational; no runtime enforcement).
 Surfaced at `plugin add` time as the consent-prompt summary.
-Phase 6 adds enforcement.
 
 ```json
 "permissions": {
@@ -326,10 +300,6 @@ Phase 6 adds enforcement.
 `privileged_units` is the **only** field cross-validated at parse
 time today: every `unit:` action must reference a unit listed
 here, otherwise the manifest is rejected.
-
-The other fields are forward-looking (Phase 6 will enforce
-filesystem / network / RPC scoping). Declare them honestly anyway
-— the consent prompt depends on them.
 
 ## Companion scripts pattern
 
@@ -363,29 +333,15 @@ executable at `result/bin/<name>`. `environment.systemPackages =
 [ ... ]` puts it on the system PATH at
 `/run/current-system/sw/bin/`. The manifest references it by bare
 name (`"command": "myservice-tile-state"`); the TUI's plugin
-runner injects PATH preambles (`/run/current-system/sw/bin` and
-`/run/wrappers/bin`) so the lookup just works.
-
-Why scripts vs. inlining shell into the manifest:
-
-- **Reproducibility**: Nix-built scripts pin the exact version of
-  `jq`, `systemctl`, etc. used. Inline manifest commands inherit
-  whatever's on the operator's PATH.
-- **Reviewability**: a script in `plugin.nix` is reviewed at
-  `plugin add` time as part of the diff. An inline manifest
-  command is just a string; harder to spot security issues.
-- **Idiomatic Nix**: `writeShellScriptBin` is the standard
-  pattern for plugin-shipped commands.
+runner injects PATH preambles so the lookup just works.
 
 ## Reading core service config from `plugin.nix`
 
 Plugins frequently need to wire into the node's bitcoind / lnd /
-cln config — read the macaroon path, talk to bitcoind RPC, share
-a group, etc. The plugin's inner module receives the full
+cln config. The plugin's inner module receives the full
 `config` argument and can read anything declared by other modules:
 
 ```nix
-# inside plugin.nix's inner function
 { config, lib, pkgs, ... }: let
   lndCertPath = config.services.lnd.certPath;
   lndDataDir  = config.services.lnd.networkDir;
@@ -396,15 +352,13 @@ in {
 
 `config.services.X.*` is keyed off the option _as the upstream
 module declares it_ — usually `services.<name>` for nix-bitcoin
-modules. Look at
-[nix-bitcoin's modules](https://github.com/fort-nix/nix-bitcoin/tree/master/modules)
-for the canonical names.
+modules.
 
 ### The credential-staging pattern (RTL / lnbits)
 
 Several core service files (LND's admin macaroon, e.g.) live with
 mode `0600` owned by the service user. Group membership doesn't
-help — the file is mode 0600, period. The standard NixOS dance:
+help. The standard NixOS dance:
 
 ```nix
 systemd.services.myservice = {
@@ -427,19 +381,10 @@ already byte-identical, so it runs cheaply on every start.
 
 This pattern is borrowed verbatim from
 [nix-bitcoin's `modules/rtl.nix`](https://github.com/fort-nix/nix-bitcoin/blob/master/modules/rtl.nix).
-The lnbits dogfood plugin
-([`examples_redesign/nixblitz_official_plugins/lnbits/plugin.nix`](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/lnbits/plugin.nix))
-shows the full integration including waiting for the backend
-service.
-
-Why not `LoadCredential`? It works but kernel-version-sensitive:
-older kernels emit `Protocol error (status=243/CREDENTIALS)` when
-the credential bind-mount fails. RTL-style staging sidesteps this
-entirely.
 
 ## Update flow: what propagates how
 
-There are two kinds of plugin update:
+Two kinds of plugin update:
 
 | Change                                                           | Propagated by                                                            | When applied                        |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------- |
@@ -454,12 +399,6 @@ manifest lands on disk — no rebuild needed.
 disk during refresh but don't activate until the operator hits
 Apply. The TUI's pending-changes banner surfaces the diff between
 old and new `plugin.nix` so the operator reviews before deploying.
-
-This split matters for plugin authors: **shipping a manifest-only
-change is cheap** (operator runs `plugin refresh`, change visible
-immediately). **Shipping a `plugin.nix` change requires the
-operator to Apply** (rebuild + service restart). Plan accordingly
-when bumping versions.
 
 ## Common pitfalls
 
@@ -478,43 +417,14 @@ when bumping versions.
 - **`auth_key` (or any `secret`) ends up in the store.** Phase 1
   inlines them into the build. If the operator commits
   `~/nixblitz/` to a public mirror, secrets leak. Document this
-  in your README; recommend `pin: true` on plugins handling
-  secrets to limit unintended refreshes.
-- **App stores configuration in its own state.** Some upstream
-  apps (LNBits is the canonical case) read env vars on first
-  start, persist to a SQLite DB, and ignore the env on subsequent
-  boots. A plugin config change won't take effect until the
-  operator wipes the DB. Either expose an `app_force_env`-style
-  config flag (if upstream provides one), or document the
-  reset-DB action as the supported migration path. See plugins.md
-  D17.
+  in your README.
 - **Tile-state command timeouts.** The polled command runs every
   N seconds with a hard timeout. If it depends on a network call
-  (RPC, HTTPS check), set a generous `timeout_seconds` and a
-  shorter explicit timeout inside the script (e.g.
-  `curl --max-time 3`). A tile that hangs locks up the poller.
-- **`assertions` in `plugin.nix`** fire at rebuild eval time.
-  Use them for "this plugin requires
-  `features.apps.lnd.enable`" — clearer error than a confusing
-  service failure later.
-- **`builtins.getFlake` doesn't follow.** When you load an
-  upstream flake via `getFlake "github:foo/bar/<rev>"` (the
-  pattern the LNBits plugin uses), the upstream brings its own
-  pinned `nixpkgs` — your `nixpkgs.overlays = [...]`
-  declarations at NixOS-module level **don't reach** the
-  upstream's pre-built package outputs. They were captured at
-  upstream-flake-eval time. If the upstream needs a 16K-page
-  jemalloc-sys override (Pi 5 quirk) or any other overlay
-  surgery, you'll need to fork upstream and patch its flake to
-  apply the overlay at its own eval time, OR rebuild the
-  package from source via your local `pkgs`. There's no
-  follows mechanism for `getFlake` calls — that's a flake-input
-  feature only. CLAUDE.md's "Flake input rules" section
-  covers the static-input case; getFlake is the loose end.
+  set a generous `timeout_seconds` and a shorter explicit
+  timeout inside the script (e.g. `curl --max-time 3`). A tile
+  that hangs locks up the poller.
 
 ## Publishing
-
-### `nixblitz_official_plugins`
 
 The
 [`nixblitz_official_plugins`](https://forge.f44.fyi/f44/nixblitz_official_plugins)
@@ -530,30 +440,6 @@ For everything else (single-operator hacks, work-in-progress,
 bespoke integrations), ship from your own repo. The
 `plugin add forgejo:.../<repo>` and
 `plugin add github:user/<repo>` paths work the same.
-
-### Versioning + branches
-
-Plugins follow git branch / tag conventions:
-
-- **`main` is the rolling head.** `nixblitz plugin add` defaults
-  to `--branch main` and pulls the tip.
-- **Release branches** (`v1.x`, `v2.x`) for plugins that want
-  stability guarantees; operators add with
-  `--branch v2.x` to track that line.
-- **Commit pinning**: operators set `auto_update: false` on
-  `~/nixblitz/config.json` for a plugin to freeze its
-  `pinned_rev`. Useful for security-sensitive plugins.
-
-### Bumping `manifest.schema_version`
-
-If a future TUI bump changes the manifest format breaking-ly
-(like v1 → v2's `run_as_root` removal), authors need to publish a
-matching plugin update. Existing operators of the old plugin
-hit a hard-fail on next `plugin refresh` until they upgrade.
-
-The schema-version bump is rare (so far: just once, for sudo
-posture A). When it happens, plugins.md will document the
-migration shape; this doc gets updated alongside.
 
 ## Worked examples
 
@@ -575,7 +461,3 @@ need; everything else is straightforward NixOS.
 
 Issues + design discussion in
 [`forge.f44.fyi/f44/nixblitz_ng/issues`](https://forge.f44.fyi/f44/nixblitz_ng/issues).
-Plugin-system design rationale is in
-[`docs/decisions/plugins.md`](decisions/plugins.md) — read D14
-(threat model + permissions) and D18 (sudo posture) before
-proposing changes to the security surface.

@@ -1,0 +1,333 @@
+@import "tailwindcss";
+@source "../lib/**/*.dart";
+
+@theme {
+  /* Mono everywhere — matches the TUI's typography. */
+  --font-sans:
+    "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", Menlo, Consolas,
+    ui-monospace, monospace;
+  --font-mono:
+    "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", Menlo, Consolas,
+    ui-monospace, monospace;
+  --radius: 0;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* TUI status palette — same hues the actual TUI uses. */
+  --color-tui-orange: #f7931a;
+  --color-tui-ok: #7eb46a;
+  --color-tui-warn: #dcb464;
+  --color-tui-err: #d76a6a;
+  --color-tui-cyan: #7eb4b4;
+  --color-tui-magenta: #b46aa7;
+  --color-tui-muted: #888888;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+  }
+
+  :root {
+    /* Dark only. Mirrors the TUI's near-black background. */
+    --background: #0a0a0a;
+    --foreground: #e6e6e6;
+    --card: #111111;
+    --card-foreground: #e6e6e6;
+    --popover: #111111;
+    --popover-foreground: #e6e6e6;
+    --primary: #f7931a;
+    --primary-foreground: #0a0a0a;
+    --secondary: #1a1a1a;
+    --secondary-foreground: #e6e6e6;
+    --muted: #1a1a1a;
+    --muted-foreground: #888888;
+    --accent: #f7931a;
+    --accent-foreground: #0a0a0a;
+    --destructive: #d76a6a;
+    --destructive-foreground: #0a0a0a;
+    --border: #2a2a2a;
+    --input: #2a2a2a;
+    --ring: #f7931a;
+    --radius: 0;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-mono);
+    font-feature-settings: "ss01", "calt", "liga";
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-mono);
+    font-weight: 700;
+  }
+}
+
+@layer components {
+  /* ---------- TUI tile ----------------------------------------- */
+  .tile {
+    @apply border border-border bg-card relative;
+    border-radius: 0;
+  }
+
+  .tile-header {
+    @apply flex items-baseline justify-between gap-4 px-4 py-2 border-b border-border;
+  }
+
+  .tile-title {
+    @apply font-bold;
+  }
+
+  .tile-body {
+    @apply p-4;
+  }
+
+  .tile-status {
+    @apply text-sm;
+  }
+  .tile-status-ok {
+    color: var(--color-tui-ok);
+  }
+  .tile-status-warn {
+    color: var(--color-tui-warn);
+  }
+  .tile-status-muted {
+    color: var(--color-tui-muted);
+  }
+
+  .tile-title-orange {
+    color: var(--color-tui-orange);
+  }
+  .tile-title-muted {
+    color: var(--color-tui-muted);
+  }
+
+  /* ---------- Keybind nav / footer ----------------------------- */
+  .keybind {
+    @apply inline-flex items-baseline gap-1.5 transition-opacity whitespace-nowrap;
+    color: var(--color-tui-orange);
+    text-decoration: none;
+  }
+  .keybind .key {
+    @apply font-bold;
+  }
+  .keybind:hover {
+    opacity: 0.75;
+  }
+  .keybind.active {
+    filter: brightness(1.2);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  /* ---------- TUI header strip --------------------------------- */
+  .tui-header {
+    @apply sticky top-0 z-50 border-b border-border;
+    background: rgba(10, 10, 10, 0.92);
+    backdrop-filter: blur(4px);
+  }
+
+  .tui-header-row {
+    @apply max-w-6xl mx-auto px-4 h-12 grid grid-cols-3 items-center gap-4;
+  }
+
+  .tui-brand {
+    color: var(--color-tui-orange);
+    @apply font-bold tracking-widest text-base;
+    text-decoration: none;
+  }
+
+  .tui-breadcrumb {
+    @apply text-center text-sm truncate;
+    color: var(--color-tui-muted);
+  }
+
+  .tui-version {
+    @apply text-right text-sm;
+    color: var(--color-tui-muted);
+  }
+
+  .tui-keybind-nav {
+    @apply max-w-6xl mx-auto px-4 h-10 flex items-center gap-6 text-sm overflow-x-auto;
+  }
+
+  /* ---------- TUI footer hint bar ------------------------------ */
+  .tui-footer {
+    @apply border-t border-border px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm;
+  }
+
+  /* ---------- Hero ASCII banner -------------------------------- */
+  .ascii-banner {
+    color: var(--color-tui-orange);
+    text-shadow:
+      0 0 8px rgba(247, 147, 26, 0.45),
+      0 0 16px rgba(247, 147, 26, 0.2);
+    font-family: var(--font-mono);
+    line-height: 1;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .dotted-bg {
+    background-image: radial-gradient(
+      rgba(247, 147, 26, 0.15) 1px,
+      transparent 1px
+    );
+    background-size: 16px 16px;
+  }
+
+  /* ---------- Bracketed CTA buttons ---------------------------- */
+  .btn-bracket {
+    @apply inline-block px-2 py-2 transition-colors;
+    color: var(--color-tui-orange);
+    background: transparent;
+    border: none;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .btn-bracket::before {
+    content: "[ ";
+  }
+  .btn-bracket::after {
+    content: " ]";
+  }
+  .btn-bracket:hover {
+    background: rgba(247, 147, 26, 0.15);
+  }
+
+  /* ---------- Markdown content panel --------------------------- */
+  .content,
+  .prose {
+    & p {
+      margin-bottom: 1.25em;
+      line-height: 1.65;
+    }
+    & h1,
+    & h2,
+    & h3,
+    & h4 {
+      font-weight: 700;
+    }
+    & h2 {
+      font-size: 1.4em;
+      margin-top: 2em;
+      margin-bottom: 1em;
+      color: var(--color-tui-orange);
+    }
+    & h3 {
+      font-size: 1.15em;
+      margin-top: 1.6em;
+      margin-bottom: 0.6em;
+      color: var(--color-tui-orange);
+    }
+    & ul {
+      list-style-type: disc;
+      padding-left: 1.625em;
+      margin-bottom: 1.25em;
+    }
+    & ol {
+      list-style-type: decimal;
+      padding-left: 1.625em;
+      margin-bottom: 1.25em;
+    }
+    & li {
+      margin-bottom: 0.5em;
+      padding-left: 0.375em;
+    }
+    & a {
+      color: var(--color-tui-orange);
+      text-decoration: underline;
+      text-underline-offset: 4px;
+      text-decoration-color: rgba(247, 147, 26, 0.5);
+    }
+    & a:hover {
+      text-decoration-color: var(--color-tui-orange);
+    }
+    & code {
+      @apply px-1 py-0.5;
+      background: var(--secondary);
+      font-size: 0.95em;
+      border: 1px solid var(--border);
+    }
+    & pre {
+      @apply border border-border;
+      background: var(--card);
+      padding: 1em;
+      overflow-x: auto;
+      margin: 1.25em 0;
+    }
+    & pre code {
+      @apply p-0 bg-transparent;
+      border: none;
+    }
+    & img {
+      @apply mx-auto border border-border block;
+      margin: 2em auto;
+      max-width: 100%;
+    }
+    & video {
+      @apply mx-auto border border-border block;
+      margin: 2em auto;
+      max-width: 100%;
+    }
+    & blockquote {
+      @apply border-l-2 pl-4 italic;
+      border-color: var(--color-tui-orange);
+      color: var(--color-tui-muted);
+      margin: 1.25em 0;
+    }
+    & table {
+      @apply border-collapse w-full my-4;
+    }
+    & th,
+    & td {
+      @apply border border-border px-3 py-2 text-left align-top;
+    }
+    & th {
+      color: var(--color-tui-orange);
+      font-weight: 700;
+    }
+    & hr {
+      border-color: var(--border);
+      margin: 2em 0;
+    }
+  }
+}

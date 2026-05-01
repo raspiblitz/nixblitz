@@ -1,5 +1,9 @@
 # Architecture
 
+> Operator-facing version lives at `website/content/docs/architecture.md`;
+> keep them in sync when editing. The website version drops dev-internal
+> sections (Riverpod providers, Dart workspace).
+
 A short tour of how NixBlitz is laid out, why, and how the pieces
 fit together. Aimed at someone arriving from RaspiBlitz or a
 similar imperative node-management project, where the mental model

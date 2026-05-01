@@ -25,13 +25,14 @@ analyze:
   #!/usr/bin/env nu
   cd common; dart analyze
   cd ../tui; dart analyze
+  cd ../website; dart analyze
 
 # Format Dart, Nix, and Markdown/YAML/JSON (skips ./examples_redesign + dev dirs)
 format:
   #!/usr/bin/env nu
   do -c {
     print "Formatting Dart code..."
-    let dirs = ["common", "tui"]
+    let dirs = ["common", "tui", "website"]
     for dir in $dirs {
       if ($dir | path exists) {
         print $"Formatting ($dir)..."
@@ -68,6 +69,36 @@ gen-workspace-graph:
 # Regenerate embedded templates from templates/ directory
 gen-templates:
   dart run scripts/gen_embedded_templates.dart
+
+# Compile Tailwind CSS for the website (web/input.css → web/styles.css)
+web-css:
+  #!/usr/bin/env nu
+  cd website; tailwindcss -i web/input.css -o web/styles.css
+
+# Watch and recompile Tailwind CSS as you edit
+web-css-watch:
+  #!/usr/bin/env nu
+  cd website; tailwindcss -i web/input.css -o web/styles.css --watch
+
+# Serve the website locally with hot reload (http://localhost:8080)
+web-serve: web-css
+  #!/usr/bin/env nu
+  cd website; jaspr serve
+
+# Build the website into a static bundle (./website/build/jaspr/)
+web-build: web-css
+  #!/usr/bin/env nu
+  cd website; jaspr build -O4
+
+# Serve the production build with python's http.server (http://localhost:8082)
+web-serve-prod: web-build
+  #!/usr/bin/env nu
+  cd website/build/jaspr; python3 -m http.server 8082
+
+# Clean the website's build artifacts
+web-clean:
+  #!/usr/bin/env nu
+  cd website; rm -rf build .dart_tool
 
 # Boot a NixOS ISO in QEMU for testing the installer
 vm-boot:

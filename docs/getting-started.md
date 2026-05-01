@@ -1,5 +1,8 @@
 # Getting started
 
+> Operator-facing version lives at `website/content/docs/installation.md`;
+> keep them in sync when editing.
+
 Setup a NixBlitz in a VM in under an hour. This guide assumes you
 know your way around a Linux terminal but have **no Nix or NixOS
 background** — you'll pick up the few concepts that matter as you go.
@@ -36,9 +39,13 @@ Grab the **NixOS 25.11 minimal ISO** from
 The graphical ISO works too if you prefer a graphical console;
 neither is "more correct."
 
-NixBlitz is **not** a custom ISO. You boot stock NixOS and bootstrap
-the TUI from the network on first run. Same flake handles install,
-runtime, and updates — there's no second image to maintain.
+NixBlitz is **not** a custom ISO on x86. You boot stock NixOS and
+bootstrap the TUI from the network on first run; the same flake on
+disk then handles runtime + updates. (Pi 5 is different — see the
+Pi 5 section below: NixOS upstream doesn't ship Pi 5 firmware /
+vendor kernel / matched bootloader, so we currently ride on the
+third-party `nvmd/nixos-raspberrypi` live image. A NixBlitz-branded
+Pi 5 image is on the roadmap.)
 
 ## Create the VM
 
@@ -244,7 +251,8 @@ right. Below that:
 | **Bitcoin**   | sync %, block height, peer count, mempool size          |
 | **Lightning** | alias, pubkey, peer + channel counts, balances          |
 
-Plus any tiles installed plugins added (none yet).
+Installed plugins can add their own tiles. None ship out of the
+box; you opt in via `nixblitz plugin add ...`.
 
 Footer hints show shortcuts. Some only appear when relevant:
 
@@ -327,7 +335,11 @@ and the install target differ.
   long-running node (write amplification, no power-loss
   protection).
 - **A USB stick** to boot the live image from. ≥4 GB.
-- Passive heatsink minimum; the official active cooler is fine.
+- **Active cooling required.** Initial chain sync pegs the CPU at
+  100% for days; passive heatsinks throttle hard and the box runs
+  uncomfortably hot. The official Active Cooler (or any
+  fan-equipped case) is the safe choice for any node that will
+  actually sync mainnet.
 
 ### 1. Build the live image
 
