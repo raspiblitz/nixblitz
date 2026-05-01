@@ -89,7 +89,15 @@ class PluginConfigNotifier
     // provider only re-runs when `configProvider` emits, which
     // never happens for plugin edits. Invalidate it here so the
     // UI reflects the new dirty file immediately.
+    //
+    // committedConfigProvider also gets invalidated alongside
+    // for symmetry with the other commit / revert call sites.
+    // Plugin config edits don't actually change HEAD's main
+    // config.json content (different file), so this is a wasted
+    // round-trip — harmless, and keeps the invalidation pattern
+    // uniform across all three sites the plan documents.
     _ref.invalidate(pendingChangesProvider);
+    _ref.invalidate(committedConfigProvider);
   }
 
   /// Load the plugin's manifest once. Cheap — callers typically want

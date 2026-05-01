@@ -91,8 +91,13 @@ class _ApplyViewState extends State<ApplyView> {
 
   void _leave() {
     _reset();
-    // Refresh the dashboard banner on return.
+    // Refresh the dashboard banner + per-key pending state on
+    // return. pendingChangesProvider drives the file-level
+    // banner; committedConfigProvider drives the per-row
+    // markers + header status (pendingChangeKeysProvider
+    // re-evaluates automatically when committed changes).
     context.invalidate(pendingChangesProvider);
+    context.invalidate(committedConfigProvider);
     context.read(currentViewProvider.notifier).state = AppView.dashboard;
   }
 

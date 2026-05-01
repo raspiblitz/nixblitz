@@ -449,6 +449,56 @@ class NixblitzConfig {
     return changes.join('\n');
   }
 
+  /// Structured per-key diff against [other]. Returns dotted-path
+  /// keys whose live value differs, using the JSON snake_case
+  /// names that [toJson] emits — e.g. `{"system.hostname",
+  /// "lnd.alias", "bitcoind.prune_size_gb"}`. Top-level fields
+  /// use bare names (`"initialized"`, `"setup_step_completed"`).
+  ///
+  /// Used by `pendingChangeKeysProvider` to drive Configure-view
+  /// per-row pending markers and the dashboard header's
+  /// `X pending / in sync` status segment. The string-returning
+  /// [diffFrom] stays around for the Apply view's free-text diff
+  /// render — different consumers, different shapes.
+  ///
+  /// Plugins are deliberately skipped: their per-key diff would
+  /// also need plugin-specific config-schema awareness which
+  /// lives outside this model. File-level porcelain still picks
+  /// them up via the dashboard banner. `_extra` (forward-compat
+  /// unknown fields) is also skipped — round-tripped transparently
+  /// and not surfaced to operators.
+  Set<String> diffKeysFrom(NixblitzConfig other) {
+    final keys = <String>{};
+
+    if (initialized != other.initialized) keys.add('initialized');
+    if (setupStepCompleted != other.setupStepCompleted) {
+      keys.add('setup_step_completed');
+    }
+
+    // Same per-section toJson() comparison as diffFrom — every
+    // field appearing in toJson is automatically covered, so new
+    // sub-config fields don't need a corresponding edit here.
+    void compareSection(
+      String name,
+      Map<String, dynamic> after,
+      Map<String, dynamic> before,
+    ) {
+      final allKeys = {...after.keys, ...before.keys};
+      for (final key in allKeys) {
+        if (after[key] != before[key]) keys.add('$name.$key');
+      }
+    }
+
+    compareSection('system', system.toJson(), other.system.toJson());
+    compareSection('bitcoind', bitcoind.toJson(), other.bitcoind.toJson());
+    compareSection('lnd', lnd.toJson(), other.lnd.toJson());
+    compareSection('cln', cln.toJson(), other.cln.toJson());
+    compareSection('blitz_api', blitzApi.toJson(), other.blitzApi.toJson());
+    compareSection('blitz_web', blitzWeb.toJson(), other.blitzWeb.toJson());
+
+    return keys;
+  }
+
   NixblitzConfig copyWith({
     int? version,
     int? configMinCompatibleVersion,

@@ -62,10 +62,11 @@ bool _isInstallerEnvironment() {
   return false;
 }
 
-/// Center text for the top-of-screen header strip — sits
-/// between the "NIXBLITZ" logo and the version string. Surfaces
-/// the at-a-glance identity of the box: the LIVE LN node alias
-/// plus a prettified platform name.
+/// Builds the segments for the top-of-screen header strip's
+/// center text: `<alias> | <platform> | <pending-status>`.
+/// Returns a list of `(text, color)` pairs so the call site
+/// can render the trailing pending segment in yellow when
+/// changes are pending without re-tinting the whole header.
 ///
 /// Alias source prefers the live snapshot from blitz-api over
 /// `config.lnd.alias` so an in-progress edit (operator typed a
@@ -75,12 +76,23 @@ bool _isInstallerEnvironment() {
 /// no snapshot — covers initial setup, blitz-api off, fresh
 /// reconnect.
 ///
-/// Network and per-service status deliberately stay out of the
-/// header — both already show on the dashboard tiles + footer
-/// banners, and the header has limited horizontal real estate
-/// on narrower terminals.
-String _formatHeaderInfo(NixblitzConfig config, LnSnapshot? lnSnapshot) {
-  final parts = <String>[];
+/// `pendingCount` comes from `pendingChangeKeysProvider`
+/// (per-key, NOT file-level — see the provider docstring for
+/// the trade-off vs the dashboard banner).
+///
+/// Network and per-service status stay out of the header —
+/// both already show on the dashboard tiles + footer banners,
+/// and the strip has limited horizontal real estate on narrower
+/// terminals.
+List<({String text, Color color})> _headerSegments(
+  NixblitzConfig config,
+  LnSnapshot? lnSnapshot,
+  int pendingCount,
+) {
+  const dim = Color.fromRGB(180, 180, 200);
+  const pending = Color.fromRGB(220, 180, 100); // same yellow as `*` markers
+  final segs = <({String text, Color color})>[];
+
   // Live alias from blitz-api wins; fall back to config only
   // when the snapshot has nothing (no LN yet, blitz-api down,
   // SSE hasn't reconnected). config.lnd.enabled gates so we
@@ -90,15 +102,28 @@ String _formatHeaderInfo(NixblitzConfig config, LnSnapshot? lnSnapshot) {
       ? config.lnd.alias
       : '';
   final alias = liveAlias.isNotEmpty ? liveAlias : fallbackAlias;
-  if (alias.isNotEmpty) parts.add(alias);
+  if (alias.isNotEmpty) segs.add((text: alias, color: dim));
+
   final platform = switch (config.system.platform) {
     'pi5' => 'Pi 5',
     'vm' => 'VM',
     'x86' => 'x86',
     final s => s,
   };
-  if (platform.isNotEmpty) parts.add(platform);
-  return parts.join(' | ');
+  if (platform.isNotEmpty) segs.add((text: platform, color: dim));
+
+  // Pending status: yellow `X pending` when count > 0, dim
+  // `all applied` when zero. Wording deliberately avoids
+  // "in sync" / "synced" — that reads as Bitcoin / Lightning
+  // chain-sync state in this domain. `applied` ties to the
+  // `[a]` Apply keybind that flips pending → applied.
+  if (pendingCount > 0) {
+    segs.add((text: '$pendingCount pending', color: pending));
+  } else {
+    segs.add((text: 'all applied', color: dim));
+  }
+
+  return segs;
 }
 
 /// Footer text for the current view. Dashboard omits `[a]:
@@ -410,31 +435,69 @@ class _Shell extends StatelessComponent {
                       ),
                       Expanded(
                         child: Center(
-                          child: Text(
-                            () {
-                              // Read both providers and pass to
-                              // _formatHeaderInfo. Can't chain
-                              // through `.maybeWhen` because we
-                              // need TWO async values, not one.
-                              final cfg = context
-                                  .watch(configProvider)
-                                  .maybeWhen(
-                                    data: (c) => c,
-                                    orElse: () => null,
-                                  );
-                              if (cfg == null) return '';
-                              final snap = context
-                                  .watch(lnSnapshotProvider)
-                                  .maybeWhen(
-                                    data: (s) => s,
-                                    orElse: () => null,
-                                  );
-                              return _formatHeaderInfo(cfg, snap);
-                            }(),
-                            style: const TextStyle(
-                              color: Color.fromRGB(180, 180, 200),
-                            ),
-                          ),
+                          child: () {
+                            // Header pulls from three providers:
+                            // config (alias fallback / platform),
+                            // lnSnapshot (live LN alias), and
+                            // pendingChangeKeysProvider (the
+                            // count of dotted-path keys differing
+                            // from HEAD).
+                            final cfg = context
+                                .watch(configProvider)
+                                .maybeWhen(data: (c) => c, orElse: () => null);
+                            if (cfg == null) return const Text('');
+                            final snap = context
+                                .watch(lnSnapshotProvider)
+                                .maybeWhen(data: (s) => s, orElse: () => null);
+                            // Synchronous Provider — direct read,
+                            // no AsyncValue unwrap. The header
+                            // status updates in the same frame as
+                            // the configProvider tick that
+                            // triggered it (no flicker through a
+                            // loading state).
+                            final pendingCount = context
+                                .watch(pendingChangeKeysProvider)
+                                .length;
+                            final segs = _headerSegments(
+                              cfg,
+                              snap,
+                              pendingCount,
+                            );
+                            // Render as a Row of segment + " | "
+                            // separator + segment, each in its
+                            // own colour. The separator stays in
+                            // the same dim grey as the other
+                            // segments — only the pending status
+                            // is yellow when count > 0.
+                            const sepColor = Color.fromRGB(180, 180, 200);
+                            final children = <Component>[];
+                            for (var i = 0; i < segs.length; i++) {
+                              if (i > 0) {
+                                children.add(
+                                  const Text(
+                                    ' | ',
+                                    style: TextStyle(color: sepColor),
+                                  ),
+                                );
+                              }
+                              children.add(
+                                Text(
+                                  segs[i].text,
+                                  style: TextStyle(color: segs[i].color),
+                                ),
+                              );
+                            }
+                            // mainAxisSize.min — without it the
+                            // Row stretches to fill the Center's
+                            // width and Center has nothing to
+                            // actually center, so the segments
+                            // butt up against the NIXBLITZ logo
+                            // on the left.
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: children,
+                            );
+                          }(),
                         ),
                       ),
                       Text(

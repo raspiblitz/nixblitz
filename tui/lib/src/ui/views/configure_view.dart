@@ -109,12 +109,18 @@ class ConfigureView extends StatelessComponent {
         ];
         final currentService = services[serviceIndex];
         final pluginService = context.read(pluginServiceProvider);
+        // Per-key pending markers come from
+        // `pendingChangeKeysProvider`. Synchronous Provider
+        // (NOT FutureProvider) — direct read, no AsyncValue
+        // unwrap, no flicker frame on configProvider ticks.
+        final pendingKeys = context.watch(pendingChangeKeysProvider);
         final options = _buildOptions(
           config,
           currentService,
           selectedOption,
           pluginService,
           editingText: editingText,
+          pendingKeys: pendingKeys,
         );
 
         return Focusable(
@@ -489,12 +495,68 @@ class ConfigureView extends StatelessComponent {
     return null;
   }
 
+  /// Maps a `(service, optionIndex)` row to the dotted-path
+  /// config key the row represents. Returns null for rows that
+  /// don't have a config-key counterpart — e.g. the `password`
+  /// row in `system` (handled via chpasswd, not config), all
+  /// plugin-tab rows (per-plugin config diffs are out of scope
+  /// for this surface).
+  ///
+  /// **Coupling note:** the returned strings must match
+  /// `NixblitzConfig.diffKeysFrom`'s emit shape (JSON
+  /// snake_case). E.g. `bitcoind.prune_size_gb` not
+  /// `bitcoind.pruneSizeGb`. If a sub-config field gets renamed
+  /// in the model's `toJson`, this switch needs to follow.
+  String? _pendingKeyFor(String service, int optionIndex) {
+    switch (service) {
+      case 'system':
+        switch (optionIndex) {
+          case 0:
+            return 'system.hostname';
+          case 1:
+            return 'system.timezone';
+          case 2:
+            return 'system.platform';
+          case 3:
+            return null; // password row — not a config field
+        }
+      case 'bitcoind':
+        switch (optionIndex) {
+          case 0:
+            return 'bitcoind.enabled';
+          case 1:
+            return 'bitcoind.network';
+          case 2:
+            return 'bitcoind.pruned';
+          case 3:
+            return 'bitcoind.prune_size_gb';
+        }
+      case 'lnd':
+        switch (optionIndex) {
+          case 0:
+            return 'lnd.enabled';
+          case 1:
+            return 'lnd.alias';
+        }
+      case 'cln':
+        if (optionIndex == 0) return 'cln.enabled';
+      case 'blitz-api':
+        if (optionIndex == 0) return 'blitz_api.enabled';
+      case 'blitz-web':
+        if (optionIndex == 0) return 'blitz_web.enabled';
+      case 'plugins':
+        return null; // file-level dirty already feeds the dashboard banner
+    }
+    return null;
+  }
+
   List<Component> _buildOptions(
     NixblitzConfig config,
     String service,
     int selectedIndex,
     PluginService pluginService, {
     String? editingText,
+    Set<String> pendingKeys = const <String>{},
   }) {
     /// Returns the on-screen value for a text field at
     /// [optionIndex]. When the operator is editing this exact
@@ -506,6 +568,13 @@ class ConfigureView extends StatelessComponent {
         return '${editingText}_';
       }
       return onConfig;
+    }
+
+    /// `*` marker resolution per row: dotted-path lookup, then
+    /// membership in the live pending set.
+    bool isPending(int optionIndex) {
+      final key = _pendingKeyFor(service, optionIndex);
+      return key != null && pendingKeys.contains(key);
     }
 
     /// Same idea for numeric fields. Numeric editors render an
@@ -524,6 +593,7 @@ class ConfigureView extends StatelessComponent {
               '${editingText}_'
               '${unit.isNotEmpty ? " $unit" : ""}',
           focused: true,
+          pending: isPending(optionIndex),
         );
       }
       return NumberOptionEditor(
@@ -531,6 +601,7 @@ class ConfigureView extends StatelessComponent {
         value: onConfig,
         unit: unit,
         focused: optionIndex == selectedIndex,
+        pending: isPending(optionIndex),
       );
     }
 
@@ -541,22 +612,27 @@ class ConfigureView extends StatelessComponent {
             label: 'hostname',
             value: editableText(0, config.system.hostname),
             focused: selectedIndex == 0,
+            pending: isPending(0),
           ),
           TextOptionEditor(
             label: 'timezone',
             value: editableText(1, config.system.timezone),
             focused: selectedIndex == 1,
+            pending: isPending(1),
           ),
           SelectOptionEditor(
             label: 'platform',
             value: config.system.platform,
             options: const ['pi5', 'x86', 'vm'],
             focused: selectedIndex == 2,
+            pending: isPending(2),
           ),
           TextOptionEditor(
             label: 'password',
             value: 'Press Enter to change',
             focused: selectedIndex == 3,
+            // No pending marker on password — it's not a config field
+            // and `_pendingKeyFor` returns null for this row.
           ),
         ];
       case 'bitcoind':
@@ -565,17 +641,20 @@ class ConfigureView extends StatelessComponent {
             label: 'enabled',
             value: config.bitcoind.enabled,
             focused: selectedIndex == 0,
+            pending: isPending(0),
           ),
           SelectOptionEditor(
             label: 'network',
             value: config.bitcoind.network,
             options: const ['mainnet', 'regtest'],
             focused: selectedIndex == 1,
+            pending: isPending(1),
           ),
           BoolOptionEditor(
             label: 'pruned',
             value: config.bitcoind.pruned,
             focused: selectedIndex == 2,
+            pending: isPending(2),
           ),
           editableNumber(3, 'prune size', config.bitcoind.pruneSizeGb, 'GB'),
         ];
@@ -585,11 +664,13 @@ class ConfigureView extends StatelessComponent {
             label: 'enabled',
             value: config.lnd.enabled,
             focused: selectedIndex == 0,
+            pending: isPending(0),
           ),
           TextOptionEditor(
             label: 'alias',
             value: editableText(1, config.lnd.alias),
             focused: selectedIndex == 1,
+            pending: isPending(1),
           ),
         ];
       case 'cln':
@@ -598,6 +679,7 @@ class ConfigureView extends StatelessComponent {
             label: 'enabled',
             value: config.cln.enabled,
             focused: selectedIndex == 0,
+            pending: isPending(0),
           ),
         ];
       case 'blitz-api':
@@ -606,6 +688,7 @@ class ConfigureView extends StatelessComponent {
             label: 'enabled',
             value: config.blitzApi.enabled,
             focused: selectedIndex == 0,
+            pending: isPending(0),
           ),
         ];
       case 'blitz-web':
@@ -614,6 +697,7 @@ class ConfigureView extends StatelessComponent {
             label: 'enabled',
             value: config.blitzWeb.enabled,
             focused: selectedIndex == 0,
+            pending: isPending(0),
           ),
         ];
       case 'plugins':

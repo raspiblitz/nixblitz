@@ -761,7 +761,10 @@ class _UpdateViewState extends State<UpdateView> {
           if (event.logicalKey == LogicalKey.escape ||
               event.logicalKey == LogicalKey.enter) {
             _resetToSelect();
+            // File-level banner + per-key pending state both
+            // refresh — see apply_view._leave for context.
             context.invalidate(pendingChangesProvider);
+            context.invalidate(committedConfigProvider);
             context.read(currentViewProvider.notifier).state =
                 AppView.dashboard;
             return true;

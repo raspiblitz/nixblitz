@@ -165,6 +165,32 @@ class GitService {
     return result.stdout as String;
   }
 
+  /// Reads [path] (relative to [repoDir]) at HEAD via
+  /// `git show HEAD:<path>`. Returns the committed file content,
+  /// or null when there's no useful baseline:
+  ///
+  /// - **Empty repo** (no HEAD commit yet) — happens once on a
+  ///   fresh install, before the first Apply commits anything.
+  /// - **Path doesn't exist at HEAD** — happens when a tracked
+  ///   file was added in the working tree but never committed.
+  ///
+  /// Both cases return null. Caller treats null as "no baseline,
+  /// can't compute a meaningful diff" — the dependent
+  /// `pendingChangeKeysProvider` then exposes an empty key set
+  /// so the per-row markers and header status both render
+  /// "in sync" instead of crashing or surfacing a misleading
+  /// "everything is pending".
+  Future<String?> readCommittedFile(String path) async {
+    final result = await Process.run(
+      'git',
+      _g(['show', 'HEAD:$path']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    if (result.exitCode != 0) return null;
+    return result.stdout as String;
+  }
+
   /// List of `XY path` lines from `git status --porcelain`. Each line
   /// describes one tracked or untracked file that differs from HEAD.
   Future<List<String>> status() async {

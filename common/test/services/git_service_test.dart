@@ -332,5 +332,50 @@ void main() {
       expect(h2, isNotNull);
       expect(h2, isNot(h1)); // moved
     });
+
+    group('readCommittedFile', () {
+      test(
+        'returns committed content even when working tree is dirty',
+        () async {
+          // Mirrors the per-key-pending diff use case: operator
+          // edited the file in memory (we model that as a working-
+          // tree edit) and we need HEAD's view, NOT the dirty
+          // working copy.
+          await service.init();
+          final file = File('${tempDir.path}/config.json');
+          await file.writeAsString('{"v": 1}');
+          await service.commit('config.json', 'initial');
+
+          // Now dirty the working tree without committing.
+          await file.writeAsString('{"v": 999}');
+
+          final committed = await service.readCommittedFile('config.json');
+          expect(committed, '{"v": 1}');
+        },
+      );
+
+      test('returns null when the path is not present at HEAD', () async {
+        // File added in the working tree but never committed —
+        // git show HEAD:<path> exits non-zero.
+        await service.init();
+        await File('${tempDir.path}/seed.txt').writeAsString('seed');
+        await service.commit('seed.txt', 'seed');
+
+        // Different file, never committed.
+        await File('${tempDir.path}/never_committed.txt').writeAsString('hi');
+
+        final res = await service.readCommittedFile('never_committed.txt');
+        expect(res, isNull);
+      });
+
+      test('returns null on an empty repo with no HEAD', () async {
+        // Fresh-install case: repo initialised, no commits yet.
+        // git show HEAD:<anything> exits non-zero. Caller treats
+        // null as "no baseline" and surfaces an empty key set.
+        await service.init();
+        final res = await service.readCommittedFile('config.json');
+        expect(res, isNull);
+      });
+    });
   });
 }

@@ -274,6 +274,87 @@ void main() {
       expect(diff, contains('testnet'));
     });
 
+    group('diffKeysFrom', () {
+      test('returns empty set for equal configs', () {
+        final a = NixblitzConfig.defaults();
+        final b = NixblitzConfig.defaults();
+        expect(a.diffKeysFrom(b), isEmpty);
+      });
+
+      test('flags single field changed in each section', () {
+        final base = NixblitzConfig.defaults();
+
+        final sys = base.copyWith(
+          system: base.system.copyWith(hostname: 'newname'),
+        );
+        expect(sys.diffKeysFrom(base), {'system.hostname'});
+
+        final btc = base.copyWith(
+          bitcoind: base.bitcoind.copyWith(pruned: !base.bitcoind.pruned),
+        );
+        expect(btc.diffKeysFrom(base), {'bitcoind.pruned'});
+
+        final lnd = base.copyWith(lnd: base.lnd.copyWith(alias: 'MyNode'));
+        expect(lnd.diffKeysFrom(base), {'lnd.alias'});
+
+        final cln = base.copyWith(
+          cln: base.cln.copyWith(enabled: !base.cln.enabled),
+        );
+        expect(cln.diffKeysFrom(base), {'cln.enabled'});
+
+        final api = base.copyWith(
+          blitzApi: base.blitzApi.copyWith(enabled: !base.blitzApi.enabled),
+        );
+        expect(api.diffKeysFrom(base), {'blitz_api.enabled'});
+
+        final web = base.copyWith(
+          blitzWeb: base.blitzWeb.copyWith(enabled: !base.blitzWeb.enabled),
+        );
+        expect(web.diffKeysFrom(base), {'blitz_web.enabled'});
+      });
+
+      test('flags multiple sections at once with snake_case keys', () {
+        final base = NixblitzConfig.defaults();
+        final after = base.copyWith(
+          system: base.system.copyWith(hostname: 'foo'),
+          bitcoind: base.bitcoind.copyWith(pruneSizeGb: 1024),
+          lnd: base.lnd.copyWith(alias: 'bar'),
+        );
+        // The numeric-field assertion specifically guards the
+        // snake_case requirement that diffKeysFrom must mirror
+        // toJson()'s key shape — Configure view's
+        // _pendingKeyFor lookup depends on this.
+        expect(after.diffKeysFrom(base), {
+          'system.hostname',
+          'bitcoind.prune_size_gb',
+          'lnd.alias',
+        });
+      });
+
+      test('flags top-level field toggles', () {
+        final base = NixblitzConfig.defaults();
+        final after = base.copyWith(
+          initialized: !base.initialized,
+          setupStepCompleted: () => 'buildServices',
+        );
+        expect(after.diffKeysFrom(base), {
+          'initialized',
+          'setup_step_completed',
+        });
+      });
+
+      test('ignores _extra (forward-compat) fields', () {
+        // Round-trip a config that carries an unknown field
+        // through fromJson/_extra. diffKeysFrom must not
+        // surface that field — it's not operator-visible and
+        // doesn't have a Configure-view row to mark.
+        final base = NixblitzConfig.defaults();
+        final json = base.toJson()..['some_future_field'] = {'a': 1};
+        final withExtra = NixblitzConfig.fromJson(json);
+        expect(withExtra.diffKeysFrom(base), isEmpty);
+      });
+    });
+
     test('should round-trip unknown fields in JSON', () {
       final json = {
         'initialized': false,
