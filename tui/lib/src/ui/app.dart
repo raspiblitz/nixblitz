@@ -64,19 +64,33 @@ bool _isInstallerEnvironment() {
 
 /// Center text for the top-of-screen header strip — sits
 /// between the "NIXBLITZ" logo and the version string. Surfaces
-/// the at-a-glance identity of the box: the operator-chosen LN
-/// node alias (when LND is enabled and they actually picked
-/// one) plus a prettified platform name.
+/// the at-a-glance identity of the box: the LIVE LN node alias
+/// plus a prettified platform name.
+///
+/// Alias source prefers the live snapshot from blitz-api over
+/// `config.lnd.alias` so an in-progress edit (operator typed a
+/// new alias in Configure but hasn't run Apply yet) doesn't
+/// make the header lie about what the running LND is actually
+/// announcing on the wire. Falls back to config when there's
+/// no snapshot — covers initial setup, blitz-api off, fresh
+/// reconnect.
 ///
 /// Network and per-service status deliberately stay out of the
 /// header — both already show on the dashboard tiles + footer
 /// banners, and the header has limited horizontal real estate
 /// on narrower terminals.
-String _formatHeaderInfo(NixblitzConfig config) {
+String _formatHeaderInfo(NixblitzConfig config, LnSnapshot? lnSnapshot) {
   final parts = <String>[];
-  if (config.lnd.enabled && config.lnd.alias.isNotEmpty) {
-    parts.add(config.lnd.alias);
-  }
+  // Live alias from blitz-api wins; fall back to config only
+  // when the snapshot has nothing (no LN yet, blitz-api down,
+  // SSE hasn't reconnected). config.lnd.enabled gates so we
+  // don't show a config-only stub when LN isn't enabled at all.
+  final liveAlias = lnSnapshot?.alias ?? '';
+  final fallbackAlias = (config.lnd.enabled && config.lnd.alias.isNotEmpty)
+      ? config.lnd.alias
+      : '';
+  final alias = liveAlias.isNotEmpty ? liveAlias : fallbackAlias;
+  if (alias.isNotEmpty) parts.add(alias);
   final platform = switch (config.system.platform) {
     'pi5' => 'Pi 5',
     'vm' => 'VM',
@@ -397,12 +411,26 @@ class _Shell extends StatelessComponent {
                       Expanded(
                         child: Center(
                           child: Text(
-                            context
-                                .watch(configProvider)
-                                .maybeWhen(
-                                  data: _formatHeaderInfo,
-                                  orElse: () => '',
-                                ),
+                            () {
+                              // Read both providers and pass to
+                              // _formatHeaderInfo. Can't chain
+                              // through `.maybeWhen` because we
+                              // need TWO async values, not one.
+                              final cfg = context
+                                  .watch(configProvider)
+                                  .maybeWhen(
+                                    data: (c) => c,
+                                    orElse: () => null,
+                                  );
+                              if (cfg == null) return '';
+                              final snap = context
+                                  .watch(lnSnapshotProvider)
+                                  .maybeWhen(
+                                    data: (s) => s,
+                                    orElse: () => null,
+                                  );
+                              return _formatHeaderInfo(cfg, snap);
+                            }(),
                             style: const TextStyle(
                               color: Color.fromRGB(180, 180, 200),
                             ),

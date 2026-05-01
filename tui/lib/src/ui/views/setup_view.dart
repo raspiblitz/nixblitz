@@ -21,6 +21,7 @@ const _kLndSeedPath = '/mnt/data/lnd/lnd-seed-mnemonic';
 
 enum SetupStep {
   setPassword,
+  setLightningAlias,
   buildServices,
   waitBitcoind,
   initLightning,
@@ -84,6 +85,20 @@ class _SetupViewState extends State<SetupView> {
   /// reveal entirely. We keep `_lndSeedWords` populated so a
   /// post-choice retry doesn't need another sudo round-trip.
   bool _lndSeedShowConfirmed = false;
+
+  /// Working buffer for the setLightningAlias step. Operator
+  /// types into it; Enter persists to config and advances. We
+  /// hold it in instance state (not a Riverpod provider) so a
+  /// rebuild triggered elsewhere doesn't lose the in-progress
+  /// edit.
+  ///
+  /// LND's BOLT-spec alias limit is 32 bytes. We cap typed
+  /// input at 32 ASCII characters — the right answer for
+  /// non-ASCII codepoints is "byte length" but most operators
+  /// pick ASCII names anyway. Future: a full UTF-8 byte
+  /// counter if anyone hits the edge.
+  String? _aliasBuffer;
+  static const int _kAliasMaxBytes = 32;
 
   @override
   void dispose() {
@@ -355,6 +370,7 @@ class _SetupViewState extends State<SetupView> {
 
     return switch (step) {
       SetupStep.setPassword => _buildSetPassword(),
+      SetupStep.setLightningAlias => _buildSetLightningAlias(),
       SetupStep.buildServices => _buildBuildServices(),
       SetupStep.waitBitcoind => _buildWaitBitcoind(),
       SetupStep.initLightning => _buildInitLightning(),
@@ -394,9 +410,143 @@ class _SetupViewState extends State<SetupView> {
           LogService.info('Password set successfully');
           _markStepCompleted(SetupStep.setPassword);
           context.read(_setupStepProvider.notifier).state =
-              SetupStep.buildServices;
+              SetupStep.setLightningAlias;
         });
       },
+    );
+  }
+
+  /// Asks the operator to pick a Lightning node name (LND alias).
+  /// Skipped automatically when LND isn't enabled — CLN doesn't
+  /// have an alias field today, and a "node name" question with
+  /// no LN backend would be a misleading prompt.
+  ///
+  /// Empty value is allowed: LND falls back to a pubkey-derived
+  /// default like `0274…b8e3`. The operator can also change the
+  /// alias post-setup via Configure → lnd → alias.
+  Component _buildSetLightningAlias() {
+    final configAsync = context.watch(configProvider);
+    final config = configAsync.value;
+
+    // Skip when there's no LN backend that uses an alias.
+    // CLN-only operators bypass this step entirely.
+    if (config != null && !config.lnd.enabled) {
+      Future.microtask(() {
+        _markStepCompleted(SetupStep.setLightningAlias);
+        context.read(_setupStepProvider.notifier).state =
+            SetupStep.buildServices;
+      });
+      return const Text('Skipping LN alias (LND disabled)…');
+    }
+    if (config == null) {
+      return const Text('Loading config…');
+    }
+
+    // Lazy-init the buffer from the existing alias so a re-run
+    // (operator backed out, came back) sees what they typed last
+    // time. Fresh installs get an empty string.
+    _aliasBuffer ??= config.lnd.alias;
+    final buffer = _aliasBuffer!;
+
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape) {
+            // Esc bails to the previous step (setPassword).
+            // Useful if the operator wants to redo the password
+            // before the rebuild fires.
+            context.read(_setupStepProvider.notifier).state =
+                SetupStep.setPassword;
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.enter) {
+            // Persist whatever the buffer holds (including
+            // empty — that's "let LND default") and advance.
+            final updated = config.copyWith(
+              lnd: config.lnd.copyWith(alias: buffer),
+            );
+            final configService = context.read(configServiceProvider);
+            configService.writeConfigSync(updated);
+            context.read(configProvider.notifier).updateConfig(updated);
+            LogService.info(
+              'setLightningAlias: persisted alias="$buffer" '
+              '(${buffer.length} chars)',
+            );
+            // Reset the buffer so a future re-entry (after a
+            // _markStepCompleted-aware resume) re-reads from
+            // config rather than holding onto stale state.
+            _aliasBuffer = null;
+            _markStepCompleted(SetupStep.setLightningAlias);
+            context.read(_setupStepProvider.notifier).state =
+                SetupStep.buildServices;
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.backspace) {
+            if (buffer.isEmpty) return true;
+            setState(() {
+              _aliasBuffer = buffer.substring(0, buffer.length - 1);
+            });
+            return true;
+          }
+          // Append printable characters. nocterm's `event.character`
+          // is non-null for typeable keys; filter to the
+          // ASCII-printable range. Spaces are explicitly allowed
+          // (operators picking "My Node Name" should be able to
+          // include them). Cap at 32 chars — BOLT spec.
+          final ch = event.character;
+          if (ch != null && ch.length == 1) {
+            final code = ch.codeUnitAt(0);
+            final printable = code >= 0x20 && code <= 0x7E;
+            if (printable && buffer.length < _kAliasMaxBytes) {
+              setState(() {
+                _aliasBuffer = '$buffer$ch';
+              });
+              return true;
+            }
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('setLightningAlias key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Lightning Node Name',
+              style: const TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            const Text('This is the public alias your LND node advertises on'),
+            const Text(
+              'the Lightning Network. Visible to everyone you connect',
+            ),
+            const Text(
+              'to. ASCII printable characters, max 32. Leave blank to',
+            ),
+            const Text('let LND derive one from your pubkey.'),
+            const SizedBox(height: 1),
+            Text('  Alias: [${buffer}_]'),
+            const SizedBox(height: 1),
+            Text(
+              '  ${buffer.length}/$_kAliasMaxBytes chars',
+              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            const SizedBox(height: 1),
+            const Text(
+              '[type] edit   [⌫] delete   [Enter] continue   [Esc] back',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

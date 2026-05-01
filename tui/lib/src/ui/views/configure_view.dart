@@ -13,6 +13,14 @@ final _selectedOptionProvider = StateProvider<int>((ref) => 0);
 final _changingPasswordProvider = StateProvider<bool>((ref) => false);
 final _statusMessageProvider = StateProvider<String>((ref) => '');
 
+/// In-progress edit buffer for a focused text / numeric field.
+/// `null` = not in edit mode (Enter toggles a bool, navigation
+/// keys do their normal thing). Non-null = the operator typed
+/// Enter on a TextOptionEditor / NumberOptionEditor; we now
+/// route key events through the text-edit path until they
+/// commit (Enter) or cancel (Esc).
+final _editingTextProvider = StateProvider<String?>((ref) => null);
+
 /// When non-null, the Configure view delegates to [PluginConfigView]
 /// for the plugin with this `dirName`. `null` means the main tabbed
 /// view is showing.
@@ -63,6 +71,7 @@ class ConfigureView extends StatelessComponent {
     final selectedOption = context.watch(_selectedOptionProvider);
     final statusMessage = context.watch(_statusMessageProvider);
     final editingPluginDir = context.watch(_editingPluginDirNameProvider);
+    final editingText = context.watch(_editingTextProvider);
 
     return configAsync.when(
       loading: () => const Center(child: Text('Loading...')),
@@ -105,6 +114,7 @@ class ConfigureView extends StatelessComponent {
           currentService,
           selectedOption,
           pluginService,
+          editingText: editingText,
         );
 
         return Focusable(
@@ -114,6 +124,56 @@ class ConfigureView extends StatelessComponent {
               // Clear status message on any key press
               if (statusMessage.isNotEmpty) {
                 context.read(_statusMessageProvider.notifier).state = '';
+              }
+              // Text-edit mode short-circuits everything below.
+              // Reach it by pressing Enter on a TextOptionEditor
+              // or NumberOptionEditor (handled in the Enter
+              // branch further down). Once active, all key
+              // events route through the buffer mutation /
+              // commit / cancel logic until the operator hits
+              // Enter (commit) or Esc (cancel).
+              if (editingText != null) {
+                final field = _textEditField(currentService, selectedOption);
+                if (event.logicalKey == LogicalKey.escape) {
+                  context.read(_editingTextProvider.notifier).state = null;
+                  return true;
+                }
+                if (event.logicalKey == LogicalKey.enter) {
+                  final updated = _applyTextEdit(
+                    config,
+                    currentService,
+                    selectedOption,
+                    editingText,
+                  );
+                  if (updated != null) {
+                    context.read(configProvider.notifier).updateConfig(updated);
+                  }
+                  context.read(_editingTextProvider.notifier).state = null;
+                  return true;
+                }
+                if (event.logicalKey == LogicalKey.backspace) {
+                  if (editingText.isEmpty) return true;
+                  context.read(_editingTextProvider.notifier).state =
+                      editingText.substring(0, editingText.length - 1);
+                  return true;
+                }
+                final ch = event.character;
+                if (ch != null && ch.length == 1 && field != null) {
+                  final code = ch.codeUnitAt(0);
+                  // Numeric fields: digits 0-9 only. Text fields:
+                  // ASCII printable (incl. space). Cap at the
+                  // field's max length so a key-mash can't blow
+                  // out a 32-byte LND alias.
+                  final accept = field.numeric
+                      ? (code >= 0x30 && code <= 0x39)
+                      : (code >= 0x20 && code <= 0x7E);
+                  if (accept && editingText.length < field.maxLength) {
+                    context.read(_editingTextProvider.notifier).state =
+                        '$editingText$ch';
+                  }
+                  return true;
+                }
+                return true;
               }
               if (event.logicalKey == LogicalKey.keyJ ||
                   event.logicalKey == LogicalKey.arrowDown) {
@@ -177,6 +237,17 @@ class ConfigureView extends StatelessComponent {
                     context.read(_editingPluginDirNameProvider.notifier).state =
                         active[selectedOption].dirName;
                   }
+                  return true;
+                }
+                // Text / numeric fields enter inline edit mode
+                // when the operator presses Enter on them. Seed
+                // the buffer with the current value so backspace
+                // works against existing content (vs. starting
+                // from empty and only being able to append).
+                final field = _textEditField(currentService, selectedOption);
+                if (field != null) {
+                  context.read(_editingTextProvider.notifier).state = field
+                      .currentValue(config);
                   return true;
                 }
                 final updated = _toggleOption(
@@ -272,6 +343,74 @@ class ConfigureView extends StatelessComponent {
     );
   }
 
+  /// Describes a text-editable field at a (service, optionIndex)
+  /// position. Populated by [_textEditField] for the four fields
+  /// currently exposed as TextOptionEditor / NumberOptionEditor.
+  /// Returns null for everything else, which keeps Enter on a
+  /// bool/select field on the toggle path.
+  _TextEditField? _textEditField(String service, int optionIndex) {
+    switch (service) {
+      case 'system':
+        if (optionIndex == 0) {
+          return _TextEditField.text(const _HostnameField());
+        }
+        if (optionIndex == 1) {
+          return _TextEditField.text(const _TimezoneField());
+        }
+        return null;
+      case 'bitcoind':
+        if (optionIndex == 3) {
+          return _TextEditField.numeric(const _PruneSizeField());
+        }
+        return null;
+      case 'lnd':
+        if (optionIndex == 1) return _TextEditField.text(const _AliasField());
+        return null;
+    }
+    return null;
+  }
+
+  /// Persist a committed text-edit buffer back into config via
+  /// the same `_<Section>Config.copyWith` plumbing the bool /
+  /// select toggle paths use. Returns null when the (service,
+  /// optionIndex) pair isn't text-editable — caller treats null
+  /// as "no change". Numeric fields parse the buffer as int and
+  /// silently fall back to the prior value on a parse miss
+  /// (only happens if the operator typed nothing — empty buffer
+  /// — for a numeric field).
+  NixblitzConfig? _applyTextEdit(
+    NixblitzConfig config,
+    String service,
+    int optionIndex,
+    String buffer,
+  ) {
+    switch (service) {
+      case 'system':
+        if (optionIndex == 0) {
+          return config.copyWith(
+            system: config.system.copyWith(hostname: buffer),
+          );
+        }
+        if (optionIndex == 1) {
+          return config.copyWith(
+            system: config.system.copyWith(timezone: buffer),
+          );
+        }
+      case 'bitcoind':
+        if (optionIndex == 3) {
+          final n = int.tryParse(buffer) ?? config.bitcoind.pruneSizeGb;
+          return config.copyWith(
+            bitcoind: config.bitcoind.copyWith(pruneSizeGb: n),
+          );
+        }
+      case 'lnd':
+        if (optionIndex == 1) {
+          return config.copyWith(lnd: config.lnd.copyWith(alias: buffer));
+        }
+    }
+    return null;
+  }
+
   /// Toggle a bool or cycle a select option. Returns updated config, or null if not editable.
   NixblitzConfig? _toggleOption(
     NixblitzConfig config,
@@ -354,19 +493,58 @@ class ConfigureView extends StatelessComponent {
     NixblitzConfig config,
     String service,
     int selectedIndex,
-    PluginService pluginService,
-  ) {
+    PluginService pluginService, {
+    String? editingText,
+  }) {
+    /// Returns the on-screen value for a text field at
+    /// [optionIndex]. When the operator is editing this exact
+    /// field, swap in the in-progress buffer with a trailing
+    /// `_` cursor so they can see what they've typed and where
+    /// the cursor sits.
+    String editableText(int optionIndex, String onConfig) {
+      if (editingText != null && optionIndex == selectedIndex) {
+        return '${editingText}_';
+      }
+      return onConfig;
+    }
+
+    /// Same idea for numeric fields. Numeric editors render an
+    /// int, so during edit we substitute a string-formatted
+    /// version using a TextOptionEditor temporarily.
+    Component editableNumber(
+      int optionIndex,
+      String label,
+      int onConfig,
+      String unit,
+    ) {
+      if (editingText != null && optionIndex == selectedIndex) {
+        return TextOptionEditor(
+          label: label,
+          value:
+              '${editingText}_'
+              '${unit.isNotEmpty ? " $unit" : ""}',
+          focused: true,
+        );
+      }
+      return NumberOptionEditor(
+        label: label,
+        value: onConfig,
+        unit: unit,
+        focused: optionIndex == selectedIndex,
+      );
+    }
+
     switch (service) {
       case 'system':
         return [
           TextOptionEditor(
             label: 'hostname',
-            value: config.system.hostname,
+            value: editableText(0, config.system.hostname),
             focused: selectedIndex == 0,
           ),
           TextOptionEditor(
             label: 'timezone',
-            value: config.system.timezone,
+            value: editableText(1, config.system.timezone),
             focused: selectedIndex == 1,
           ),
           SelectOptionEditor(
@@ -399,12 +577,7 @@ class ConfigureView extends StatelessComponent {
             value: config.bitcoind.pruned,
             focused: selectedIndex == 2,
           ),
-          NumberOptionEditor(
-            label: 'prune size',
-            value: config.bitcoind.pruneSizeGb,
-            unit: 'GB',
-            focused: selectedIndex == 3,
-          ),
+          editableNumber(3, 'prune size', config.bitcoind.pruneSizeGb, 'GB'),
         ];
       case 'lnd':
         return [
@@ -415,7 +588,7 @@ class ConfigureView extends StatelessComponent {
           ),
           TextOptionEditor(
             label: 'alias',
-            value: config.lnd.alias,
+            value: editableText(1, config.lnd.alias),
             focused: selectedIndex == 1,
           ),
         ];
@@ -555,4 +728,68 @@ class ConfigureView extends StatelessComponent {
         return [const Text('Unknown service')];
     }
   }
+}
+
+/// Metadata for an inline-editable field — bundles the per-field
+/// constraints (numeric? max length? how to read its current
+/// value off config) so the key handler doesn't need to switch
+/// on (service, optionIndex) for every single keystroke. The
+/// `_textEditField` lookup on Enter wraps a per-field accessor
+/// in this; the handler then drives append / backspace through
+/// the accessor's contract.
+class _TextEditField {
+  final bool numeric;
+  final int maxLength;
+  final _FieldAccessor _accessor;
+
+  _TextEditField.text(this._accessor)
+    : numeric = false,
+      maxLength = _accessor.maxLength;
+
+  _TextEditField.numeric(this._accessor)
+    : numeric = true,
+      maxLength = _accessor.maxLength;
+
+  String currentValue(NixblitzConfig config) => _accessor.read(config);
+}
+
+/// Per-field reader. Each editable field implements this so the
+/// generic edit-mode entry point can populate the buffer without
+/// the call site having to know which field it is.
+abstract class _FieldAccessor {
+  const _FieldAccessor();
+  int get maxLength;
+  String read(NixblitzConfig config);
+}
+
+class _HostnameField extends _FieldAccessor {
+  const _HostnameField();
+  @override
+  int get maxLength => 63; // RFC 1035 hostname-label limit
+  @override
+  String read(NixblitzConfig config) => config.system.hostname;
+}
+
+class _TimezoneField extends _FieldAccessor {
+  const _TimezoneField();
+  @override
+  int get maxLength => 64; // longest tzdata zone name is ~30; round up
+  @override
+  String read(NixblitzConfig config) => config.system.timezone;
+}
+
+class _AliasField extends _FieldAccessor {
+  const _AliasField();
+  @override
+  int get maxLength => 32; // BOLT spec: 32 bytes
+  @override
+  String read(NixblitzConfig config) => config.lnd.alias;
+}
+
+class _PruneSizeField extends _FieldAccessor {
+  const _PruneSizeField();
+  @override
+  int get maxLength => 6; // up to 999999 GB; way past sane disk sizes
+  @override
+  String read(NixblitzConfig config) => '${config.bitcoind.pruneSizeGb}';
 }
