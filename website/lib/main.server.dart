@@ -20,6 +20,29 @@ void main() {
             }
           });
         }
+        // Lightbox close handlers. The CSS uses `:target` for
+        // open/close (see `.lightbox` in input.css). Opening the
+        // lightbox is just a navigation to `#lb-<id>` which pushes
+        // a history entry. Closing via `history.back()` undoes that
+        // navigation — the browser restores the scroll position
+        // automatically, the URL fragment clears, and `:target`
+        // unmatches. Way simpler than manually mutating history.
+        function closeLightbox(e) {
+          if (!document.querySelector('.lightbox:target')) return false;
+          if (e) e.preventDefault();
+          history.back();
+          return true;
+        }
+        document.addEventListener('click', function(e) {
+          var target = e.target;
+          if (!(target instanceof Element)) return;
+          if (target.closest('.lightbox-close, .lightbox-backdrop')) {
+            closeLightbox(e);
+          }
+        });
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') closeLightbox();
+        });
         </script>
       '''),
       ],

@@ -233,6 +233,54 @@
     background: rgba(247, 147, 26, 0.15);
   }
 
+  /* ---------- CSS-only image lightbox -------------------------- *
+   * Hidden by default. `:target` makes it visible when the URL
+   * fragment matches the overlay's id; closing is just navigating
+   * the fragment back to "#" via the close link or backdrop. See
+   * `_Screenshot` in lib/pages/home_page.dart for the markup wiring.
+   */
+  .lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+  }
+  .lightbox:target {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 10, 10, 0.92);
+    backdrop-filter: blur(2px);
+  }
+  .lightbox-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    max-width: 95vw;
+    max-height: 95vh;
+    padding: 1rem;
+  }
+  .lightbox-image {
+    display: block;
+    max-width: 100%;
+    max-height: 85vh;
+    border: 1px solid var(--border);
+    background: var(--card);
+  }
+  .lightbox-close {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  .cursor-zoom-in {
+    cursor: zoom-in;
+  }
+
   /* ---------- Markdown content panel --------------------------- */
   .content,
   .prose {

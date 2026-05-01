@@ -20,14 +20,14 @@ differs.
 NixBlitz currently supports two platforms. Pick whichever matches
 the hardware you have.
 
-| Platform | When to use | Live-image source |
-| --- | --- | --- |
-| **x86** | Evaluating in a VM (Proxmox / qemu / libvirt) or running on a NUC, server, or repurposed PC. | Stock NixOS 25.11 minimal ISO from [nixos.org/download](https://nixos.org/download/). NixBlitz isn't baked in — the TUI bootstraps over the network on first run. |
+| Platform | When to use                                                                                  | Live-image source                                                                                                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **x86**  | Evaluating in a VM (Proxmox / qemu / libvirt) or running on a NUC, server, or repurposed PC. | Stock NixOS 25.11 minimal ISO from [nixos.org/download](https://nixos.org/download/). NixBlitz isn't baked in — the TUI bootstraps over the network on first run.                  |
 | **Pi 5** | Production node on dedicated hardware. Pi 5 8 GB recommended, NVMe via the official M.2 HAT. | Third-party `nvmd/nixos-raspberrypi` live image (NixOS upstream doesn't ship Pi 5 firmware / vendor kernel / matched bootloader). A NixBlitz-branded Pi 5 image is on the roadmap. |
 
 Once installed, the same flake on disk handles runtime + updates
 on both platforms. The asymmetry today is purely about how you get
-*onto* the box the first time.
+_onto_ the box the first time.
 
 The install wizard auto-detects the platform from `/proc/cpuinfo`
 once it runs.
@@ -145,7 +145,7 @@ zstd -dc result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status
 > 3. **SSH is enabled by default** with no authorized keys —
 >    login requires the root password.
 > 4. **`git` is not on PATH.** The bootstrap step needs it (`nix
->    run` against a `git+https://…` URL); drop into
+run` against a `git+https://…` URL); drop into
 >    `nix-shell -p git` first. The fully-installed system has git
 >    (we add it via `features.system.base`).
 > 5. **You MUST add the `nixos-raspberrypi.cachix.org`

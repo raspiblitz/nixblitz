@@ -494,7 +494,9 @@ class _DebugBody extends StatelessComponent {
 }
 
 /// Real screenshot from `examples_redesign/screenshots/`, copied into
-/// `web/screenshots/` at build time.
+/// `web/screenshots/` at build time. Click expands the image into a
+/// fullscreen lightbox via CSS `:target` — no JavaScript required for
+/// the open/close, see `.lightbox` rules in `web/input.css`.
 class _Screenshot extends StatelessComponent {
   final String src;
   final String alt;
@@ -506,21 +508,61 @@ class _Screenshot extends StatelessComponent {
     required this.caption,
   });
 
+  /// Derives a stable, URL-safe lightbox id from the image filename.
+  /// `/screenshots/dashboard.png` → `lb-dashboard`.
+  String get _lightboxId {
+    final base = src.split('/').last.split('.').first;
+    return 'lb-$base';
+  }
+
   @override
   Component build(BuildContext context) {
     return Tile(
       title: 'screenshot',
       titleColor: 'muted',
       children: [
-        img(
-          src: src,
-          classes: 'w-full block',
-          attributes: {'alt': alt, 'loading': 'lazy'},
+        a(
+          href: '#$_lightboxId',
+          classes: 'block cursor-zoom-in',
+          attributes: {'aria-label': 'Open $alt fullscreen'},
+          [
+            img(
+              src: src,
+              classes: 'w-full block',
+              attributes: {'alt': alt, 'loading': 'lazy'},
+            ),
+          ],
         ),
         p(
           classes: 'mt-3 text-sm',
           styles: Styles(raw: {'color': 'var(--color-tui-muted)'}),
           [Component.text(caption)],
+        ),
+        div(
+          id: _lightboxId,
+          classes: 'lightbox',
+          attributes: {'role': 'dialog', 'aria-modal': 'true'},
+          [
+            // Backdrop link covers the whole overlay; clicking
+            // anywhere outside the image closes the lightbox.
+            a(
+              href: '#',
+              classes: 'lightbox-backdrop',
+              attributes: {'aria-label': 'Close'},
+              [],
+            ),
+            div(classes: 'lightbox-content', [
+              img(
+                src: src,
+                classes: 'lightbox-image',
+                attributes: {'alt': alt},
+              ),
+              a(href: '#', classes: 'lightbox-close keybind', [
+                span(classes: 'key', [Component.text('[esc]')]),
+                Component.text(' close'),
+              ]),
+            ]),
+          ],
         ),
       ],
     );
