@@ -85,17 +85,21 @@ web-serve: web-css
   #!/usr/bin/env nu
   cd website; jaspr serve
 
-# Build the website into a static bundle (./website/build/jaspr/)
-web-build: web-css
+# Build the website via Nix (output symlink: ./result/)
+web-build:
+  nix build .#website
+
+# Build the website locally with `jaspr` on PATH (faster dev iteration; output: website/build/jaspr/)
+web-build-local: web-css
   #!/usr/bin/env nu
   cd website; jaspr build -O4
 
-# Serve the production build with python's http.server (http://localhost:8082)
+# Serve the Nix-built bundle on http://localhost:8082
 web-serve-prod: web-build
   #!/usr/bin/env nu
-  cd website/build/jaspr; python3 -m http.server 8082
+  cd result; python3 -m http.server 8082
 
-# Clean the website's build artifacts
+# Clean local build artifacts (nix-built ./result/ is unaffected)
 web-clean:
   #!/usr/bin/env nu
   cd website; rm -rf build .dart_tool

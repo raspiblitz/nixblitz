@@ -62,11 +62,24 @@
           ]}:$PATH"
           exec ${nixblitzUnwrapped}/bin/nixblitz "$@"
         '';
+
+        # Static-rendered Jaspr site. Output is a tree of HTML +
+        # CSS + assets ready to drop behind nginx / caddy / any
+        # static-file server. Built fully offline in the Nix
+        # sandbox via a patched jaspr_cli (vendor/jaspr_cli/),
+        # see vendor/jaspr_cli/NIXBLITZ_FORK.md for the rationale.
+        nixblitzWebsite = pkgsUnstable.callPackage ./nix/website_pkg.nix {
+          nixFilter = nix-filter.lib;
+          tailwindcss_4 = pkgs.tailwindcss_4;
+          inherit version gitHash;
+          derivationVersion = "${version}+${gitHash}";
+        };
       in {
         packages = {
           default = self.packages.${system}.nixblitz;
           nixblitz = nixblitzWrapped;
           nixblitz-unwrapped = nixblitzUnwrapped;
+          website = nixblitzWebsite;
         };
 
         apps.default = {
