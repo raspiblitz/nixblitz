@@ -220,7 +220,7 @@ class ConfigureView extends StatelessComponent {
                   event.logicalKey == LogicalKey.space) {
                 // Password change is a special action, not a config toggle.
                 // Authenticate sudo first so chpasswd later runs silently.
-                if (currentService == 'system' && selectedOption == 3) {
+                if (currentService == 'system' && selectedOption == 4) {
                   final session = context.read(sudoSessionProvider);
                   session.ensureFresh().then((ok) {
                     if (ok) {
@@ -488,8 +488,15 @@ class ConfigureView extends StatelessComponent {
             return config.copyWith(
               system: config.system.copyWith(platform: platforms[next]),
             );
+          case 3:
+            const shells = ['bash', 'nushell'];
+            final next =
+                (shells.indexOf(config.system.shell) + 1) % shells.length;
+            return config.copyWith(
+              system: config.system.copyWith(shell: shells[next]),
+            );
           // hostname and timezone need text input, skip for now
-          // case 3 (password) is handled separately in the key handler
+          // case 4 (password) is handled separately in the key handler
         }
     }
     return null;
@@ -518,6 +525,8 @@ class ConfigureView extends StatelessComponent {
           case 2:
             return 'system.platform';
           case 3:
+            return 'system.shell';
+          case 4:
             return null; // password row — not a config field
         }
       case 'bitcoind':
@@ -627,10 +636,17 @@ class ConfigureView extends StatelessComponent {
             focused: selectedIndex == 2,
             pending: isPending(2),
           ),
+          SelectOptionEditor(
+            label: 'shell',
+            value: config.system.shell,
+            options: const ['bash', 'nushell'],
+            focused: selectedIndex == 3,
+            pending: isPending(3),
+          ),
           TextOptionEditor(
             label: 'password',
             value: 'Press Enter to change',
-            focused: selectedIndex == 3,
+            focused: selectedIndex == 4,
             // No pending marker on password — it's not a config field
             // and `_pendingKeyFor` returns null for this row.
           ),

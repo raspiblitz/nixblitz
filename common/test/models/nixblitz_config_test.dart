@@ -16,6 +16,9 @@ void main() {
       // operator's chosen disk. Falls back to the disko module's
       // per-platform default at eval time when empty.
       expect(config.system.diskDevice, '');
+      // Bash is the default. Nushell stays available behind a
+      // Configure → system → shell flip.
+      expect(config.system.shell, 'bash');
       expect(config.bitcoind.enabled, true);
       expect(config.bitcoind.network, 'mainnet');
       expect(config.bitcoind.pruned, true);
@@ -70,6 +73,48 @@ void main() {
       };
       final config = NixblitzConfig.fromJson(json);
       expect(config.system.diskDevice, '');
+    });
+
+    test('shell round-trips through JSON', () {
+      final config = NixblitzConfig.defaults().copyWith(
+        system: NixblitzConfig.defaults().system.copyWith(shell: 'nushell'),
+      );
+      final json =
+          jsonDecode(jsonEncode(config.toJson())) as Map<String, dynamic>;
+      expect((json['system'] as Map<String, dynamic>)['shell'], 'nushell');
+      final restored = NixblitzConfig.fromJson(json);
+      expect(restored.system.shell, 'nushell');
+    });
+
+    test('shell defaults to bash when missing from JSON', () {
+      // Configs from before v16 don't have system.shell. Reading
+      // them must not throw — the field falls through to the new
+      // bash default. Pre-v16 installs were running nushell
+      // implicitly (the old hard-coded default in base.nix), so
+      // this also encodes the upgrade-path behaviour: missing
+      // field → bash, on next Apply.
+      final json = {
+        'version': 15,
+        'initialized': false,
+        'system': {
+          'hostname': 'x',
+          'timezone': 'UTC',
+          'platform': 'x86',
+          'disk_device': '',
+        },
+        'bitcoind': {
+          'enabled': true,
+          'network': 'mainnet',
+          'pruned': true,
+          'prune_size_gb': 550,
+        },
+        'lnd': {'enabled': false, 'alias': ''},
+        'cln': {'enabled': false},
+        'blitz_api': {'enabled': false},
+        'blitz_web': {'enabled': false},
+      };
+      final config = NixblitzConfig.fromJson(json);
+      expect(config.system.shell, 'bash');
     });
 
     test('should include version in serialized JSON', () {

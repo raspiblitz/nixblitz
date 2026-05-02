@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 15;
+const int currentConfigVersion = 16;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -140,6 +140,13 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
       // hosts get an empty string and fall back to the disko-x86
       // default — so VMs continue to work without re-installing.
       14: (json) => json,
+      // v15 → v16: additive — `system.shell` lets the operator pick
+      // bash or nushell as the admin user's default login shell. Bash
+      // is the new default (was nushell, hard-coded in base.nix).
+      // Existing configs missing the field fall through to bash on
+      // next Apply — flip the Configure → system → shell select to
+      // stay on nushell.
+      15: (json) => json,
     };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

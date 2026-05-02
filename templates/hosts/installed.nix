@@ -21,6 +21,9 @@ in {
   time.timeZone = sys.timezone;
 
   features.system.base.enable = true;
+  # Operator's choice of login shell. Older configs (pre-v16) don't
+  # have the field — fall back to bash, the new default.
+  features.system.base.shell = sys.shell or "bash";
 
   # Two background timers (daily light + weekly heavy) populate
   # ~/.local/state/nixblitz/update-status.json so the dashboard can

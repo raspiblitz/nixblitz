@@ -17,11 +17,20 @@ class SystemConfig {
   /// wizard before save-config.
   final String diskDevice;
 
+  /// Default login shell for the admin user. One of `bash` or
+  /// `nushell`. Threaded through to `users.defaultUserShell` in
+  /// `templates/modules/system/base.nix`. Bash is the default
+  /// because most NixBlitz operators are coming from Linux
+  /// systems where bash is the lingua franca; nushell stays
+  /// available as an opt-in for people who prefer it.
+  final String shell;
+
   const SystemConfig({
     required this.hostname,
     required this.timezone,
     required this.platform,
     this.diskDevice = '',
+    this.shell = 'bash',
   });
 
   factory SystemConfig.defaults() => const SystemConfig(
@@ -29,6 +38,7 @@ class SystemConfig {
     timezone: 'UTC',
     platform: 'x86',
     diskDevice: '',
+    shell: 'bash',
   );
 
   factory SystemConfig.fromJson(Map<String, dynamic> json) => SystemConfig(
@@ -36,6 +46,7 @@ class SystemConfig {
     timezone: json['timezone'] as String? ?? 'UTC',
     platform: json['platform'] as String? ?? 'x86',
     diskDevice: json['disk_device'] as String? ?? '',
+    shell: json['shell'] as String? ?? 'bash',
   );
 
   Map<String, dynamic> toJson() => {
@@ -43,6 +54,7 @@ class SystemConfig {
     'timezone': timezone,
     'platform': platform,
     'disk_device': diskDevice,
+    'shell': shell,
   };
 
   SystemConfig copyWith({
@@ -50,11 +62,13 @@ class SystemConfig {
     String? timezone,
     String? platform,
     String? diskDevice,
+    String? shell,
   }) => SystemConfig(
     hostname: hostname ?? this.hostname,
     timezone: timezone ?? this.timezone,
     platform: platform ?? this.platform,
     diskDevice: diskDevice ?? this.diskDevice,
+    shell: shell ?? this.shell,
   );
 
   @override
@@ -63,10 +77,12 @@ class SystemConfig {
       other.hostname == hostname &&
       other.timezone == timezone &&
       other.platform == platform &&
-      other.diskDevice == diskDevice;
+      other.diskDevice == diskDevice &&
+      other.shell == shell;
 
   @override
-  int get hashCode => Object.hash(hostname, timezone, platform, diskDevice);
+  int get hashCode =>
+      Object.hash(hostname, timezone, platform, diskDevice, shell);
 }
 
 class BitcoindConfig {

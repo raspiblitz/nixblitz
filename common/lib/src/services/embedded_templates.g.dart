@@ -19,15 +19,26 @@ const String _flake = r'''
     };
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     blitz-api = {
       url = "github:fusion44/blitz_api";
+      # CRITICAL on Pi 5: without this follows, blitz-api pulls
+      # in its own pinned nixos-unstable, captures `pkgs` from
+      # there at flake-eval time, and bakes a uv path into its
+      # pyproject install hook that we can't override. With the
+      # follows, blitz-api's eval uses our nixpkgs and our
+      # uv override (in installed-pi5.nix's `nixpkgs.overlays`)
+      # actually reaches the install hook. See the rule in
+      # CLAUDE.md about always following nixpkgs on new inputs.
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     blitz-web = {
       # Tracks the branch with the nix packaging in place (pending PR
       # back to raspiblitz/raspiblitz-web). Once merged upstream this
       # can point at github:raspiblitz/raspiblitz-web directly.
       url = "github:fusion44/raspiblitz-web";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
     # come from this third-party flake. Pinned to a tag so refreshes
@@ -102,6 +113,19 @@ const String _flake = r'''
         (import pluginPath) {pluginCfg = cfg;};
     in
       map mkPluginModule (builtins.filter isPluginDir pluginDirs);
+
+    # Read enough of the operator's config to know which platform
+    # we're targeting. Used to alias `nixosConfigurations.${hostname}`
+    # to the platform-correct build below — without it, a plain
+    # `nixos-rebuild switch --flake .` defaults to
+    # `.#${hostname}` and the Pi 5 case grabs the x86 attribute,
+    # failing with `boot.loader.grub.devices` unset.
+    blitzCfg =
+      if builtins.pathExists ./config.json
+      then builtins.fromJSON (builtins.readFile ./config.json)
+      else {};
+    blitzPlatform = blitzCfg.system.platform or "x86";
+    blitzHostname = blitzCfg.system.hostname or "nixblitz";
   in {
     nixosModules.default = {
       imports =
@@ -119,56 +143,95 @@ const String _flake = r'''
         ];
     };
 
-    nixosConfigurations.nixblitz = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      specialArgs = {inherit nixblitz;};
-      modules = [
-        ./hosts/installed.nix
-        self.nixosModules.default
-      ];
-    };
+    # Build the four canonical configurations as a separate
+    # attrset, then merge in the hostname-keyed alias below. The
+    # split is purely so the alias can overwrite an existing key
+    # (e.g. operator's hostname is the default `nixblitz` on Pi
+    # 5 — alias overrides the x86 build under that name) without
+    # tripping Nix's "attribute already defined" error from two
+    # static assignments to the same key.
+    nixosConfigurations = let
+      canonical = {
+        nixblitz = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = {inherit nixblitz;};
+          modules = [
+            ./hosts/installed.nix
+            self.nixosModules.default
+          ];
+        };
 
-    # Live-ISO config used by `disko-install --flake .#nixblitz-installer`.
-    # Identical to nixosConfigurations.nixblitz except for passwordless
-    # sudo. See docs/decisions/plugins.md (sudo posture).
-    nixosConfigurations.nixblitz-installer = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      specialArgs = {inherit nixblitz;};
-      modules = [
-        ./hosts/installer.nix
-        self.nixosModules.default
-      ];
-    };
+        # Live-ISO config used by `disko-install --flake .#nixblitz-installer`.
+        # Identical to nixosConfigurations.nixblitz except for passwordless
+        # sudo. See docs/decisions/plugins.md (sudo posture).
+        nixblitz-installer = nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs = {inherit nixblitz;};
+          modules = [
+            ./hosts/installer.nix
+            self.nixosModules.default
+          ];
+        };
 
-    # Pi 5 build target. Use `nixos-raspberrypi.lib.nixosSystem`
-    # (not `nixpkgs.lib.nixosSystem`) so the upstream's bootloader
-    # / vendor-kernel / vendor-firmware / kernel-and-firmware
-    # overlays are auto-applied. The opt-in `pkgs` overlay
-    # (ffmpeg, kodi, etc.) is NOT applied — `nixosSystem` is the
-    # node-friendly variant; `nixosSystemFull` would pull in the
-    # media stack, which is wasted on a headless node.
-    nixosConfigurations.nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
-      specialArgs = {inherit nixblitz nixos-raspberrypi;};
-      modules = [
-        ./hosts/installed-pi5.nix
-        self.nixosModules.default
-      ];
-    };
+        # Pi 5 build target. Use `nixos-raspberrypi.lib.nixosSystem`
+        # (not `nixpkgs.lib.nixosSystem`) so the upstream's bootloader
+        # / vendor-kernel / vendor-firmware / kernel-and-firmware
+        # overlays are auto-applied. The opt-in `pkgs` overlay
+        # (ffmpeg, kodi, etc.) is NOT applied — `nixosSystem` is the
+        # node-friendly variant; `nixosSystemFull` would pull in the
+        # media stack, which is wasted on a headless node.
+        nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
+          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          modules = [
+            ./hosts/installed-pi5.nix
+            self.nixosModules.default
+          ];
+        };
 
-    # Pi 5 install target. Used by
-    # `disko-install --flake .#nixblitz-pi5-installer` from inside
-    # the live image (typically the upstream
-    # `nvmd/nixos-raspberrypi#installerImages.rpi5` flashed to a
-    # USB stick). Differs from `nixblitz-pi5` only in
-    # `installer-pi5.nix`'s passwordless sudo override; same
-    # bootloader / kernel / firmware / disko layout.
-    nixosConfigurations.nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
-      specialArgs = {inherit nixblitz nixos-raspberrypi;};
-      modules = [
-        ./hosts/installer-pi5.nix
-        self.nixosModules.default
-      ];
-    };
+        # Pi 5 install target. Used by
+        # `disko-install --flake .#nixblitz-pi5-installer` from inside
+        # the live image (typically the upstream
+        # `nvmd/nixos-raspberrypi#installerImages.rpi5` flashed to a
+        # USB stick). Differs from `nixblitz-pi5` only in
+        # `installer-pi5.nix`'s passwordless sudo override; same
+        # bootloader / kernel / firmware / disko layout.
+        nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
+          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          modules = [
+            ./hosts/installer-pi5.nix
+            self.nixosModules.default
+          ];
+        };
+      };
+
+      # Hostname-keyed alias. NixOS rebuild defaults to
+      # `${flake}#nixosConfigurations.${hostname}` when no `#attr`
+      # is given; without this alias a Pi 5 system whose hostname
+      # is the default `nixblitz` resolves to the x86 attribute
+      # and fails with `boot.loader.grub.devices` unset. Aliasing
+      # the hostname to the platform-correct build makes the bare
+      # `sudo nixos-rebuild switch --flake .` (and the TUI's
+      # update / apply paths that rely on the same default) DTRT
+      # on every platform without the operator having to know the
+      # `-pi5` attribute name.
+      #
+      # Default hostname `nixblitz` on x86: alias overwrites the
+      # canonical `nixblitz` with the same value — no-op.
+      # Default hostname `nixblitz` on Pi 5: alias overwrites the
+      # canonical x86 `nixblitz` to point at the Pi 5 build —
+      # exactly the footgun fix.
+      # Custom hostname (e.g. `loki`) on either platform: alias
+      # adds a new key pointing at the platform-correct build;
+      # canonical names stay available for explicit `#nixblitz-*`.
+      aliasTarget =
+        if blitzPlatform == "pi5"
+        then canonical.nixblitz-pi5
+        else canonical.nixblitz;
+    in
+      canonical
+      // {
+        ${blitzHostname} = aliasTarget;
+      };
   };
 }
 ''';
@@ -285,11 +348,18 @@ const String _hostsInstalledPi5 = r'''
   imports = [
     # Pi 5 vendor kernel + matched firmware. Comes from
     # `nvmd/nixos-raspberrypi`; the per-Pi attribute set is
-    # documented at github.com/nvmd/nixos-raspberrypi.
+    # documented at github.com/nvmd/nixos-raspberrypi. The
+    # vendor kernel is configured for 16K pages at build time
+    # (CONFIG_ARM64_16K_PAGES) — that's not something `.base` is
+    # opting into, it's just what the hardware-friendly Pi 5
+    # kernel ships with.
     nixos-raspberrypi.nixosModules.raspberry-pi-5.base
-    # bcm2712 (Pi 5 SoC) supports 16K page sizes; the upstream
-    # README recommends enabling this for the jemalloc / glibc
-    # tuning that goes with it.
+    # Optional-but-required-in-practice: rebuilds `pkgs.jemalloc`
+    # with `--with-lg-page=14` (16K-aware). Without it, any C
+    # binary on cache.nixos.org that links the system jemalloc
+    # aborts with "Unsupported system page size" at startup
+    # because cache.nixos.org's substitutes are built for 4K
+    # alignment. See nvmd/nixos-raspberrypi#64.
     nixos-raspberrypi.nixosModules.raspberry-pi-5.page-size-16k
     # All the NixBlitz feature toggles, hostname, services, etc.
     # x86 and Pi 5 only differ in bootloader / kernel / firmware;
@@ -329,6 +399,9 @@ in {
   time.timeZone = sys.timezone;
 
   features.system.base.enable = true;
+  # Operator's choice of login shell. Older configs (pre-v16) don't
+  # have the field — fall back to bash, the new default.
+  features.system.base.shell = sys.shell or "bash";
 
   # Two background timers (daily light + weekly heavy) populate
   # ~/.local/state/nixblitz/update-status.json so the dashboard can
@@ -345,7 +418,9 @@ in {
   # field.
   features.system.disko-x86.enable = sys.platform == "vm" || sys.platform == "x86";
   features.system.disko-x86.device =
-    if (sys.disk_device or "") != "" then sys.disk_device else "/dev/vda";
+    if (sys.disk_device or "") != ""
+    then sys.disk_device
+    else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
   features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
@@ -668,7 +743,18 @@ const String _modulesSystemBase = r'''
 }: let
   cfg = config.features.system.base;
 in {
-  options.features.system.base.enable = lib.mkEnableOption "base NixBlitz system configuration";
+  options.features.system.base = {
+    enable = lib.mkEnableOption "base NixBlitz system configuration";
+
+    # The TUI surfaces this as a select in Configure → system. Both
+    # candidates ship in environment.systemPackages below so flipping
+    # the choice doesn't trigger a fresh closure download.
+    shell = lib.mkOption {
+      type = lib.types.enum ["bash" "nushell"];
+      default = "bash";
+      description = "Default login shell for the admin user.";
+    };
+  };
 
   config = lib.mkIf cfg.enable {
     nix.settings = {
@@ -690,11 +776,20 @@ in {
       # running system and the dry-built next generation. Tiny
       # closure; also useful at the shell.
       nvd
+      # Both shells are kept available regardless of the
+      # `defaultUserShell` choice — operators flipping the option
+      # via Configure shouldn't have to wait on a new closure
+      # fetch, and a `nu` / `bash` invocation from a script keeps
+      # working.
+      bashInteractive
       nushell
       nixblitz.packages.${pkgs.system}.nixblitz-unwrapped
     ];
 
-    users.defaultUserShell = pkgs.nushell;
+    users.defaultUserShell =
+      if cfg.shell == "nushell"
+      then pkgs.nushell
+      else pkgs.bashInteractive;
   };
 }
 ''';
@@ -769,7 +864,8 @@ const String _modulesSystemDiskoX86 = r'''
   cfg = config.features.system.disko-x86;
 in {
   options.features.system.disko-x86 = {
-    enable = lib.mkEnableOption
+    enable =
+      lib.mkEnableOption
       "x86 disk layout (GPT, BIOS-boot + ESP + ext4 root)";
 
     device = lib.mkOption {
