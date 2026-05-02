@@ -84,8 +84,16 @@ class HomePage extends StatelessComponent {
     return section(classes: 'dotted-bg py-12 sm:py-20', [
       div(classes: 'max-w-6xl mx-auto px-4 text-center', [
         pre(
+          // `text-left` overrides the parent `text-center`, which
+          // would otherwise centre each line of the figlet banner
+          // individually — fine for the wider lines but offsets
+          // lines 3 + 4 which are 1-2 chars shorter than the rest,
+          // breaking the rectangular silhouette. With text-left
+          // the lines flush at the pre's left edge while the
+          // `inline-block` + `mx-auto` keep the block itself
+          // horizontally centred.
           classes:
-              'ascii-banner inline-block text-[0.5rem] sm:text-xs md:text-sm lg:text-base mx-auto',
+              'ascii-banner inline-block text-left text-[0.5rem] sm:text-xs md:text-sm lg:text-base mx-auto',
           [Component.text(_asciiBanner)],
         ),
         p(
