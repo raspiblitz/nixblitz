@@ -6,6 +6,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/ascii_banner.dart';
 import '../widgets/experimental_warning.dart';
 import '../widgets/lnd_seed_panel.dart';
 import '../widgets/password_input.dart';
@@ -385,7 +386,14 @@ class _SetupViewState extends State<SetupView> {
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-          child: const ExperimentalWarning(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              AsciiBanner(),
+              SizedBox(height: 1),
+              ExperimentalWarning(),
+            ],
+          ),
         ),
         Expanded(child: _buildSetPasswordInput()),
       ],

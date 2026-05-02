@@ -5,6 +5,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/ascii_banner.dart';
 import '../widgets/confirm_prompt.dart';
 import '../widgets/experimental_warning.dart';
 import '../widgets/scrollable_log.dart';
@@ -387,6 +388,8 @@ class _InstallViewState extends State<InstallView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const AsciiBanner(),
+                const SizedBox(height: 1),
                 const ExperimentalWarning(),
                 const SizedBox(height: 1),
                 Text(

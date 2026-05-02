@@ -3,9 +3,12 @@ import 'package:jaspr/dom.dart';
 
 import '../components/tile.dart';
 
-/// `figlet -f "ANSI Shadow" NIXBLITZ` — the wordmark in the hero.
-/// Kept as a single string literal so the layout is exactly what
-/// figlet emits; CSS handles overflow on narrow viewports.
+/// `figlet -f "ANSI Shadow" NIXBLITZ` — duplicated from
+/// `common/lib/src/branding.dart` because the website's web-build
+/// pipeline (build_web_compilers) can't compile `common` cleanly:
+/// `common.dart` re-exports services that touch `dart:io`, which
+/// fails on the web target. Six lines, never reformat. Update the
+/// `common` copy in lockstep — the TUI renders the same banner.
 const String _asciiBanner = r'''
 ███╗   ██╗██╗██╗  ██╗██████╗ ██╗     ██╗████████╗███████╗
 ████╗  ██║██║╚██╗██╔╝██╔══██╗██║     ██║╚══██╔══╝╚══███╔╝

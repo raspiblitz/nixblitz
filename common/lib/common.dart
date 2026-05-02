@@ -1,3 +1,4 @@
+export 'src/branding.dart';
 export 'src/models/config_migrations.dart';
 export 'src/models/install_state.dart';
 export 'src/models/nixblitz_config.dart';
