@@ -6,6 +6,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/experimental_warning.dart';
 import '../widgets/lnd_seed_panel.dart';
 import '../widgets/password_input.dart';
 import '../widgets/scrollable_log.dart';
@@ -379,6 +380,19 @@ class _SetupViewState extends State<SetupView> {
   }
 
   Component _buildSetPassword() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+          child: const ExperimentalWarning(),
+        ),
+        Expanded(child: _buildSetPasswordInput()),
+      ],
+    );
+  }
+
+  Component _buildSetPasswordInput() {
     return PasswordInput(
       title: 'First Boot Setup',
       subtitle: 'Set a password for the admin user. Used for SSH access.',

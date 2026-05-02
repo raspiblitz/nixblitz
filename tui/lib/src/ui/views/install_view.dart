@@ -6,6 +6,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/confirm_prompt.dart';
+import '../widgets/experimental_warning.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
@@ -386,6 +387,8 @@ class _InstallViewState extends State<InstallView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const ExperimentalWarning(),
+                const SizedBox(height: 1),
                 Text(
                   'Select Installation Disk',
                   style: const TextStyle(
