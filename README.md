@@ -1,5 +1,10 @@
 # NixBlitz
 
+> **⚠ Highly experimental — under construction.** NixBlitz has NOT
+> received a thorough security review. Don't use it for production
+> funds. Run on regtest in a VM or on dedicated hardware
+> you're okay reinstalling. Things will break.
+
 A TUI for installing and managing a Bitcoin/Lightning node on
 NixOS. Boot any NixOS ISO, run one command, get a configured node
 — without touching Nix.

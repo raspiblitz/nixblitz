@@ -233,6 +233,28 @@
     background: rgba(247, 147, 26, 0.15);
   }
 
+  /* ---------- Hero "experimental" warning callout -------------- *
+   * Yellow-on-black bordered tile. Same warn hue the TUI's drift
+   * banner + pending markers use, so the colour cue reads
+   * consistently across the dashboard and the website.
+   */
+  .warning-callout {
+    border: 1px solid var(--color-tui-warn);
+    background: rgba(220, 180, 100, 0.08);
+    padding: 0.75rem 1rem;
+  }
+  .warning-callout-title {
+    color: var(--color-tui-warn);
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+  .warning-callout-body {
+    color: var(--color-tui-warn);
+    line-height: 1.5;
+    font-size: 0.95em;
+    margin: 0;
+  }
+
   /* ---------- CSS-only image lightbox -------------------------- *
    * Hidden by default. `:target` makes it visible when the URL
    * fragment matches the overlay's id; closing is just navigating

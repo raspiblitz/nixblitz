@@ -4,6 +4,11 @@ title: Architecture - NixBlitz
 
 # Architecture
 
+> **⚠ Highly experimental — under construction.** NixBlitz has NOT
+> received a thorough security review. Don't use it for production
+> funds. Run on regtest in a VM or on dedicated hardware
+> you're okay reinstalling. Things will break.
+
 A short tour of how NixBlitz is laid out, why, and how the pieces
 fit together. Aimed at someone arriving from RaspiBlitz or a
 similar imperative node-management project, where the mental model

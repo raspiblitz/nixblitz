@@ -4,6 +4,11 @@ title: Installation - NixBlitz
 
 # Installation
 
+> **⚠ Highly experimental — under construction.** NixBlitz has NOT
+> received a thorough security review. Don't use it for production
+> funds. Run on regtest in a VM or on dedicated hardware
+> you're okay reinstalling. Things will break.
+
 Boot a live image, run one command, walk a three-question wizard,
 reboot into a working node with bitcoind + LND. The shape is the
 same on both platforms NixBlitz supports; the live-image source

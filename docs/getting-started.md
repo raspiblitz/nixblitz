@@ -3,6 +3,11 @@
 > Operator-facing version lives at `website/content/docs/installation.md`;
 > keep them in sync when editing.
 
+> **⚠ Highly experimental — under construction.** NixBlitz has NOT
+> received a thorough security review. Don't use it for production
+> funds. Run on regtest in a VM or on dedicated hardware
+> you're okay reinstalling. Things will break.
+
 Setup a NixBlitz in a VM in under an hour. This guide assumes you
 know your way around a Linux terminal but have **no Nix or NixOS
 background** — you'll pick up the few concepts that matter as you go.

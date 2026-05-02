@@ -98,6 +98,7 @@ class HomePage extends StatelessComponent {
             ),
           ],
         ),
+        _experimentalCallout(),
         div(classes: 'mt-8 flex flex-wrap items-center justify-center gap-4', [
           a(href: '#installation', classes: 'btn-bracket', [
             Component.text('Get started'),
@@ -109,6 +110,26 @@ class HomePage extends StatelessComponent {
             [Component.text('View on Forge')],
           ),
         ]),
+      ]),
+    ]);
+  }
+
+  /// Up-front warning callout in the hero. NixBlitz is pre-1.0 and
+  /// has not received a thorough security review; we'd rather scare
+  /// off a casual mainnet operator than let them lose funds because
+  /// the front page made it look production-ready.
+  Component _experimentalCallout() {
+    return div(classes: 'warning-callout mt-8 mx-auto max-w-2xl text-left', [
+      div(classes: 'warning-callout-title', [
+        Component.text('[!] highly experimental — under construction'),
+      ]),
+      p(classes: 'warning-callout-body', [
+        Component.text(
+          'NixBlitz has NOT received a thorough security review. '
+          'Don\'t use it for production funds. Run on regtest in a '
+          'VM or on dedicated hardware you\'re okay reinstalling. '
+          'Things will break.',
+        ),
       ]),
     ]);
   }

@@ -3,6 +3,10 @@
 > Operator-facing version lives at `website/content/docs/plugins.md`;
 > keep them in sync when editing.
 
+> **⚠ Highly experimental — under construction.** NixBlitz has NOT
+> received a thorough security review. The plugin system in
+> particular is pre-1.0; ABI and manifest schema may shift.
+
 How to build a NixBlitz plugin: directory layout, manifest
 reference, the load-bearing patterns that catch every first-time
 author, and worked examples cribbed from the tailscale + lnbits
