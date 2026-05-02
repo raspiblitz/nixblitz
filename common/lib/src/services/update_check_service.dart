@@ -299,6 +299,53 @@ class UpdateCheckService {
     return null; // unsupported transport
   }
 
+  /// Re-check cached [InputAhead]s against the live `flake.lock` at
+  /// [flakePath] and drop any input whose lock has moved since the
+  /// cache was taken.
+  ///
+  /// The lightweight check writes a snapshot of `(locked, upstream)`
+  /// pairs at run time. Between scheduled checks, the operator may
+  /// run Update — advancing `flake.lock` — and the cached snapshot
+  /// then over-reports pending updates ("updates available: nixblitz"
+  /// even though the lock just moved and `nix flake update` is now a
+  /// no-op).
+  ///
+  /// We compare the live lock against the cached `currentRev`, not
+  /// `upstreamRev`: the lock may have advanced *past* the cached
+  /// upstream (a newer commit was pushed between the lightweight
+  /// check and this Update run, or the lock was bumped to a different
+  /// branch). Either way, "lock moved" ⇒ snapshot is stale ⇒ drop the
+  /// entry and let the next scheduled check refresh.
+  ///
+  /// Returns the original list unchanged when `flake.lock` is missing
+  /// or unparseable; we'd rather trust the cache than silently hide a
+  /// real update on the back of a transient read failure.
+  static List<InputAhead> filterStillAhead(
+    List<InputAhead> cached, {
+    required String flakePath,
+  }) {
+    final lockFile = File('$flakePath/flake.lock');
+    if (!lockFile.existsSync()) return cached;
+    try {
+      final lock =
+          jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
+      final liveByName = <String, String>{
+        for (final i in parseRootInputs(lock)) i.name: i.lockedRev,
+      };
+      return cached.where((e) {
+        final liveRev = liveByName[e.name];
+        // Input no longer in the lock (renamed / removed) — keep the
+        // cached entry so the operator notices something's off.
+        if (liveRev == null) return true;
+        // Lock unchanged since the cache; entry is still ahead.
+        // Any other live rev means the snapshot is stale.
+        return liveRev == e.currentRev;
+      }).toList();
+    } catch (_) {
+      return cached;
+    }
+  }
+
   /// Public for tests: pulls the inputs the user actually depends
   /// on out of a parsed flake.lock JSON.
   static List<LockedInput> parseRootInputs(Map<String, dynamic> lock) {

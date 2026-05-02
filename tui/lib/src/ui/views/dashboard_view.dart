@@ -68,26 +68,40 @@ class _DashboardViewState extends State<DashboardView> {
   /// either check found something to surface. No banner when the
   /// file is missing (fresh install), no inputs ahead, or all the
   /// timers have run cleanly with nothing to report.
-  List<Component> _buildUpdateAvailableBanner() {
+  ///
+  /// Cross-checks the cached `inputsAhead` against the live
+  /// `flake.lock` so we don't keep nagging "updates available" for
+  /// inputs whose lock has already advanced (e.g. after the
+  /// operator ran Update once between scheduled checks). Without
+  /// this, the dashboard banner would report a phantom update and
+  /// the Update flow's `nix flake update` would correctly say
+  /// "Nothing to apply" — confusing.
+  List<Component> _buildUpdateAvailableBanner(BuildContext context) {
     final status = readUpdateStatus();
     final lines = <Component>[];
 
     final light = status.lightweight;
     if (light != null && light.ok && light.inputsAhead.isNotEmpty) {
-      final n = light.inputsAhead.length;
-      final names = light.inputsAhead.map((e) => e.name).take(3).join(', ');
-      final more = n > 3 ? ' (+${n - 3} more)' : '';
-      final ago = _humanizeAge(light.checkedAt);
-      lines.add(
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Text(
-            'updates available: $names$more — '
-            'checked $ago — press [u] Update',
-            style: const TextStyle(color: Color.fromRGB(120, 200, 220)),
-          ),
-        ),
+      final stillAhead = UpdateCheckService.filterStillAhead(
+        light.inputsAhead,
+        flakePath: context.read(baseDirProvider),
       );
+      if (stillAhead.isNotEmpty) {
+        final n = stillAhead.length;
+        final names = stillAhead.map((e) => e.name).take(3).join(', ');
+        final more = n > 3 ? ' (+${n - 3} more)' : '';
+        final ago = _humanizeAge(light.checkedAt);
+        lines.add(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              'updates available: $names$more — '
+              'checked $ago — press [u] Update',
+              style: const TextStyle(color: Color.fromRGB(120, 200, 220)),
+            ),
+          ),
+        );
+      }
     }
 
     final heavy = status.heavy;
@@ -247,7 +261,7 @@ class _DashboardViewState extends State<DashboardView> {
                   ],
                 ),
               ),
-            ..._buildUpdateAvailableBanner(),
+            ..._buildUpdateAvailableBanner(context),
             ..._buildDriftBanner(context),
             const SizedBox(height: 1),
             Expanded(
