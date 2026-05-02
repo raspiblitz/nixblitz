@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 16;
+const int currentConfigVersion = 17;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -147,6 +147,13 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
       // next Apply — flip the Configure → system → shell select to
       // stay on nushell.
       15: (json) => json,
+      // v16 → v17: no schema change. Template-only bump:
+      // base.nix now installs `auto-launch.{sh,nu}` snippets and
+      // hooks them into bash's interactiveShellInit + admin's
+      // nushell login.nu, so the TUI fires automatically when the
+      // operator logs into the box. Bumping forces existing installs
+      // to refresh on-disk templates on next launch.
+      16: (json) => json,
     };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

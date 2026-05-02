@@ -790,6 +790,53 @@ in {
       if cfg.shell == "nushell"
       then pkgs.nushell
       else pkgs.bashInteractive;
+
+    # Auto-launch the NixBlitz TUI on the first interactive login of
+    # a session. Two snippets — one for each supported shell — both
+    # installed unconditionally so a Configure → system → shell flip
+    # works on the next login without re-activating the system. Only
+    # the active shell sources its file.
+    #
+    # `NIXBLITZ_AUTOLAUNCHED` prevents recursion: nixblitz spawns
+    # subshells (e.g. password change runs `chpasswd`) that would
+    # otherwise re-trigger the auto-launch from inside themselves.
+    # The bash variant additionally guards on `-t 0` / `-t 1` so
+    # non-TTY contexts (`ssh admin@host nixos-rebuild switch`, cron,
+    # build scripts) don't drop into the TUI. nushell's login.nu
+    # only fires on login shells so the SSH-with-command path skips
+    # naturally there.
+    environment.etc."nixblitz/auto-launch.sh".text = ''
+      if [ -z "''${NIXBLITZ_AUTOLAUNCHED:-}" ] && [ -t 0 ] && [ -t 1 ] \
+          && command -v nixblitz >/dev/null 2>&1; then
+        export NIXBLITZ_AUTOLAUNCHED=1
+        nixblitz
+      fi
+    '';
+
+    environment.etc."nixblitz/auto-launch.nu".text = ''
+      if ($env.NIXBLITZ_AUTOLAUNCHED? | default "") == "" {
+        $env.NIXBLITZ_AUTOLAUNCHED = "1"
+        if (which nixblitz | length) > 0 {
+          nixblitz
+        }
+      }
+    '';
+
+    programs.bash.interactiveShellInit = ''
+      [ -r /etc/nixblitz/auto-launch.sh ] && . /etc/nixblitz/auto-launch.sh
+    '';
+
+    # NixOS has no `programs.nushell` module, so wire nushell up by
+    # symlinking the system snippet into the admin user's config dir.
+    # `login.nu` is nushell's analogue to `/etc/profile` — runs once
+    # at login, not on every interactive `nu` subshell. The `d` rules
+    # ensure the parent dirs exist; `L+` overwrites any existing
+    # symlink so re-activations stay idempotent.
+    systemd.tmpfiles.rules = [
+      "d /home/admin/.config 0755 admin users -"
+      "d /home/admin/.config/nushell 0755 admin users -"
+      "L+ /home/admin/.config/nushell/login.nu - admin users - /etc/nixblitz/auto-launch.nu"
+    ];
   };
 }
 ''';
