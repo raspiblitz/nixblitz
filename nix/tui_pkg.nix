@@ -63,6 +63,25 @@ buildDartApplication {
   workspaceMember = "tui";
   workspaceDependencyGraph = lib.importJSON ./workspace_dependency_graph.json;
 
+  # Slim the workspace pubspec so the dartConfigHook's
+  # workspace-package-config.py only walks members whose source
+  # is actually present. The repo's pubspec lists `website` too,
+  # but website/ isn't in our src filter — without this slim the
+  # hook crashes with `FileNotFoundError: 'website/pubspec.yaml'`.
+  postPatch = ''
+    cat > pubspec.yaml <<'EOF'
+    name: nixblitz_workspace
+    publish_to: none
+
+    environment:
+      sdk: ^3.11.4
+
+    workspace:
+      - common
+      - tui
+    EOF
+  '';
+
   preBuild = ''
     mkdir -p bin
     # Regenerate embedded templates from source files
