@@ -308,6 +308,17 @@ class _InstallationBody extends StatelessComponent {
         ),
         _step('6', 'Back up the LND seed when prompted. Done.'),
       ]),
+      p(classes: 'mt-4', [
+        a(href: '/docs/installation', classes: 'keybind', [
+          span(classes: 'key', [Component.text('[>]')]),
+          Component.text(' full installation walkthrough'),
+        ]),
+        span(
+          classes: 'text-sm ml-3',
+          styles: Styles(raw: {'color': 'var(--color-tui-muted)'}),
+          [Component.text('— x86 + Pi 5, troubleshooting, command listings')],
+        ),
+      ]),
     ]);
   }
 
