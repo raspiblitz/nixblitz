@@ -234,9 +234,11 @@
   }
 
   /* ---------- Hero "experimental" warning callout -------------- *
-   * Yellow-on-black bordered tile. Same warn hue the TUI's drift
-   * banner + pending markers use, so the colour cue reads
-   * consistently across the dashboard and the website.
+   * Same yellow-bordered tile shape as the Tile component, with
+   * dusty-red text. Yellow-warn-bordered (matches the TUI's drift
+   * banner + pending markers) but text is shifted off the muted
+   * grey toward red — the prior muted-yellow version was easy to
+   * miss, but a full red box overshot the other way.
    */
   .warning-callout {
     border: 1px solid var(--color-tui-warn);
@@ -244,12 +246,12 @@
     padding: 0.75rem 1rem;
   }
   .warning-callout-title {
-    color: var(--color-tui-warn);
+    color: #b07878;
     font-weight: 700;
     margin-bottom: 0.5rem;
   }
   .warning-callout-body {
-    color: var(--color-tui-warn);
+    color: #b07878;
     line-height: 1.5;
     font-size: 0.95em;
     margin: 0;
@@ -383,6 +385,14 @@
       border-color: var(--color-tui-orange);
       color: var(--color-tui-muted);
       margin: 1.25em 0;
+    }
+    /* The first blockquote of every docs page is the
+     * "experimental — not for production" warning. Tint its text
+     * dusty-red so it reads as a caution instead of a generic
+     * muted-grey aside; later asides ("Why regtest?", "Heads
+     * up:", placeholders) keep the muted grey. */
+    & > blockquote:first-of-type {
+      color: #b07878;
     }
     & table {
       @apply border-collapse w-full my-4;
