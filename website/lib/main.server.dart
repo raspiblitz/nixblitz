@@ -8,6 +8,7 @@ void main() {
     Document(
       title: 'NixBlitz — Bitcoin/Lightning node on NixOS',
       head: [
+        link(rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'),
         link(rel: 'stylesheet', href: 'styles.css'),
         // Unregister stale ServiceWorkers from earlier PWA experiments to
         // avoid origin pollution on localhost:8080.
