@@ -20,9 +20,7 @@ class ExperimentalWarning extends StatelessComponent {
   Component build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 1),
-      decoration: BoxDecoration(
-        border: BoxBorder.all(color: _kWarn),
-      ),
+      decoration: BoxDecoration(border: BoxBorder.all(color: _kWarn)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: const [
@@ -43,10 +41,7 @@ class ExperimentalWarning extends StatelessComponent {
             "a VM or on dedicated hardware you're okay reinstalling.",
             style: TextStyle(color: _kWarn),
           ),
-          Text(
-            'Things will break.',
-            style: TextStyle(color: _kWarn),
-          ),
+          Text('Things will break.', style: TextStyle(color: _kWarn)),
         ],
       ),
     );

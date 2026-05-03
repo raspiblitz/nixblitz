@@ -61,7 +61,7 @@ What the derivation does, in order:
    - Synthesize `website/.dart_tool/package_config.json` by stripping
      `nixblitz_workspace` from the workspace-root config and rebasing
      relative `rootUri` paths with `../`. `build_runner` searches
-     upward from CWD for a package_config and refuses to start when
+     upward from CWD for a `package_config` and refuses to start when
      two members share the same `rootUri`.
    - Symlink `pubspec.lock` into `website/`. `build_runner` reads it
      to populate its "fixed packages" list.
@@ -87,12 +87,12 @@ What the derivation does, in order:
 - **Stock**: `dart run build_runner daemon` — the `dart run` form
   re-validates `pubspec.lock` against `.dart_tool/package_config.json`
   on every launch and triggers `pub get` on any mismatch. In our
-  setup the package_config is intentionally a website-scoped subset
+  setup the `package_config` is intentionally a website-scoped subset
   of the workspace lock, so there _is_ a mismatch — and `pub get`
   fails offline.
 - **Fork**: `dart --packages=<package_config> <build_runner-bin> daemon`.
-  Bypasses pub's resolver, uses the package_config verbatim. Falls
-  back to the stock form when no package_config exists, so global
+  Bypasses pub's resolver, uses the `package_config` verbatim. Falls
+  back to the stock form when no `package_config` exists, so global
   `dart pub global activate jaspr_cli` is unaffected.
 
 The patch is upstreamable; once it lands at
