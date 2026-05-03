@@ -1,6 +1,7 @@
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
 
+import '../components/asciinema_cast.dart';
 import '../components/tile.dart';
 
 /// `figlet -f "ANSI Shadow" NIXBLITZ` — duplicated from
@@ -37,7 +38,14 @@ class HomePage extends StatelessComponent {
         anchor: 'installation',
         title: 'installation',
         text: const _InstallationBody(),
-        media: const _InstallPlaceholder(),
+        media: const AsciinemaCast(
+          src: '/casts/install-demo.cast',
+          caption:
+              'Bootstrap from a stock NixOS ISO into the install wizard. '
+              'Placeholder — a recording of the real wizard run lands here '
+              'soon.',
+          rows: 18,
+        ),
       ),
       _section(
         anchor: 'the-tui',
@@ -605,48 +613,6 @@ class _Screenshot extends StatelessComponent {
                 Component.text(' close'),
               ]),
             ]),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// Placeholder tile for sections without a real screenshot yet (the
-/// installation flow). A future media drop replaces this with a clip
-/// or a frame.
-class _InstallPlaceholder extends StatelessComponent {
-  const _InstallPlaceholder();
-
-  @override
-  Component build(BuildContext context) {
-    return Tile(
-      title: 'media',
-      titleColor: 'muted',
-      status: 'placeholder',
-      statusColor: 'muted',
-      extraClasses: 'min-h-[280px]',
-      children: [
-        div(
-          classes:
-              'flex flex-col items-center justify-center text-center min-h-[240px] dotted-bg p-8',
-          [
-            p(
-              classes: 'text-sm mb-2',
-              styles: Styles(
-                raw: {'color': 'var(--color-tui-orange)', 'font-weight': '700'},
-              ),
-              [Component.text('install wizard clip')],
-            ),
-            p(
-              classes: 'text-sm',
-              styles: Styles(raw: {'color': 'var(--color-tui-muted)'}),
-              [
-                Component.text(
-                  'disk pick → network → lightning → confirm → reboot',
-                ),
-              ],
-            ),
           ],
         ),
       ],

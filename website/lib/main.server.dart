@@ -10,6 +10,14 @@ void main() {
       head: [
         link(rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'),
         link(rel: 'stylesheet', href: 'styles.css'),
+        link(
+          rel: 'stylesheet',
+          href: '/vendor/asciinema-player/asciinema-player.css',
+        ),
+        // Synchronous load — the per-cast init walker below runs on
+        // DOMContentLoaded and needs `AsciinemaPlayer` to already
+        // exist in the global scope by then.
+        script(src: '/vendor/asciinema-player/asciinema-player.min.js'),
         // Unregister stale ServiceWorkers from earlier PWA experiments to
         // avoid origin pollution on localhost:8080.
         RawText('''
@@ -101,6 +109,28 @@ void main() {
             a.click();
             a.remove();
           }
+        });
+        // asciinema-player init. Each `<div data-asciinema-cast=...>`
+        // emitted by the AsciinemaCast Jaspr component gets converted
+        // into a player instance here. Centralising the init avoids
+        // emitting one inline `<script>` per cast and keeps the
+        // markup the component produces a single attribute-only div.
+        document.addEventListener('DOMContentLoaded', function() {
+          if (typeof AsciinemaPlayer === 'undefined') return;
+          var nodes = document.querySelectorAll('[data-asciinema-cast]');
+          nodes.forEach(function(el) {
+            if (el.dataset.acInit) return;
+            el.dataset.acInit = '1';
+            var opts = {
+              cols: parseInt(el.dataset.cols || '80', 10),
+              rows: parseInt(el.dataset.rows || '24', 10),
+              idleTimeLimit: parseFloat(el.dataset.idleTimeLimit || '2'),
+              theme: 'asciinema',
+              fit: 'width',
+            };
+            if (el.dataset.poster) opts.poster = el.dataset.poster;
+            AsciinemaPlayer.create(el.dataset.asciinemaCast, el, opts);
+          });
         });
         </script>
       '''),
