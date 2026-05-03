@@ -85,6 +85,23 @@ final committedConfigProvider = FutureProvider<NixblitzConfig?>((ref) async {
 /// (banner: "1 pending change") while no `config.json` keys
 /// differ (header: "all applied"). Intentional: they signal
 /// different scopes.
+/// Commit timestamp of the last Apply (HEAD's commit time), or null
+/// when the repo has no HEAD yet — fresh install before the first
+/// Apply, or HEAD missing because the operator never committed
+/// anything. Drives the dashboard header's "all applied — Xm ago"
+/// caption.
+///
+/// Re-evaluates whenever [committedConfigProvider] is invalidated,
+/// since "HEAD changed" is the same trigger set: the apply view,
+/// update view post-rebuild, and `plugin_config_provider.update`
+/// already invalidate that provider, so this one rides along
+/// without needing its own invalidation calls.
+final lastApplyTimeProvider = FutureProvider<DateTime?>((ref) async {
+  ref.watch(committedConfigProvider);
+  final git = ref.watch(gitServiceProvider);
+  return git.headCommitTime();
+});
+
 final pendingChangeKeysProvider = Provider<Set<String>>((ref) {
   final live = ref
       .watch(configProvider)

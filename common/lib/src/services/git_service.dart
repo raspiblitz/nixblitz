@@ -341,6 +341,28 @@ class GitService {
     );
   }
 
+  /// Commit timestamp of `HEAD`, or null when the repo has no
+  /// HEAD yet (fresh install before the first Apply). Uses
+  /// `git log -1 --format=%cI` (committer date, ISO-8601 with
+  /// timezone) and normalises to UTC so callers don't have to
+  /// reason about local-time vs commit-time-zone drift.
+  Future<DateTime?> headCommitTime() async {
+    try {
+      final r = await Process.run(
+        'git',
+        _g(['log', '-1', '--format=%cI']),
+        workingDirectory: repoDir,
+        environment: environment,
+      );
+      if (r.exitCode != 0) return null;
+      final raw = (r.stdout as String).trim();
+      if (raw.isEmpty) return null;
+      return DateTime.tryParse(raw)?.toUtc();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Returns the current `HEAD` SHA, or null if `git rev-parse` fails
   /// (e.g. an empty repo, missing `.git`). Tests can use this to
   /// detect commits made between two points without parsing log

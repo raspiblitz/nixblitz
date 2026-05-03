@@ -168,6 +168,29 @@ class _DashboardViewState extends State<DashboardView> {
     return '${diff.inDays}d ago';
   }
 
+  /// Renders the green "all applied — Xm ago" caption when the
+  /// working tree is clean and HEAD has a commit. Empty list
+  /// when HEAD is missing (fresh install, pre-first-Apply) so we
+  /// don't surface a confusing "applied …" line on a repo that's
+  /// never been applied.
+  List<Component> _buildAllAppliedLine(BuildContext context) {
+    final lastApply = context.watch(lastApplyTimeProvider);
+    final ago = lastApply.maybeWhen(
+      data: (t) => t == null ? null : _humanizeAge(t),
+      orElse: () => null,
+    );
+    if (ago == null) return const [];
+    return [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text(
+          '~ all applied — last apply $ago',
+          style: const TextStyle(color: Color.fromRGB(110, 220, 110)),
+        ),
+      ),
+    ];
+  }
+
   bool _handleScrollKey(KeyboardEvent event) {
     final k = event.logicalKey;
     if (k == LogicalKey.arrowUp || k == LogicalKey.keyK) {
@@ -260,7 +283,9 @@ class _DashboardViewState extends State<DashboardView> {
                     ),
                   ],
                 ),
-              ),
+              )
+            else
+              ..._buildAllAppliedLine(context),
             ..._buildUpdateAvailableBanner(context),
             ..._buildDriftBanner(context),
             const SizedBox(height: 1),

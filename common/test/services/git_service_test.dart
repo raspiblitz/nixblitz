@@ -313,6 +313,36 @@ void main() {
       expect(sig.isUnknownTrust, isTrue);
     });
 
+    test(
+      'headCommitTime returns null on a virgin repo, then a DateTime',
+      () async {
+        await service.init();
+        expect(await service.headCommitTime(), isNull);
+
+        final before = DateTime.now().toUtc();
+        await File('${tempDir.path}/x.txt').writeAsString('x');
+        await service.commit('x.txt', 'first');
+        final after = DateTime.now().toUtc();
+
+        final t = await service.headCommitTime();
+        expect(t, isNotNull);
+        expect(t!.isUtc, isTrue);
+        // git's commit timestamp has 1s resolution; allow a 2s slop on
+        // each side to absorb clock skew between the test process and
+        // git's view of "now".
+        expect(
+          t.isAfter(before.subtract(const Duration(seconds: 2))),
+          isTrue,
+          reason: 'commit time $t should be at/after $before',
+        );
+        expect(
+          t.isBefore(after.add(const Duration(seconds: 2))),
+          isTrue,
+          reason: 'commit time $t should be at/before $after',
+        );
+      },
+    );
+
     test('headRef returns null on a virgin repo, then a SHA', () async {
       await service.init();
       // No commits yet.
