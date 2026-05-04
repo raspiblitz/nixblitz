@@ -4,7 +4,10 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'package:common/src/models/nixblitz_config.dart';
+import 'package:common/src/models/plugin/plugin_entry.dart';
 import 'package:common/src/models/update_status.dart';
+import 'package:common/src/services/config_service.dart';
 import 'package:common/src/services/log_service.dart';
 
 /// Periodic update-availability checker, invoked by systemd timers
@@ -29,7 +32,9 @@ class UpdateCheckService {
     required this.flakePath,
     required this.statusPath,
     http.Client? httpClient,
-  }) : _http = httpClient ?? http.Client();
+    Future<NixblitzConfig?> Function()? configReader,
+  }) : _http = httpClient ?? http.Client(),
+       _configReader = configReader ?? (() => _defaultConfigReader(flakePath));
 
   /// Directory holding `flake.nix` + `flake.lock` (the user's
   /// `~/nixblitz/`).
@@ -40,6 +45,27 @@ class UpdateCheckService {
   final String statusPath;
 
   final http.Client _http;
+
+  /// Loads the current [NixblitzConfig] (or null if it can't be read).
+  /// Injected by tests so the plugin walk can run without a real
+  /// `config.json` on disk. Production default reads
+  /// `${flakePath}/config.json` via [ConfigService].
+  final Future<NixblitzConfig?> Function() _configReader;
+
+  static Future<NixblitzConfig?> _defaultConfigReader(String flakePath) async {
+    final svc = ConfigService(baseDir: flakePath);
+    if (!svc.configExists()) return null;
+    try {
+      return await svc.readConfig();
+    } catch (e, st) {
+      LogService.error(
+        'UpdateCheckService: config.json read/parse failed',
+        e,
+        st,
+      );
+      return null;
+    }
+  }
 
   /// HTTP timeout for upstream-HEAD calls. Stops a misbehaving forge
   /// from holding the timer indefinitely.
@@ -107,16 +133,64 @@ class UpdateCheckService {
       return 1;
     }
 
+    // Plugin walk. Each active, non-pinned, installed plugin gets its
+    // upstream HEAD probed the same way root flake inputs do. Failures
+    // here are isolated per-plugin so one bad URL doesn't sink the
+    // whole run, and config-load failure just means "no plugin entries
+    // surfaced this run" — the inputs result still ships.
+    final List<PluginAhead> pluginsAhead = [];
+    try {
+      final config = await _configReader();
+      if (config != null) {
+        for (final p in config.plugins) {
+          if (!p.enabled) continue;
+          if (p.uninstalledAt != null) continue;
+          if (!p.autoUpdate) continue;
+          final li = lockedInputForPlugin(p);
+          if (li == null) continue; // unsupported transport — skip silently
+          try {
+            final upstream = await _queryUpstreamRev(li);
+            if (upstream == null) {
+              errors.add('plugin ${p.dirName}: upstream not queryable');
+              continue;
+            }
+            if (upstream != p.pinnedRev) {
+              pluginsAhead.add(
+                PluginAhead(
+                  dirName: p.dirName,
+                  currentRev: p.pinnedRev,
+                  upstreamRev: upstream,
+                  url: p.url,
+                ),
+              );
+            }
+          } catch (e, st) {
+            LogService.error(
+              'UpdateCheckService: plugin ${p.dirName} threw',
+              e,
+              st,
+            );
+            errors.add('plugin ${p.dirName}: $e');
+          }
+        }
+      }
+    } catch (e, st) {
+      LogService.error('UpdateCheckService: plugin walk failed', e, st);
+      errors.add('plugin walk: $e');
+    }
+
     _merge(
       LightCheck(
         checkedAt: now,
         ok: true,
         inputsAhead: ahead,
+        pluginsAhead: pluginsAhead,
         error: errors.isEmpty ? null : errors.join('; '),
       ),
     );
     LogService.info(
       'UpdateCheckService.runLightweight: ${ahead.length} inputs ahead, '
+      '${pluginsAhead.length} plugins ahead, '
       '${errors.length} errors',
     );
     return 0;
@@ -407,6 +481,70 @@ class UpdateCheckService {
       );
     }
     return out;
+  }
+
+  /// Translates a plugin entry's url/branch/pinnedRev into the same
+  /// shape [_queryUpstreamRev] expects. Returns `null` when the plugin
+  /// uses a transport we can't probe (file://, https:// without a
+  /// recognised forge host, etc.) — caller skips those silently.
+  ///
+  /// Supported schemes: `github:owner/repo`, `forgejo:host/owner/repo`,
+  /// `gitea:host/owner/repo`. The `https://` scheme is *not* supported
+  /// here because the plain URL doesn't tell us which forge API to
+  /// call; if a plugin uses https://forge.example/owner/repo and we
+  /// want to probe it, the operator should switch the URL to the
+  /// `forgejo:` form first.
+  static LockedInput? lockedInputForPlugin(PluginEntry entry) {
+    final raw = entry.url;
+    final ref = entry.branch;
+    final lockedRev = entry.pinnedRev;
+
+    if (raw.startsWith('github:')) {
+      final body = raw.substring('github:'.length);
+      // Strip ?dir=... canonical-subdir suffix if present.
+      final qIdx = body.indexOf('?dir=');
+      final core = qIdx >= 0 ? body.substring(0, qIdx) : body;
+      final parts = core.split('/');
+      if (parts.length < 2) return null;
+      final owner = parts[0];
+      final repo = parts[1];
+      if (owner.isEmpty || repo.isEmpty) return null;
+      return LockedInput(
+        name: entry.dirName,
+        type: 'github',
+        owner: owner,
+        repo: repo,
+        host: null,
+        ref: ref,
+        lockedRev: lockedRev,
+        urlForDisplay: raw,
+      );
+    }
+
+    if (raw.startsWith('forgejo:') || raw.startsWith('gitea:')) {
+      final scheme = raw.startsWith('forgejo:') ? 'forgejo:' : 'gitea:';
+      final body = raw.substring(scheme.length);
+      final qIdx = body.indexOf('?dir=');
+      final core = qIdx >= 0 ? body.substring(0, qIdx) : body;
+      final parts = core.split('/');
+      if (parts.length < 3) return null;
+      final host = parts[0];
+      final owner = parts[1];
+      final repo = parts[2];
+      if (host.isEmpty || owner.isEmpty || repo.isEmpty) return null;
+      return LockedInput(
+        name: entry.dirName,
+        type: 'git',
+        owner: owner,
+        repo: repo,
+        host: host,
+        ref: ref,
+        lockedRev: lockedRev,
+        urlForDisplay: raw,
+      );
+    }
+
+    return null;
   }
 
   static _ParsedGitUrl? _parseGitUrl(String url) {

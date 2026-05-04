@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:test/test.dart';
 import 'package:common/common.dart';
 
@@ -214,4 +216,305 @@ void main() {
       expect(filtered, equals(cached));
     });
   });
+
+  group('lockedInputForPlugin', () {
+    test('parses github: scheme', () {
+      final p = _pluginEntry(
+        url: 'github:example/foo',
+        branch: 'main',
+        pinnedRev: 'a' * 40,
+      );
+      final li = UpdateCheckService.lockedInputForPlugin(p);
+      expect(li, isNotNull);
+      expect(li!.type, 'github');
+      expect(li.owner, 'example');
+      expect(li.repo, 'foo');
+      expect(li.ref, 'main');
+      expect(li.lockedRev, 'a' * 40);
+    });
+
+    test('parses forgejo: scheme', () {
+      final p = _pluginEntry(
+        url: 'forgejo:forge.example/owner/repo',
+        branch: 'main',
+        pinnedRev: 'b' * 40,
+      );
+      final li = UpdateCheckService.lockedInputForPlugin(p);
+      expect(li!.type, 'git');
+      expect(li.host, 'forge.example');
+      expect(li.owner, 'owner');
+      expect(li.repo, 'repo');
+    });
+
+    test('returns null for unsupported transport (file://)', () {
+      final p = _pluginEntry(
+        url: 'file:///tmp/local-plugin',
+        branch: 'main',
+        pinnedRev: 'c' * 40,
+      );
+      expect(UpdateCheckService.lockedInputForPlugin(p), isNull);
+    });
+  });
+
+  group('UpdateCheckService.runLightweight (plugins)', () {
+    late Directory tmp;
+    late String flakePath;
+    late String statusPath;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('nbz-update-light-plugins-');
+      flakePath = tmp.path;
+      statusPath = '${tmp.path}/update-status.json';
+      // Empty flake.lock — root has no inputs, so the inputs loop is
+      // a no-op and we exercise just the plugin walk.
+      File('$flakePath/flake.lock').writeAsStringSync(
+        jsonEncode({
+          'nodes': {
+            'root': {'inputs': {}},
+          },
+          'root': 'root',
+          'version': 7,
+        }),
+      );
+    });
+
+    tearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    /// Stub HTTP client returning canned bodies keyed by full request URL.
+    /// Unmatched URLs respond 500 so missing fixtures fail loud rather
+    /// than silently look like "no upstream".
+    http.Client stubHttp(Map<String, Map<String, dynamic>> byUrl) {
+      return MockClient((req) async {
+        final body = byUrl[req.url.toString()];
+        if (body == null) {
+          return http.Response('no fixture for ${req.url}', 500);
+        }
+        return http.Response(jsonEncode(body), 200);
+      });
+    }
+
+    /// Build a NixblitzConfig with an arbitrary plugin list. The other
+    /// fields are defaults — runLightweight only inspects `.plugins`.
+    NixblitzConfig configWithPlugins(List<PluginEntry> plugins) =>
+        NixblitzConfig.defaults().copyWith(plugins: plugins);
+
+    test('runLightweight walks active auto-update plugins', () async {
+      final svc = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: stubHttp({
+          'https://api.github.com/repos/example/foo/commits/main': {
+            'sha': 'b' * 40,
+          },
+        }),
+        configReader: () async => configWithPlugins([
+          _pluginEntry(
+            url: 'github:example/foo',
+            branch: 'main',
+            pinnedRev: 'a' * 40,
+          ),
+        ]),
+      );
+      final exit = await svc.runLightweight();
+      expect(exit, 0);
+      final status = svc.readStatus();
+      expect(status.lightweight!.ok, isTrue);
+      expect(status.lightweight!.pluginsAhead, hasLength(1));
+      expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'b' * 40);
+      expect(status.lightweight!.pluginsAhead.single.currentRev, 'a' * 40);
+      expect(status.lightweight!.pluginsAhead.single.dirName, 'fixture');
+    });
+
+    test('runLightweight skips pinned (autoUpdate=false) plugins', () async {
+      var httpCalls = 0;
+      final svc = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: MockClient((req) async {
+          httpCalls++;
+          return http.Response('should not be called', 500);
+        }),
+        configReader: () async => configWithPlugins([
+          _pluginEntry(
+            url: 'github:example/foo',
+            branch: 'main',
+            pinnedRev: 'a' * 40,
+            autoUpdate: false,
+          ),
+        ]),
+      );
+      final exit = await svc.runLightweight();
+      expect(exit, 0);
+      final status = svc.readStatus();
+      expect(status.lightweight!.pluginsAhead, isEmpty);
+      expect(httpCalls, 0);
+    });
+
+    test('runLightweight skips uninstalled (tombstone) plugins', () async {
+      var httpCalls = 0;
+      final svc = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: MockClient((req) async {
+          httpCalls++;
+          return http.Response('should not be called', 500);
+        }),
+        configReader: () async => configWithPlugins([
+          _pluginEntry(
+            url: 'github:example/foo',
+            branch: 'main',
+            pinnedRev: 'a' * 40,
+            uninstalledAt: DateTime.utc(2026, 1, 2),
+            enabled: false,
+          ),
+        ]),
+      );
+      final exit = await svc.runLightweight();
+      expect(exit, 0);
+      final status = svc.readStatus();
+      expect(status.lightweight!.pluginsAhead, isEmpty);
+      expect(httpCalls, 0);
+    });
+
+    test('runLightweight skips disabled plugins', () async {
+      var httpCalls = 0;
+      final svc = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: MockClient((req) async {
+          httpCalls++;
+          return http.Response('should not be called', 500);
+        }),
+        configReader: () async => configWithPlugins([
+          _pluginEntry(
+            url: 'github:example/foo',
+            branch: 'main',
+            pinnedRev: 'a' * 40,
+            enabled: false,
+          ),
+        ]),
+      );
+      final exit = await svc.runLightweight();
+      expect(exit, 0);
+      final status = svc.readStatus();
+      expect(status.lightweight!.pluginsAhead, isEmpty);
+      expect(httpCalls, 0);
+    });
+
+    test('runLightweight per-plugin error does not abort run', () async {
+      // Plugin "bad" returns 500 → throws inside _queryUpstreamRev,
+      // caller catches and records an error. Plugin "good" still gets
+      // walked and emits a PluginAhead entry.
+      final svc = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: stubHttp({
+          'https://api.github.com/repos/example/good/commits/main': {
+            'sha': 'd' * 40,
+          },
+          // bad/foo intentionally absent — stub returns 500.
+        }),
+        configReader: () async => configWithPlugins([
+          _pluginEntry(
+            url: 'github:bad/foo',
+            branch: 'main',
+            pinnedRev: 'a' * 40,
+            dirName: 'bad-plugin',
+          ),
+          _pluginEntry(
+            url: 'github:example/good',
+            branch: 'main',
+            pinnedRev: 'c' * 40,
+            dirName: 'good-plugin',
+          ),
+        ]),
+      );
+      final exit = await svc.runLightweight();
+      expect(exit, 0);
+      final status = svc.readStatus();
+      expect(status.lightweight!.ok, isTrue);
+      // Good plugin still surfaced.
+      expect(status.lightweight!.pluginsAhead, hasLength(1));
+      expect(status.lightweight!.pluginsAhead.single.dirName, 'good-plugin');
+      expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'd' * 40);
+      // Bad plugin's dirName mentioned in the error string.
+      expect(status.lightweight!.error, isNotNull);
+      expect(status.lightweight!.error, contains('bad-plugin'));
+    });
+
+    test('runLightweight skips plugins with unsupported transport', () async {
+      // file:// URL → lockedInputForPlugin returns null → skipped silently.
+      var httpCalls = 0;
+      final svc = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: MockClient((req) async {
+          httpCalls++;
+          return http.Response('should not be called', 500);
+        }),
+        configReader: () async => configWithPlugins([
+          _pluginEntry(
+            url: 'file:///tmp/local',
+            branch: 'main',
+            pinnedRev: 'a' * 40,
+          ),
+        ]),
+      );
+      final exit = await svc.runLightweight();
+      expect(exit, 0);
+      final status = svc.readStatus();
+      expect(status.lightweight!.pluginsAhead, isEmpty);
+      expect(httpCalls, 0);
+    });
+
+    test(
+      'runLightweight emits no PluginAhead when upstream matches pin',
+      () async {
+        // pinned and upstream are the same SHA → not "ahead".
+        final svc = UpdateCheckService(
+          flakePath: flakePath,
+          statusPath: statusPath,
+          httpClient: stubHttp({
+            'https://api.github.com/repos/example/foo/commits/main': {
+              'sha': 'a' * 40,
+            },
+          }),
+          configReader: () async => configWithPlugins([
+            _pluginEntry(
+              url: 'github:example/foo',
+              branch: 'main',
+              pinnedRev: 'a' * 40,
+            ),
+          ]),
+        );
+        final exit = await svc.runLightweight();
+        expect(exit, 0);
+        final status = svc.readStatus();
+        expect(status.lightweight!.pluginsAhead, isEmpty);
+      },
+    );
+  });
 }
+
+PluginEntry _pluginEntry({
+  required String url,
+  required String branch,
+  required String pinnedRev,
+  String dirName = 'fixture',
+  bool enabled = true,
+  bool autoUpdate = true,
+  DateTime? uninstalledAt,
+}) => PluginEntry(
+  id: url,
+  url: url,
+  branch: branch,
+  pinnedRev: pinnedRev,
+  dirName: dirName,
+  installedAt: DateTime.utc(2026, 1, 1),
+  lastUpdatedAt: DateTime.utc(2026, 1, 1),
+  enabled: enabled,
+  autoUpdate: autoUpdate,
+  uninstalledAt: uninstalledAt,
+);

@@ -81,6 +81,7 @@ class LightCheck {
     required this.ok,
     this.error,
     this.inputsAhead = const [],
+    this.pluginsAhead = const [],
   });
 
   final DateTime checkedAt;
@@ -98,12 +99,20 @@ class LightCheck {
   /// commit. Empty list ⇒ nothing to update.
   final List<InputAhead> inputsAhead;
 
+  /// Installed plugins (auto_update=true, pinnedRev != null) whose
+  /// upstream HEAD has moved past the rev recorded in `config.json`.
+  /// Empty list ⇒ nothing to update.
+  final List<PluginAhead> pluginsAhead;
+
   factory LightCheck.fromJson(Map<String, dynamic> j) => LightCheck(
     checkedAt: DateTime.parse(j['checked_at'] as String),
     ok: j['ok'] as bool? ?? true,
     error: j['error'] as String?,
     inputsAhead: ((j['inputs_ahead'] as List?) ?? const [])
         .map((e) => InputAhead.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    pluginsAhead: ((j['plugins_ahead'] as List?) ?? const [])
+        .map((e) => PluginAhead.fromJson(e as Map<String, dynamic>))
         .toList(),
   );
 
@@ -112,6 +121,7 @@ class LightCheck {
     'ok': ok,
     if (error != null) 'error': error,
     'inputs_ahead': inputsAhead.map((e) => e.toJson()).toList(),
+    'plugins_ahead': pluginsAhead.map((e) => e.toJson()).toList(),
   };
 }
 
@@ -146,6 +156,50 @@ class InputAhead {
 
   Map<String, dynamic> toJson() => {
     'name': name,
+    'current_rev': currentRev,
+    'upstream_rev': upstreamRev,
+    'url': url,
+  };
+}
+
+/// Like [InputAhead] but for an installed plugin. The lightweight
+/// check probes each `auto_update=true && pinnedRev != null` plugin's
+/// upstream HEAD against the rev recorded in `config.json` and emits
+/// one of these per plugin that has moved.
+///
+/// Pinned plugins (`auto_update == false`) are intentionally skipped
+/// — the operator opted out of automatic refreshes for them.
+class PluginAhead {
+  const PluginAhead({
+    required this.dirName,
+    required this.currentRev,
+    required this.upstreamRev,
+    required this.url,
+  });
+
+  /// Matches `PluginEntry.dirName` — the on-disk directory under
+  /// `~/nixblitz/plugins/`, also the join key the plugins menu uses.
+  final String dirName;
+
+  /// Full SHA we have locked in `config.json`.
+  final String currentRev;
+
+  /// Full SHA the upstream branch is at now.
+  final String upstreamRev;
+
+  /// Source URL (clone URL); useful for surfacing where an update came
+  /// from in the plugins menu.
+  final String url;
+
+  factory PluginAhead.fromJson(Map<String, dynamic> j) => PluginAhead(
+    dirName: j['dir_name'] as String,
+    currentRev: j['current_rev'] as String,
+    upstreamRev: j['upstream_rev'] as String,
+    url: j['url'] as String? ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'dir_name': dirName,
     'current_rev': currentRev,
     'upstream_rev': upstreamRev,
     'url': url,
