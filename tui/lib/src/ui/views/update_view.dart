@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert' show LineSplitter;
 import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
@@ -10,6 +11,7 @@ import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
+import 'update/action_gating.dart';
 
 /// Update flow state machine:
 ///
@@ -24,6 +26,8 @@ import '../../providers/ui_state_provider.dart';
 /// - `done` — outcome classifier + embedded final diff.
 enum _UpdateMode {
   selectMode,
+  heavyConfirm, // yes/no prompt before running the heavy check
+  runningCheck, // spinner + scrolling journal output for `[C]`
   viewingCachedDiff,
   running,
   previewing,
@@ -44,6 +48,12 @@ final _updateBinaryUpdatedProvider = StateProvider<bool>((ref) => false);
 /// after a successful rebuild.
 final _packageDiffProvider = StateProvider<String?>((ref) => null);
 
+/// Increments to force `_buildSelectMode` to repaint after a
+/// manual `[c]` / `[C]` check completes. The Status panel reads
+/// the file on every rebuild, so a tick is enough — no
+/// re-fetching needed.
+final _updateTickerProvider = StateProvider<int>((ref) => 0);
+
 class UpdateView extends StatefulComponent {
   const UpdateView({super.key});
 
@@ -54,6 +64,18 @@ class UpdateView extends StatefulComponent {
 class _UpdateViewState extends State<UpdateView> {
   StreamSubscription<String>? _outputSub;
   bool _started = false;
+
+  /// Index of the action row whose "press Enter again to override"
+  /// prompt is currently armed. Reset to null when the user changes
+  /// selection or runs the action. Plain instance variable (NOT a
+  /// StateProvider) per nocterm rules — see CLAUDE.md.
+  int? _overrideArmedFor;
+
+  /// True while a `[c]` lightweight check subprocess is in flight.
+  /// Drives an inline spinner above the Status panel; the panel
+  /// re-reads update-status.json on every rebuild after the
+  /// subprocess exits.
+  bool _lightCheckRunning = false;
 
   @override
   void dispose() {
@@ -80,215 +102,12 @@ class _UpdateViewState extends State<UpdateView> {
           _failToDone(1);
           return;
         }
-        if (nixblitzOnly) {
-          _previewSystemUpdate(baseDirPath, nixblitzOnly: true);
-        } else {
-          _refreshPluginsThenPreview(baseDirPath);
-        }
+        _previewSystemUpdate(baseDirPath, nixblitzOnly: nixblitzOnly);
       });
     } catch (e, st) {
       LogService.error('Failed to start update', e, st);
       _failToDone(1);
     }
-  }
-
-  /// Refresh every non-pinned plugin from upstream, commit the diff
-  /// (scoped to plugin paths), then preview + (on confirm) rebuild.
-  /// Equivalent to `nixblitz plugin refresh --all` + Apply, but
-  /// inside the same Update flow so the operator sees the per-package
-  /// diff before deploying.
-  void _refreshPluginsOnly() {
-    if (_started) return;
-    _started = true;
-
-    try {
-      final baseDirPath = context.read(baseDirProvider);
-      final sudo = context.read(sudoSessionProvider);
-
-      _resetForRunning();
-      _appendUpdateLine('> sudo -v (authorize)');
-
-      sudo.ensureFresh().then((ok) {
-        if (!ok) {
-          _appendUpdateLine('Authorization cancelled — aborting refresh.');
-          _failToDone(1);
-          return;
-        }
-        _runPluginRefreshOnly(baseDirPath);
-      });
-    } catch (e, st) {
-      LogService.error('Failed to start plugin refresh', e, st);
-      _failToDone(1);
-    }
-  }
-
-  Future<void> _runPluginRefreshOnly(String baseDirPath) async {
-    final pluginService = context.read(pluginServiceProvider);
-    final git = context.read(gitServiceProvider);
-    final initialHead = await git.headRef();
-
-    _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
-    pluginService
-        .refreshAll(includePinned: false)
-        .then((result) async {
-          for (final p in result.refreshed) {
-            final pin = p.pinnedRev.length >= 7
-                ? p.pinnedRev.substring(0, 7)
-                : p.pinnedRev;
-            _appendUpdateLine('  refreshed ${p.id} → $pin');
-          }
-          for (final f in result.failures) {
-            _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
-          }
-          for (final s in result.skipped) {
-            _appendUpdateLine('  skipped (pinned): ${s.id}');
-          }
-          if (result.totalAttempted == 0 && result.skipped.isEmpty) {
-            _appendUpdateLine('  (no installed plugins)');
-          } else {
-            _appendUpdateLine(
-              '${result.refreshed.length} refreshed, '
-              '${result.failures.length} failed, '
-              '${result.skipped.length} skipped',
-            );
-          }
-
-          // Same scoped-commit pattern as _refreshPluginsThenPreview
-          // so we don't sweep up unrelated working-tree edits.
-          if (result.refreshed.isNotEmpty) {
-            final paths = <String>[
-              'config.json',
-              for (final p in result.refreshed) 'plugins/${p.dirName}',
-            ];
-            final ids = result.refreshed.map((p) => p.id).join(', ');
-            _appendUpdateLine('');
-            _appendUpdateLine('> git commit -m "Update plugins: $ids"');
-            final ok = await git.commitPaths(paths, 'Update plugins: $ids');
-            if (!ok) {
-              _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
-            }
-          }
-
-          // Did the refresh actually move anything? If HEAD didn't
-          // advance, there's nothing to preview or apply.
-          final currentHead = await git.headRef();
-          if (currentHead == initialHead) {
-            _appendUpdateLine('');
-            _appendUpdateLine('Nothing to apply.');
-            _completeWithSuccess();
-            return;
-          }
-          _runPreviewDiff(baseDirPath);
-        })
-        .catchError((e, st) {
-          LogService.error('plugin refresh threw', e, st);
-          _appendUpdateLine('  ⚠ plugin refresh threw: $e');
-          _failToDone(1);
-        });
-  }
-
-  /// Refresh Nix template files from the embedded templates in this
-  /// TUI, commit, then preview + (on confirm) rebuild.
-  void _refreshTemplates() {
-    if (_started) return;
-    _started = true;
-
-    try {
-      final baseDirPath = context.read(baseDirProvider);
-      final sudo = context.read(sudoSessionProvider);
-
-      _resetForRunning();
-      _appendUpdateLine('> sudo -v (authorize)');
-
-      sudo.ensureFresh().then((ok) {
-        if (!ok) {
-          _appendUpdateLine('Authorization cancelled — aborting refresh.');
-          _failToDone(1);
-          return;
-        }
-        _writeTemplatesAndPreview(baseDirPath);
-      });
-    } catch (e, st) {
-      LogService.error('Failed to refresh templates', e, st);
-      _failToDone(1);
-    }
-  }
-
-  // ── Phase 1 helpers (running) ──────────────────────────────────
-
-  Future<void> _refreshPluginsThenPreview(String baseDirPath) async {
-    final pluginService = context.read(pluginServiceProvider);
-    final git = context.read(gitServiceProvider);
-
-    // Capture HEAD before any of this flow's commits so the
-    // "anything to apply?" check downstream covers BOTH plugin
-    // refresh commits AND any flake.lock commit.
-    final initialHead = await git.headRef();
-
-    _appendUpdateLine('> nixblitz plugin refresh (auto_update plugins)');
-    pluginService
-        .refreshAll(includePinned: false)
-        .then((result) async {
-          for (final p in result.refreshed) {
-            final pin = p.pinnedRev.length >= 7
-                ? p.pinnedRev.substring(0, 7)
-                : p.pinnedRev;
-            _appendUpdateLine('  refreshed ${p.id} → $pin');
-          }
-          for (final f in result.failures) {
-            _appendUpdateLine('  ⚠ ${f.plugin.id}: ${f.error}');
-          }
-          for (final s in result.skipped) {
-            _appendUpdateLine('  skipped (pinned): ${s.id}');
-          }
-          if (result.totalAttempted == 0 && result.skipped.isEmpty) {
-            _appendUpdateLine('  (no installed plugins)');
-          } else {
-            _appendUpdateLine(
-              '${result.refreshed.length} refreshed, '
-              '${result.failures.length} failed, '
-              '${result.skipped.length} skipped',
-            );
-          }
-
-          // Commit the plugin-refresh diffs immediately, scoped to
-          // exactly the paths the refresh touched. Without this, the
-          // changes linger in the working tree and `nix flake update`
-          // (whose lock-update gate is the only signal updateLock
-          // checks) can correctly report "no inputs changed" even
-          // though plugin trees moved — the user would land on a
-          // confusing "Nothing to apply" screen and only later see
-          // pending changes on the dashboard. Scoped paths instead of
-          // `git add -A` so we don't sweep up unrelated user edits.
-          if (result.refreshed.isNotEmpty) {
-            final paths = <String>[
-              'config.json',
-              for (final p in result.refreshed) 'plugins/${p.dirName}',
-            ];
-            final ids = result.refreshed.map((p) => p.id).join(', ');
-            _appendUpdateLine('');
-            _appendUpdateLine('> git commit -m "Update plugins: $ids"');
-            final ok = await git.commitPaths(paths, 'Update plugins: $ids');
-            if (!ok) {
-              _appendUpdateLine('  (nothing to commit — refresh was a no-op)');
-            }
-          }
-
-          _previewSystemUpdate(
-            baseDirPath,
-            nixblitzOnly: false,
-            initialHead: initialHead,
-          );
-        })
-        .catchError((e, st) {
-          LogService.error('plugin refresh during update threw', e, st);
-          _appendUpdateLine('  ⚠ plugin refresh threw: $e (continuing)');
-          _previewSystemUpdate(
-            baseDirPath,
-            nixblitzOnly: false,
-            initialHead: initialHead,
-          );
-        });
   }
 
   void _previewSystemUpdate(
@@ -343,38 +162,6 @@ class _UpdateViewState extends State<UpdateView> {
           LogService.error('updateLock failed', e, st);
           _failToDone(1);
         });
-  }
-
-  void _writeTemplatesAndPreview(String baseDirPath) {
-    try {
-      _appendUpdateLine('> Refreshing Nix templates from embedded sources');
-      final written = ScaffoldService(
-        targetDir: baseDirPath,
-      ).refreshTemplatesSync();
-      _appendUpdateLine('Wrote $written template files');
-
-      _appendUpdateLine('');
-      _appendUpdateLine('> git add . && git commit -m "Refresh templates"');
-      Process.runSync('git', ['add', '.'], workingDirectory: baseDirPath);
-      final commit = Process.runSync('git', [
-        'commit',
-        '-m',
-        'Refresh templates from TUI',
-      ], workingDirectory: baseDirPath);
-      // Exit 1 here usually means "nothing to commit" — same as
-      // updateLock's `committed: false` branch.
-      if (commit.exitCode != 0) {
-        _appendUpdateLine('  (nothing to commit — templates unchanged)');
-        _appendUpdateLine('');
-        _appendUpdateLine('Nothing to apply.');
-        _completeWithSuccess();
-        return;
-      }
-      _runPreviewDiff(baseDirPath);
-    } catch (e, st) {
-      LogService.error('writeTemplatesAndPreview failed', e, st);
-      _failToDone(1);
-    }
   }
 
   void _runPreviewDiff(String baseDirPath) {
@@ -502,6 +289,16 @@ class _UpdateViewState extends State<UpdateView> {
             final startup = context.read(startupBinaryProvider);
             final updated = await systemService.hasNewerBinary(startup);
             context.read(_updateBinaryUpdatedProvider.notifier).state = updated;
+            // Self-heal template drift introduced by a freshly-pulled
+            // TUI binary. The dashboard banner is a fail-safe; in
+            // steady state this hook prevents it from ever firing.
+            // We're in a Process.exitCode.then continuation, not a
+            // nocterm key handler, so `await` here is fine — the
+            // Dart event loop pumps these futures normally.
+            final autorewrote = await _maybeAutoRewriteTemplates();
+            if (autorewrote) {
+              _appendUpdateLine('Auto-rewrote drifted templates.');
+            }
           }
           context.read(_updateExitCodeProvider.notifier).state = code;
           context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
@@ -511,6 +308,70 @@ class _UpdateViewState extends State<UpdateView> {
           LogService.error('Rebuild failed', e, st);
           _failToDone(1);
         });
+  }
+
+  /// Rewrite the binary's embedded Nix template files over the
+  /// operator's `~/nixblitz/`, then commit only the template paths.
+  /// No-op when [templatesDriftProvider] reports no drift.
+  ///
+  /// Returns true when a rewrite + commit happened. Designed to be
+  /// called from the end of an Update flow so drift introduced by a
+  /// freshly-pulled TUI binary self-heals before the operator sees
+  /// the dashboard again.
+  ///
+  /// Logs progress lines into the Update output stream so the
+  /// operator sees what happened without having to dig in
+  /// `~/nixblitz.log`.
+  Future<bool> _maybeAutoRewriteTemplates() async {
+    try {
+      final drift = context.read(templatesDriftProvider);
+      if (!drift.hasDrift) return false;
+
+      final baseDirPath = context.read(baseDirProvider);
+      final git = context.read(gitServiceProvider);
+
+      // Snapshot the drifted paths BEFORE the rewrite — once we
+      // overwrite the files the on-disk diff disappears, but those
+      // are exactly the paths we want to scope the commit to.
+      final driftedPaths = <String>[...drift.missing, ...drift.modified];
+      final n = drift.totalChanged;
+
+      _appendUpdateLine('');
+      _appendUpdateLine(
+        '> auto-rewrite drifted templates ($n file${n == 1 ? "" : "s"})',
+      );
+
+      // Scoped commit (commitPaths over driftedPaths) so we don't
+      // sweep up unrelated working-tree edits the operator may
+      // have. Everything in driftedPaths came from
+      // EmbeddedTemplates.getAll() keys, so they're safe relative
+      // paths under baseDirPath.
+      final written = ScaffoldService(
+        targetDir: baseDirPath,
+      ).refreshTemplatesSync();
+      _appendUpdateLine('  wrote $written template files');
+
+      _appendUpdateLine(
+        '  > git commit -m "Refresh templates from TUI" (scoped)',
+      );
+      final committed = await git.commitPaths(
+        driftedPaths,
+        'Refresh templates from TUI',
+      );
+      if (!committed) {
+        _appendUpdateLine('  (nothing to commit — templates already in sync)');
+      }
+
+      // Resolve the dashboard banner — drift just got fixed.
+      context.read(templatesDriftProvider.notifier).state =
+          TemplatesDrift.inSync;
+
+      return true;
+    } catch (e, st) {
+      LogService.error('auto-rewrite templates failed', e, st);
+      _appendUpdateLine('  ⚠ auto-rewrite failed: $e');
+      return false;
+    }
   }
 
   // ── State helpers ──────────────────────────────────────────────
@@ -551,6 +412,117 @@ class _UpdateViewState extends State<UpdateView> {
     context.read(_updateOutputProvider.notifier).state = [...current, line];
   }
 
+  /// Fires off a fresh `nixblitz check light` subprocess. Same code
+  /// path the `nixblitz-check-light.timer` systemd unit runs daily;
+  /// this is the manual `[c]` shortcut so an operator who just
+  /// pushed a flake-input fix doesn't have to drop to a shell.
+  ///
+  /// The shape is constrained by nocterm pitfall #3: `await` inside
+  /// a key handler chain stalls because the Dart event loop doesn't
+  /// pump while nocterm renders. `Process.start` returns a Future
+  /// whose `.then` callbacks ARE pumped, which is why we structure
+  /// the work as a chain of `.then` callbacks rather than `await`s.
+  void _onLightCheckRequested() {
+    if (_lightCheckRunning) return; // re-entrancy guard
+    _lightCheckRunning = true;
+
+    Process.start('nixblitz', const ['check', 'light'], runInShell: false)
+        .then((proc) {
+          // Drain stdout/stderr so the child doesn't block on a full
+          // pipe. `[c]` is fast (~3-5s) and we don't surface its output;
+          // the Status panel reads the JSON file the subprocess wrote.
+          proc.stdout.drain<void>();
+          proc.stderr.drain<void>();
+          proc.exitCode.then((code) {
+            if (code != 0) {
+              LogService.warn('manual light check exited $code');
+            }
+            _lightCheckRunning = false;
+            // Bump the ticker so the panel re-reads the now-fresh status.
+            try {
+              final notifier = context.read(_updateTickerProvider.notifier);
+              notifier.state = notifier.state + 1;
+            } catch (_) {
+              // context may be unmounted; ignore.
+            }
+          });
+        })
+        .catchError((Object e, StackTrace st) {
+          LogService.error('failed to start nixblitz check light', e, st);
+          _lightCheckRunning = false;
+          try {
+            final notifier = context.read(_updateTickerProvider.notifier);
+            notifier.state = notifier.state + 1;
+          } catch (_) {}
+        });
+
+    // Bump now so the spinner appears immediately. NOTE: setting a
+    // StateProvider triggers an immediate rebuild and discards the
+    // rest of the handler — that's why we kicked off Process.start
+    // BEFORE this line. The Future returned by Process.start lives
+    // independently of the current call stack, so the .then chain
+    // above still runs.
+    final notifier = context.read(_updateTickerProvider.notifier);
+    notifier.state = notifier.state + 1;
+  }
+
+  /// Kicks off the heavy update check by shelling out to
+  /// `nixblitz check heavy` directly. Same code path the scheduled
+  /// `nixblitz-check-heavy.service` runs through `nixblitz check
+  /// heavy` — and the TUI runs as `admin` per the standard install,
+  /// so user/env match. We tried `systemctl start --wait
+  /// nixblitz-check-heavy.service` originally but non-root users
+  /// can't start system units without a polkit rule, so it
+  /// returned "Access denied" exit 4. Direct invocation sidesteps
+  /// that since the work itself (cp tree to /tmp, nix flake update,
+  /// nvd diff) only needs admin's own privileges.
+  ///
+  /// Same Process.start-then-chain shape as `_onLightCheckRequested`
+  /// (see nocterm pitfall #3). State writes happen BEFORE the
+  /// Process.start call so the rebuild from setting `runningCheck`
+  /// doesn't discard the kick-off.
+  void _startHeavyCheck() {
+    context.read(_updateOutputProvider.notifier).state = [];
+    context.read(_updateModeProvider.notifier).state = _UpdateMode.runningCheck;
+
+    final p = Process.start('nixblitz', const [
+      'check',
+      'heavy',
+    ], runInShell: false);
+
+    p
+        .then((proc) {
+          final stdoutSub = proc.stdout
+              .transform(systemEncoding.decoder)
+              .transform(const LineSplitter())
+              .listen(_appendUpdateLine);
+          final stderrSub = proc.stderr
+              .transform(systemEncoding.decoder)
+              .transform(const LineSplitter())
+              .listen(_appendUpdateLine);
+          proc.exitCode.then((code) async {
+            await stdoutSub.cancel();
+            await stderrSub.cancel();
+            _appendUpdateLine('');
+            _appendUpdateLine('— heavy check finished (exit $code) —');
+            // Bump the ticker so the Status panel re-reads the file
+            // once the operator returns to selectMode.
+            try {
+              final notifier = context.read(_updateTickerProvider.notifier);
+              notifier.state = notifier.state + 1;
+            } catch (_) {
+              // context may be unmounted; ignore.
+            }
+            // Don't auto-leave runningCheck — let the operator read
+            // the tail. They press Esc to return.
+          });
+        })
+        .catchError((Object e, StackTrace st) {
+          LogService.error('failed to start nixblitz-check-heavy', e, st);
+          _appendUpdateLine('error: $e');
+        });
+  }
+
   // ── Build ──────────────────────────────────────────────────────
 
   @override
@@ -559,6 +531,8 @@ class _UpdateViewState extends State<UpdateView> {
 
     return switch (mode) {
       _UpdateMode.selectMode => _buildSelectMode(),
+      _UpdateMode.heavyConfirm => _buildHeavyConfirm(),
+      _UpdateMode.runningCheck => _buildRunningCheck(),
       _UpdateMode.viewingCachedDiff => _buildViewCachedDiff(),
       _UpdateMode.running => _buildRunning(
         label: 'Computing update preview…',
@@ -579,17 +553,40 @@ class _UpdateViewState extends State<UpdateView> {
 
   Component _buildSelectMode() {
     final selection = context.watch(_updateSelectionProvider);
-    const options = [
-      'Update NixBlitz TUI only',
-      'Update entire system',
-      'Refresh plugins only',
-      'Refresh Nix templates (from current TUI)',
-      'Cancel',
-    ];
+    // Forces a rebuild after a manual `[c]` check completes. Value
+    // is intentionally unused — the Status panel re-reads
+    // update-status.json on every rebuild, so a bump is enough.
+    context.watch(_updateTickerProvider);
 
     final status = readUpdateStatus();
-    final pendingRows = _buildPendingRows(status);
     final hasCachedDiff = _hasCachedDiff(status);
+
+    // Compute gating from cache (pure function from action_gating.dart).
+    final actionStates = computeUpdateActionStates(
+      status,
+      tuiInputName: 'nixblitz',
+    );
+
+    // Action option metadata, paired with its computed state.
+    final options = <_Option>[
+      _Option(
+        label: 'Update NixBlitz TUI only',
+        state: actionStates.tuiOnly,
+        runAction: () => _startUpdate(true),
+      ),
+      _Option(
+        label: 'Update entire system',
+        state: actionStates.entireSystem,
+        runAction: () => _startUpdate(false),
+      ),
+      _Option(
+        label: 'Cancel',
+        state: const ActionState(enabled: true, subtitle: ''),
+        runAction: () {
+          context.read(currentViewProvider.notifier).state = AppView.dashboard;
+        },
+      ),
+    ];
 
     return Focusable(
       focused: true,
@@ -598,6 +595,7 @@ class _UpdateViewState extends State<UpdateView> {
           if (event.logicalKey == LogicalKey.keyJ ||
               event.logicalKey == LogicalKey.arrowDown) {
             if (selection < options.length - 1) {
+              _overrideArmedFor = null;
               context.read(_updateSelectionProvider.notifier).state =
                   selection + 1;
             }
@@ -606,6 +604,7 @@ class _UpdateViewState extends State<UpdateView> {
           if (event.logicalKey == LogicalKey.keyK ||
               event.logicalKey == LogicalKey.arrowUp) {
             if (selection > 0) {
+              _overrideArmedFor = null;
               context.read(_updateSelectionProvider.notifier).state =
                   selection - 1;
             }
@@ -616,18 +615,36 @@ class _UpdateViewState extends State<UpdateView> {
                 _UpdateMode.viewingCachedDiff;
             return true;
           }
+          if (event.logicalKey == LogicalKey.keyC && event.modifiers.shift) {
+            context.read(_updateModeProvider.notifier).state =
+                _UpdateMode.heavyConfirm;
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyC && !event.modifiers.shift) {
+            _onLightCheckRequested();
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyP) {
+            // Deep-link to the configure view with the plugins
+            // service pre-selected. There is no standalone
+            // AppView.plugins; plugins live inside configure_view's
+            // service list at index 6 (see configure_view.dart's
+            // `services` array). Setting the index BEFORE the view
+            // mutation ensures the configure view's first build
+            // already reads the right index.
+            context.read(selectedServiceIndexProvider.notifier).state = 6;
+            context.read(currentViewProvider.notifier).state =
+                AppView.configure;
+            return true;
+          }
           if (event.logicalKey == LogicalKey.enter) {
-            if (selection == 0) {
-              _startUpdate(true);
-            } else if (selection == 1) {
-              _startUpdate(false);
-            } else if (selection == 2) {
-              _refreshPluginsOnly();
-            } else if (selection == 3) {
-              _refreshTemplates();
+            final opt = options[selection];
+            if (opt.state.enabled || _overrideArmedFor == selection) {
+              _overrideArmedFor = null;
+              opt.runAction();
             } else {
-              context.read(currentViewProvider.notifier).state =
-                  AppView.dashboard;
+              // Soft-disabled — first Enter arms, second runs.
+              _overrideArmedFor = selection;
             }
             return true;
           }
@@ -655,33 +672,55 @@ class _UpdateViewState extends State<UpdateView> {
               ),
             ),
             const SizedBox(height: 1),
+            ..._buildStatusPanel(context),
+            const SizedBox(height: 1),
+            // Actions header — distinguishes the interactive list
+            // below from the info-only Status panel above. Generic
+            // navigation hints (arrows / Enter / Esc) live in the
+            // global footer; we don't repeat them here.
             const Text(
-              'Pending',
+              'Actions',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
-            ...pendingRows,
             const SizedBox(height: 1),
             ...List.generate(options.length, (i) {
-              final prefix = i == selection ? '> ' : '  ';
-              final color = i == selection
+              final opt = options[i];
+              final selected = i == selection;
+              final isOverrideArmed = _overrideArmedFor == i;
+              final prefix = selected ? '> ' : '  ';
+              final mainColor = !opt.state.enabled
+                  ? const Color.fromRGB(120, 120, 120)
+                  : selected
                   ? const Color.fromRGB(247, 147, 26)
-                  : const Color.fromRGB(200, 200, 200);
-              return Text(
-                '$prefix${options[i]}',
-                style: TextStyle(color: color),
+                  : const Color.fromRGB(235, 235, 235);
+              // Bold the unselected enabled rows too — keeps the
+              // action labels visually heavier than Status row text
+              // (which is plain weight at a similar grey).
+              final fontWeight = !opt.state.enabled
+                  ? FontWeight.normal
+                  : FontWeight.bold;
+              final subtitle = isOverrideArmed
+                  ? 'no changes — press Enter again to rebuild anyway'
+                  : opt.state.subtitle;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$prefix${opt.label}',
+                    style: TextStyle(color: mainColor, fontWeight: fontWeight),
+                  ),
+                  if (subtitle.isNotEmpty)
+                    Text(
+                      '    — $subtitle',
+                      style: TextStyle(
+                        color: isOverrideArmed
+                            ? const Color.fromRGB(220, 180, 100)
+                            : const Color.fromRGB(150, 150, 180),
+                      ),
+                    ),
+                ],
               );
             }),
-            const SizedBox(height: 1),
-            Text(switch (selection) {
-              0 => 'Updates only the NixBlitz TUI. Fast.',
-              1 =>
-                'Updates NixBlitz, NixOS, and all services. May take a while.',
-              2 =>
-                'Pulls the latest commit for every installed plugin (skipping\npinned ones), commits the diff, then previews + rebuilds. Same as\n`nixblitz plugin refresh --all` followed by Apply.',
-              3 =>
-                'Rewrites ~/nixblitz/ Nix files from the currently running TUI.\nUse this after a TUI upgrade to pick up new modules, or to recover\nfrom a broken config. Preserves config.json.',
-              _ => '',
-            }, style: const TextStyle(color: Color.fromRGB(150, 150, 180))),
             if (hasCachedDiff) ...[
               const SizedBox(height: 1),
               const Text(
@@ -695,71 +734,259 @@ class _UpdateViewState extends State<UpdateView> {
     );
   }
 
-  /// Renders the rows under the "Pending" header. Each row is a
-  /// two-column line: a label (`flake inputs`, `packages`) and a
-  /// value with an inline "checked Nh ago" suffix in muted grey.
+  /// Yes/no prompt before kicking off the heavy check. Heavy is
+  /// expensive enough (1-10 min, ~125 MB to /tmp) that we don't want
+  /// a stray `[C]` keystroke to start it. `[y]` runs, `[n]` / `[Esc]`
+  /// returns to selectMode.
+  Component _buildHeavyConfirm() {
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.keyY) {
+            _startHeavyCheck();
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyN ||
+              event.logicalKey == LogicalKey.escape) {
+            context.read(_updateModeProvider.notifier).state =
+                _UpdateMode.selectMode;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('Heavy confirm key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Run full check?',
+              style: TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 1),
+            Text(
+              'Takes 1–10 minutes. Downloads ~125 MB to /tmp.',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            SizedBox(height: 1),
+            Text(
+              '[y] Yes   [n / Esc] No',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Spinner + scrolling log for the heavy check. Output streams in
+  /// from the `nixblitz check heavy` subprocess via stdout/stderr.
+  /// `[Esc]` returns to selectMode at any time — the subprocess keeps
+  /// running in the background, and the Status panel will reflect
+  /// its result whenever it lands.
+  Component _buildRunningCheck() {
+    final outputLines = context.watch(_updateOutputProvider);
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape) {
+            context.read(_updateModeProvider.notifier).state =
+                _UpdateMode.selectMode;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('runningCheck key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Spinner(label: 'Running full update check…'),
+            const SizedBox(height: 1),
+            const Text(
+              'Heavy check evaluates a full system rebuild in /tmp '
+              'and runs `nvd diff` against /run/current-system. Takes '
+              '1–10 minutes; can be left running while you do other '
+              'things.',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            const SizedBox(height: 1),
+            Expanded(child: ScrollableLog(lines: outputLines, focused: true)),
+            const SizedBox(height: 1),
+            const Text(
+              '[Esc] back to menu',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Renders the Status panel — top of the System Update menu.
+  /// Reads `readUpdateStatus()` synchronously each rebuild (cheap
+  /// file read; same pattern the dashboard banner uses).
   ///
-  /// Sourced from the same `update-status.json` the dashboard
-  /// banner reads — no extra check is fired off; the menu is a
-  /// view onto the cached state, not a refresh trigger.
-  List<Component> _buildPendingRows(UpdateStatus status) {
+  /// Three rows: `flake inputs`, `TUI binary` (split out from the
+  /// flake inputs because it has its own apply path — pull + restart
+  /// rather than rebuild), and `system closure` from the heavy check.
+  /// An optional plugin-pointer row appears when `pluginsAhead` is
+  /// non-empty, directing the operator to the plugins menu where
+  /// per-plugin updates live.
+  List<Component> _buildStatusPanel(BuildContext context) {
+    const tuiInputName = 'nixblitz';
+    final status = readUpdateStatus();
+    final children = <Component>[
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: const [
+          Text('Status', style: TextStyle(color: Color.fromRGB(150, 150, 180))),
+          Text(
+            '[c] check now   [C] full check',
+            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 1),
+    ];
+
+    if (_lightCheckRunning) {
+      children.add(Spinner(label: 'Checking for updates…'));
+      children.add(const SizedBox(height: 1));
+    }
+
     final hasLight = status.lightweight != null && status.lightweight!.ok;
     final hasHeavy = status.heavy != null && status.heavy!.ok;
+
     if (!hasLight && !hasHeavy) {
-      return const [
-        Text(
+      children.add(
+        const Text(
           '  no cached check yet — runs daily',
           style: TextStyle(color: Color.fromRGB(150, 150, 180)),
         ),
-      ];
+      );
+      return children;
     }
 
-    final rows = <Component>[];
     if (hasLight) {
       final light = status.lightweight!;
       final stillAhead = UpdateCheckService.filterStillAhead(
         light.inputsAhead,
         flakePath: context.read(baseDirProvider),
       );
-      final ago = humanizeAge(light.checkedAt);
-      final value = stillAhead.isEmpty
+
+      // flake inputs row — exclude the TUI input.
+      final nonTui = stillAhead.where((e) => e.name != tuiInputName).toList();
+      final lightAge = humanizeAge(light.checkedAt);
+      final lightStale =
+          DateTime.now().toUtc().difference(light.checkedAt) >
+          const Duration(days: 2);
+      final flakeValue = nonTui.isEmpty
           ? 'up to date'
-          : stillAhead.map((e) => e.name).take(3).join(', ') +
-                (stillAhead.length > 3
-                    ? ' (+${stillAhead.length - 3} more)'
-                    : '');
-      rows.add(_pendingRow(label: 'flake inputs', value: value, age: ago));
+          : nonTui.map((e) => e.name).take(3).join(', ') +
+                (nonTui.length > 3 ? ' (+${nonTui.length - 3} more)' : '');
+      children.add(
+        _statusRow(
+          label: 'flake inputs',
+          value: flakeValue,
+          age: lightAge,
+          stale: lightStale,
+        ),
+      );
+
+      // TUI binary row — only the TUI input.
+      final tuiAhead = stillAhead.where((e) => e.name == tuiInputName).toList();
+      final tuiValue = tuiAhead.isEmpty
+          ? 'up to date'
+          : 'ahead — pull and rebuild';
+      children.add(
+        _statusRow(
+          label: 'TUI binary',
+          value: tuiValue,
+          age: lightAge,
+          stale: lightStale,
+        ),
+      );
+
+      // Plugin pointer row — only when pluginsAhead non-empty.
+      if (light.pluginsAhead.isNotEmpty) {
+        final n = light.pluginsAhead.length;
+        children.add(const SizedBox(height: 1));
+        children.add(
+          Text(
+            '  ! $n plugin update${n == 1 ? "" : "s"} available — '
+            'open [p] plugins menu',
+            style: const TextStyle(color: Color.fromRGB(247, 147, 26)),
+          ),
+        );
+      }
     }
+
     if (hasHeavy) {
       final heavy = status.heavy!;
-      final ago = humanizeAge(heavy.checkedAt);
-      final String value;
+      final heavyAge = humanizeAge(heavy.checkedAt);
+      final heavyStale =
+          DateTime.now().toUtc().difference(heavy.checkedAt) >
+          const Duration(days: 14);
+      final String heavyValue;
       if (heavy.noChanges) {
-        value = 'no system changes';
+        heavyValue = 'no system changes';
       } else if (heavy.diffText.trim().isEmpty) {
-        value = 'no system changes';
+        heavyValue = 'no system changes';
       } else {
-        final n = _countDiffChanges(heavy.diffText);
-        value = n == 1 ? '1 change' : '$n changes';
+        heavyValue = '${_countDiffChanges(heavy.diffText)} changes pending';
       }
-      rows.add(_pendingRow(label: 'packages', value: value, age: ago));
+      children.add(
+        _statusRow(
+          label: 'system closure',
+          value: heavyValue,
+          age: heavyAge,
+          stale: heavyStale,
+        ),
+      );
+    } else {
+      children.add(
+        _statusRow(
+          label: 'system closure',
+          value: 'no full check yet',
+          age: '—',
+          stale: false,
+        ),
+      );
     }
-    return rows;
+
+    return children;
   }
 
-  Component _pendingRow({
+  Component _statusRow({
     required String label,
     required String value,
     required String age,
+    required bool stale,
   }) {
-    // 14-char label column keeps the "value" column lined up across
-    // rows ("flake inputs" → 12 chars, "packages" → 8 chars; both
-    // pad to 14 for visual alignment).
-    final padded = label.padRight(14);
-    return Text(
-      '  $padded$value  ($age)',
-      style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
-    );
+    // 16-char label column keeps values lined up across rows AND
+    // guarantees ≥2 spaces of breathing room after the longest current
+    // label ("system closure" = 14 chars). Earlier 14-char padding
+    // produced "system closureN changes pending" with no separator.
+    final padded = label.padRight(16);
+    final prefix = stale ? '! ' : '  ';
+    final color = stale
+        ? const Color.fromRGB(220, 180, 100) // warn yellow
+        : const Color.fromRGB(200, 200, 200);
+    return Text('$prefix$padded$value  ($age)', style: TextStyle(color: color));
   }
 
   bool _hasCachedDiff(UpdateStatus status) {
@@ -1004,6 +1231,20 @@ class _UpdateViewState extends State<UpdateView> {
       ),
     );
   }
+}
+
+/// Action option metadata for `_buildSelectMode`. Pairs a label with
+/// its computed [ActionState] (enabled flag + subtitle) and the
+/// callback to run when the row is activated.
+class _Option {
+  const _Option({
+    required this.label,
+    required this.state,
+    required this.runAction,
+  });
+  final String label;
+  final ActionState state;
+  final void Function() runAction;
 }
 
 /// Per-line colour for `nvd diff` output. Keeps the diff readable
