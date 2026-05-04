@@ -12,6 +12,7 @@ const int buildNumber = 9;
 
 void main(List<String> arguments) async {
   final parser = ArgParser()
+    ..addFlag('help', abbr: 'h', negatable: false, help: 'Print this help')
     ..addFlag(
       'version',
       abbr: 'v',
@@ -47,8 +48,23 @@ void main(List<String> arguments) async {
         ..addCommand('unpin', ArgParser()),
     );
 
+  // Pre-parse `help` as a positional verb so `nixblitz help` and
+  // `nixblitz help <subcommand>` work alongside the conventional
+  // `--help` / `-h` flag. ArgParser doesn't model a no-dash help
+  // verb natively; intercepting before parse keeps the rest of the
+  // arg shape (with subcommands like `check light`) parseable.
+  if (arguments.isNotEmpty && arguments.first == 'help') {
+    _printHelp(arguments.length > 1 ? arguments[1] : null);
+    exit(0);
+  }
+
   try {
     final results = parser.parse(arguments);
+
+    if (results['help'] as bool) {
+      _printHelp(null);
+      exit(0);
+    }
 
     if (results['version'] as bool) {
       print('nixblitz $buildVersionString');
@@ -97,4 +113,62 @@ void main(List<String> arguments) async {
     print(e.message);
     exit(1);
   }
+}
+
+/// Prints top-level help, or subcommand help when [topic] is one of
+/// the known subcommands.
+void _printHelp(String? topic) {
+  if (topic == 'plugin') {
+    print(
+      'Usage: nixblitz plugin <add|remove|list|refresh|pin|unpin> [options]\n'
+      '\n'
+      '  add <url> [--branch X] [--subdir Y] [--yes] [--insecure]\n'
+      '      Install a plugin from a git URL.\n'
+      '  remove <id>\n'
+      '      Soft-delete a plugin (tombstone preserves the pin).\n'
+      '  list [--all]\n'
+      '      List active plugins; --all also shows tombstones.\n'
+      '  refresh [<id>] [--all] [--insecure]\n'
+      '      Pull a plugin\'s upstream into its pinned rev (or all\n'
+      '      auto-update plugins with --all).\n'
+      '  pin <id>\n'
+      '      Freeze the plugin at its current rev (auto_update=false).\n'
+      '  unpin <id>\n'
+      '      Re-enable auto-updates for the plugin.',
+    );
+    return;
+  }
+  if (topic == 'check') {
+    print(
+      'Usage: nixblitz check <light|heavy>\n'
+      '\n'
+      '  light\n'
+      '      Probe each flake input + active plugin\'s upstream HEAD\n'
+      '      via forge APIs. Fast (~5s); writes update-status.json.\n'
+      '  heavy\n'
+      '      Run a full nix flake update + nvd diff against\n'
+      '      /run/current-system in a tmpdir. Slow (1–10 min, ~125\n'
+      '      MB to /tmp); writes update-status.json.',
+    );
+    return;
+  }
+
+  print(
+    'nixblitz $buildVersionString — Bitcoin/Lightning node manager on NixOS\n'
+    '\n'
+    'Usage:\n'
+    '  nixblitz                       Launch the interactive TUI (default)\n'
+    '  nixblitz --version, -v         Print version\n'
+    '  nixblitz --help,    -h         Print this help\n'
+    '  nixblitz help <subcommand>     Print help for a subcommand\n'
+    '  nixblitz <subcommand> [args]   Run a one-shot subcommand\n'
+    '\n'
+    'Subcommands:\n'
+    '  plugin    Manage installed plugins (add / remove / list / refresh / pin / unpin)\n'
+    '  check     Run an update check now (light / heavy)\n'
+    '\n'
+    'The TUI is the default UI; subcommands are one-shot operations\n'
+    'for scripting and the systemd update-check timers. See\n'
+    '`nixblitz help <subcommand>` for per-subcommand details.',
+  );
 }
