@@ -7,6 +7,7 @@ import 'dashboard/lightning_tile.dart';
 import 'dashboard/plugin_tile.dart';
 import 'dashboard/system_tile.dart';
 import 'dashboard/tile_layout.dart';
+import '../format.dart';
 import '../../providers/ui_state_provider.dart';
 
 class DashboardView extends StatefulComponent {
@@ -64,10 +65,12 @@ class _DashboardViewState extends State<DashboardView> {
   }
 
   /// Reads `/var/lib/nixblitz-tui/update-status.json` (populated by
-  /// the daily / weekly systemd timers) and renders a banner when
-  /// either check found something to surface. No banner when the
-  /// file is missing (fresh install), no inputs ahead, or all the
-  /// timers have run cleanly with nothing to report.
+  /// the daily / weekly systemd timers) and renders a single
+  /// "updates available" line when the lightweight check found
+  /// flake inputs whose upstream HEAD has moved past the locked
+  /// rev. The richer per-package preview (from the heavy check)
+  /// is surfaced inside the Update menu, not on the dashboard —
+  /// the dashboard's job is to nudge, not to enumerate.
   ///
   /// Cross-checks the cached `inputsAhead` against the live
   /// `flake.lock` so we don't keep nagging "updates available" for
@@ -90,7 +93,7 @@ class _DashboardViewState extends State<DashboardView> {
         final n = stillAhead.length;
         final names = stillAhead.map((e) => e.name).take(3).join(', ');
         final more = n > 3 ? ' (+${n - 3} more)' : '';
-        final ago = _humanizeAge(light.checkedAt);
+        final ago = humanizeAge(light.checkedAt);
         lines.add(
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -102,26 +105,6 @@ class _DashboardViewState extends State<DashboardView> {
           ),
         );
       }
-    }
-
-    final heavy = status.heavy;
-    if (heavy != null &&
-        heavy.ok &&
-        !heavy.noChanges &&
-        heavy.diffText.trim().isNotEmpty) {
-      final firstLine = heavy.diffText
-          .split('\n')
-          .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
-      final ago = _humanizeAge(heavy.checkedAt);
-      lines.add(
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Text(
-            'preview ($ago): $firstLine',
-            style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-          ),
-        ),
-      );
     }
 
     return lines;
@@ -160,14 +143,6 @@ class _DashboardViewState extends State<DashboardView> {
     ];
   }
 
-  static String _humanizeAge(DateTime t) {
-    final diff = DateTime.now().toUtc().difference(t.toUtc());
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
-
   /// Renders the green "all applied — Xm ago" caption when the
   /// working tree is clean and HEAD has a commit. Empty list
   /// when HEAD is missing (fresh install, pre-first-Apply) so we
@@ -176,7 +151,7 @@ class _DashboardViewState extends State<DashboardView> {
   List<Component> _buildAllAppliedLine(BuildContext context) {
     final lastApply = context.watch(lastApplyTimeProvider);
     final ago = lastApply.maybeWhen(
-      data: (t) => t == null ? null : _humanizeAge(t),
+      data: (t) => t == null ? null : humanizeAge(t),
       orElse: () => null,
     );
     if (ago == null) return const [];

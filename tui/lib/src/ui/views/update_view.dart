@@ -4,6 +4,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../format.dart';
 import '../shutdown.dart';
 import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
@@ -13,12 +14,22 @@ import '../../providers/ui_state_provider.dart';
 /// Update flow state machine:
 ///
 /// - `selectMode` — user picks `TUI only` / `entire system` / `refresh templates`.
+/// - `viewingCachedDiff` — full-screen scroll of the cached `nvd diff` from
+///   the periodic heavy check. Reached from `selectMode` via `[v]` when a
+///   cached diff is present; `[Esc]` returns to `selectMode`.
 /// - `running` — preview-phase output streams: sudo auth, plugin refresh
 ///   (entire-system path), flake-update / template-rewrite, eval, nvd.
 /// - `previewing` — show the nvd diff, await `[a]` (apply) / `[d]` (discard).
 /// - `applying` — rebuild streams output.
 /// - `done` — outcome classifier + embedded final diff.
-enum _UpdateMode { selectMode, running, previewing, applying, done }
+enum _UpdateMode {
+  selectMode,
+  viewingCachedDiff,
+  running,
+  previewing,
+  applying,
+  done,
+}
 
 final _updateModeProvider = StateProvider<_UpdateMode>(
   (ref) => _UpdateMode.selectMode,
@@ -548,6 +559,7 @@ class _UpdateViewState extends State<UpdateView> {
 
     return switch (mode) {
       _UpdateMode.selectMode => _buildSelectMode(),
+      _UpdateMode.viewingCachedDiff => _buildViewCachedDiff(),
       _UpdateMode.running => _buildRunning(
         label: 'Computing update preview…',
         hint:
@@ -575,6 +587,10 @@ class _UpdateViewState extends State<UpdateView> {
       'Cancel',
     ];
 
+    final status = readUpdateStatus();
+    final pendingRows = _buildPendingRows(status);
+    final hasCachedDiff = _hasCachedDiff(status);
+
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
@@ -593,6 +609,11 @@ class _UpdateViewState extends State<UpdateView> {
               context.read(_updateSelectionProvider.notifier).state =
                   selection - 1;
             }
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyV && hasCachedDiff) {
+            context.read(_updateModeProvider.notifier).state =
+                _UpdateMode.viewingCachedDiff;
             return true;
           }
           if (event.logicalKey == LogicalKey.enter) {
@@ -634,6 +655,12 @@ class _UpdateViewState extends State<UpdateView> {
               ),
             ),
             const SizedBox(height: 1),
+            const Text(
+              'Pending',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
+            ...pendingRows,
+            const SizedBox(height: 1),
             ...List.generate(options.length, (i) {
               final prefix = i == selection ? '> ' : '  ';
               final color = i == selection
@@ -655,6 +682,158 @@ class _UpdateViewState extends State<UpdateView> {
                 'Rewrites ~/nixblitz/ Nix files from the currently running TUI.\nUse this after a TUI upgrade to pick up new modules, or to recover\nfrom a broken config. Preserves config.json.',
               _ => '',
             }, style: const TextStyle(color: Color.fromRGB(150, 150, 180))),
+            if (hasCachedDiff) ...[
+              const SizedBox(height: 1),
+              const Text(
+                '[v] view full package diff',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Renders the rows under the "Pending" header. Each row is a
+  /// two-column line: a label (`flake inputs`, `packages`) and a
+  /// value with an inline "checked Nh ago" suffix in muted grey.
+  ///
+  /// Sourced from the same `update-status.json` the dashboard
+  /// banner reads — no extra check is fired off; the menu is a
+  /// view onto the cached state, not a refresh trigger.
+  List<Component> _buildPendingRows(UpdateStatus status) {
+    final hasLight = status.lightweight != null && status.lightweight!.ok;
+    final hasHeavy = status.heavy != null && status.heavy!.ok;
+    if (!hasLight && !hasHeavy) {
+      return const [
+        Text(
+          '  no cached check yet — runs daily',
+          style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+        ),
+      ];
+    }
+
+    final rows = <Component>[];
+    if (hasLight) {
+      final light = status.lightweight!;
+      final stillAhead = UpdateCheckService.filterStillAhead(
+        light.inputsAhead,
+        flakePath: context.read(baseDirProvider),
+      );
+      final ago = humanizeAge(light.checkedAt);
+      final value = stillAhead.isEmpty
+          ? 'up to date'
+          : stillAhead.map((e) => e.name).take(3).join(', ') +
+                (stillAhead.length > 3
+                    ? ' (+${stillAhead.length - 3} more)'
+                    : '');
+      rows.add(_pendingRow(label: 'flake inputs', value: value, age: ago));
+    }
+    if (hasHeavy) {
+      final heavy = status.heavy!;
+      final ago = humanizeAge(heavy.checkedAt);
+      final String value;
+      if (heavy.noChanges) {
+        value = 'no system changes';
+      } else if (heavy.diffText.trim().isEmpty) {
+        value = 'no system changes';
+      } else {
+        final n = _countDiffChanges(heavy.diffText);
+        value = n == 1 ? '1 change' : '$n changes';
+      }
+      rows.add(_pendingRow(label: 'packages', value: value, age: ago));
+    }
+    return rows;
+  }
+
+  Component _pendingRow({
+    required String label,
+    required String value,
+    required String age,
+  }) {
+    // 14-char label column keeps the "value" column lined up across
+    // rows ("flake inputs" → 12 chars, "packages" → 8 chars; both
+    // pad to 14 for visual alignment).
+    final padded = label.padRight(14);
+    return Text(
+      '  $padded$value  ($age)',
+      style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+    );
+  }
+
+  bool _hasCachedDiff(UpdateStatus status) {
+    final h = status.heavy;
+    return h != null && h.ok && !h.noChanges && h.diffText.trim().isNotEmpty;
+  }
+
+  /// Counts `[U.]` / `[A.]` / `[R.]` lines in the cached diff —
+  /// i.e. the actual change count, ignoring the "Closure size"
+  /// summary and any blank lines. nvd's bracket prefix is the
+  /// stable signal across versions.
+  int _countDiffChanges(String diffText) {
+    var n = 0;
+    for (final line in diffText.split('\n')) {
+      if (line.startsWith('[U.') ||
+          line.startsWith('[U]') ||
+          line.startsWith('[A.') ||
+          line.startsWith('[A]') ||
+          line.startsWith('[R.') ||
+          line.startsWith('[R]')) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  Component _buildViewCachedDiff() {
+    final status = readUpdateStatus();
+    final heavy = status.heavy;
+    final diffText = heavy?.diffText ?? '';
+    final lines = diffText.split('\n');
+    final ago = heavy != null ? humanizeAge(heavy.checkedAt) : 'unknown';
+
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape ||
+              event.logicalKey == LogicalKey.keyQ) {
+            context.read(_updateModeProvider.notifier).state =
+                _UpdateMode.selectMode;
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('View cached diff key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Cached package diff — checked $ago',
+              style: const TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Expanded(
+              child: ScrollableLog(
+                lines: lines,
+                lineColor: _nvdLineColor,
+                focused: true,
+              ),
+            ),
+            const SizedBox(height: 1),
+            const Text(
+              '[Esc] back to menu   [↑/↓ j/k] scroll   [PgUp/PgDn] page',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
           ],
         ),
       ),
