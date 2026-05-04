@@ -559,12 +559,24 @@ class _UpdateViewState extends State<UpdateView> {
     context.watch(_updateTickerProvider);
 
     final status = readUpdateStatus();
-    final hasCachedDiff = _hasCachedDiff(status);
+    // Filter cached `inputsAhead` against the live `flake.lock` so
+    // we don't surface phantom updates that already landed. Same
+    // signal we use for the dashboard banner; reused here to gate
+    // both the Status panel rows and the action subtitles.
+    final liveInputsAhead =
+        (status.lightweight != null && status.lightweight!.ok)
+        ? UpdateCheckService.filterStillAhead(
+            status.lightweight!.inputsAhead,
+            flakePath: context.read(baseDirProvider),
+          )
+        : <InputAhead>[];
+    final hasCachedDiff = _hasCachedDiff(status, liveInputsAhead);
 
     // Compute gating from cache (pure function from action_gating.dart).
     final actionStates = computeUpdateActionStates(
       status,
       tuiInputName: 'nixblitz',
+      liveInputsAhead: liveInputsAhead,
     );
 
     // Action option metadata, paired with its computed state.
@@ -672,7 +684,7 @@ class _UpdateViewState extends State<UpdateView> {
               ),
             ),
             const SizedBox(height: 1),
-            ..._buildStatusPanel(context),
+            ..._buildStatusPanel(context, liveInputsAhead),
             const SizedBox(height: 1),
             // Actions header — distinguishes the interactive list
             // below from the info-only Status panel above. Generic
@@ -846,7 +858,10 @@ class _UpdateViewState extends State<UpdateView> {
   /// An optional plugin-pointer row appears when `pluginsAhead` is
   /// non-empty, directing the operator to the plugins menu where
   /// per-plugin updates live.
-  List<Component> _buildStatusPanel(BuildContext context) {
+  List<Component> _buildStatusPanel(
+    BuildContext context,
+    List<InputAhead> liveInputsAhead,
+  ) {
     const tuiInputName = 'nixblitz';
     final status = readUpdateStatus();
     final children = <Component>[
@@ -883,10 +898,9 @@ class _UpdateViewState extends State<UpdateView> {
 
     if (hasLight) {
       final light = status.lightweight!;
-      final stillAhead = UpdateCheckService.filterStillAhead(
-        light.inputsAhead,
-        flakePath: context.read(baseDirProvider),
-      );
+      // `liveInputsAhead` is the caller-side filterStillAhead — no
+      // recomputation here.
+      final stillAhead = liveInputsAhead;
 
       // flake inputs row — exclude the TUI input.
       final nonTui = stillAhead.where((e) => e.name != tuiInputName).toList();
@@ -941,10 +955,16 @@ class _UpdateViewState extends State<UpdateView> {
       final heavyStale =
           DateTime.now().toUtc().difference(heavy.checkedAt) >
           const Duration(days: 14);
+      // If a fresher light check found the live lock at upstream,
+      // the cached diff has been overtaken by an Update that already
+      // landed — treat as no changes regardless of what the cached
+      // diff reports.
+      final diffOvertaken = isHeavyDiffStale(
+        status,
+        liveInputsAhead: liveInputsAhead,
+      );
       final String heavyValue;
-      if (heavy.noChanges) {
-        heavyValue = 'no system changes';
-      } else if (heavy.diffText.trim().isEmpty) {
+      if (heavy.noChanges || heavy.diffText.trim().isEmpty || diffOvertaken) {
         heavyValue = 'no system changes';
       } else {
         heavyValue = '${_countDiffChanges(heavy.diffText)} changes pending';
@@ -989,9 +1009,17 @@ class _UpdateViewState extends State<UpdateView> {
     return Text('$prefix$padded$value  ($age)', style: TextStyle(color: color));
   }
 
-  bool _hasCachedDiff(UpdateStatus status) {
+  /// True when the cached heavy diff is non-empty AND still relevant
+  /// (the lock hasn't already advanced past it). Drives whether we
+  /// show the `[v] view full package diff` keybind hint — there's
+  /// no point offering to view a diff the operator has already
+  /// applied.
+  bool _hasCachedDiff(UpdateStatus status, List<InputAhead> liveInputsAhead) {
     final h = status.heavy;
-    return h != null && h.ok && !h.noChanges && h.diffText.trim().isNotEmpty;
+    if (h == null || !h.ok || h.noChanges || h.diffText.trim().isEmpty) {
+      return false;
+    }
+    return !isHeavyDiffStale(status, liveInputsAhead: liveInputsAhead);
   }
 
   /// Counts `[U.]` / `[A.]` / `[R.]` lines in the cached diff —

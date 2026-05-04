@@ -14,6 +14,31 @@ class UpdateActionStates {
   final ActionState entireSystem;
 }
 
+/// Returns true when [status.heavy]'s `diffText` should be treated
+/// as stale.
+///
+/// Heavy is stale when a more recent lightweight check found the
+/// live `flake.lock` already at upstream — meaning a `nix flake
+/// update` would now be a no-op, regardless of what heavy was
+/// diffing against at its `checkedAt` time. Without this filter we
+/// surface "1 change pending" hours after the operator already
+/// ran an Update and caught the lock up.
+///
+/// [liveInputsAhead] is the renderer-filtered (`filterStillAhead`)
+/// list — passed in rather than computed here so this function
+/// stays pure and the heavy I/O of reading `flake.lock` lives at
+/// the call site.
+bool isHeavyDiffStale(
+  UpdateStatus status, {
+  required List<InputAhead> liveInputsAhead,
+}) {
+  final heavy = status.heavy;
+  final light = status.lightweight;
+  if (heavy == null || light == null || !light.ok) return false;
+  if (!light.checkedAt.isAfter(heavy.checkedAt)) return false;
+  return liveInputsAhead.isEmpty;
+}
+
 /// Pure function — no I/O, no providers — derives the action panel's
 /// gating from a snapshot of `update-status.json`.
 ///
@@ -22,19 +47,24 @@ class UpdateActionStates {
 /// the "flake inputs" status row and into the "TUI binary" row is
 /// done in the renderer; this function only consumes [LightCheck].
 ///
+/// [liveInputsAhead] is the renderer-filtered (`filterStillAhead`)
+/// view of `light.inputsAhead`. Used to detect when the heavy diff
+/// has been invalidated by a lock advance since heavy ran.
+///
 /// [now] is injected for testability.
 UpdateActionStates computeUpdateActionStates(
   UpdateStatus status, {
   required String tuiInputName,
+  required List<InputAhead> liveInputsAhead,
   DateTime? now,
 }) {
   final wallClock = now ?? DateTime.now().toUtc();
 
   // ── tuiOnly ────────────────────────────────────────────────
   final light = status.lightweight;
-  final tuiAhead = light != null && light.ok
-      ? light.inputsAhead.where((i) => i.name == tuiInputName).toList()
-      : const <InputAhead>[];
+  final tuiAhead = liveInputsAhead
+      .where((i) => i.name == tuiInputName)
+      .toList();
 
   final ActionState tuiOnly;
   if (tuiAhead.isNotEmpty) {
@@ -64,14 +94,14 @@ UpdateActionStates computeUpdateActionStates(
       enabled: true,
       subtitle: 'last full check failed: ${heavy.error ?? "unknown"}',
     );
-  } else if (heavy.noChanges) {
+  } else if (heavy.noChanges ||
+      isHeavyDiffStale(status, liveInputsAhead: liveInputsAhead)) {
     final heavyStale =
         wallClock.difference(heavy.checkedAt) > const Duration(days: 14);
-    final lightHasOtherHits =
-        (light != null &&
-        light.ok &&
-        light.inputsAhead.where((i) => i.name != tuiInputName).isNotEmpty);
-    if (heavyStale && lightHasOtherHits) {
+    final liveAheadNonTui = liveInputsAhead
+        .where((i) => i.name != tuiInputName)
+        .toList();
+    if (heavyStale && liveAheadNonTui.isNotEmpty) {
       entire = const ActionState(
         enabled: true,
         subtitle: 'may have changes — heavy check stale (>14d)',
