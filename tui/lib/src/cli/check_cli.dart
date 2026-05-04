@@ -17,17 +17,17 @@ Future<int> runCheckCli(ArgResults checkArgs, String baseDir) async {
     return 2;
   }
 
-  final svc = UpdateCheckService(
+  final updateCheckService = UpdateCheckService(
     flakePath: baseDir,
     statusPath: updateStatusPath,
   );
   try {
     switch (sub.name) {
       case 'light':
-        final code = await svc.runLightweight();
+        final code = await updateCheckService.runLightweight();
         return code;
       case 'heavy':
-        final code = await svc.runHeavy();
+        final code = await updateCheckService.runHeavy();
         return code;
       default:
         stderr.writeln('unknown verb: ${sub.name}');
@@ -37,6 +37,6 @@ Future<int> runCheckCli(ArgResults checkArgs, String baseDir) async {
     stderr.writeln('error: $e');
     return 1;
   } finally {
-    svc.close();
+    updateCheckService.close();
   }
 }

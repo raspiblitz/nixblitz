@@ -8,35 +8,35 @@ import 'package:common/src/services/plugin_config_service.dart';
 void main() {
   group('PluginConfigService', () {
     late Directory home;
-    late PluginConfigService svc;
+    late PluginConfigService pluginCfgService;
 
     setUp(() {
       home = Directory.systemTemp.createTempSync('nixblitz_pcs_');
       Directory('${home.path}/plugins/demo').createSync(recursive: true);
-      svc = PluginConfigService(baseDir: home.path);
+      pluginCfgService = PluginConfigService(baseDir: home.path);
     });
 
     tearDown(() => home.deleteSync(recursive: true));
 
     test('isInstalled true when plugin dir exists', () {
-      expect(svc.isInstalled('demo'), isTrue);
-      expect(svc.isInstalled('ghost'), isFalse);
+      expect(pluginCfgService.isInstalled('demo'), isTrue);
+      expect(pluginCfgService.isInstalled('ghost'), isFalse);
     });
 
     test('read returns {} when config.json is missing', () {
-      expect(svc.read('demo'), isEmpty);
+      expect(pluginCfgService.read('demo'), isEmpty);
     });
 
     test('read returns {} for an empty config.json', () {
       File('${home.path}/plugins/demo/config.json').writeAsStringSync('   \n');
-      expect(svc.read('demo'), isEmpty);
+      expect(pluginCfgService.read('demo'), isEmpty);
     });
 
     test('read parses a valid config.json', () {
       File(
         '${home.path}/plugins/demo/config.json',
       ).writeAsStringSync(jsonEncode({'key': 'value', 'count': 3}));
-      final m = svc.read('demo');
+      final m = pluginCfgService.read('demo');
       expect(m['key'], 'value');
       expect(m['count'], 3);
     });
@@ -45,25 +45,34 @@ void main() {
       File(
         '${home.path}/plugins/demo/config.json',
       ).writeAsStringSync('["not", "an", "object"]');
-      expect(() => svc.read('demo'), throwsA(isA<FormatException>()));
+      expect(
+        () => pluginCfgService.read('demo'),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('read throws FormatException on malformed JSON', () {
       File(
         '${home.path}/plugins/demo/config.json',
       ).writeAsStringSync('{{ not json }}');
-      expect(() => svc.read('demo'), throwsA(isA<FormatException>()));
+      expect(
+        () => pluginCfgService.read('demo'),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('write + read round-trips', () async {
-      await svc.write('demo', {'auth_key': 'abc', 'exit_node': true});
-      final back = svc.read('demo');
+      await pluginCfgService.write('demo', {
+        'auth_key': 'abc',
+        'exit_node': true,
+      });
+      final back = pluginCfgService.read('demo');
       expect(back['auth_key'], 'abc');
       expect(back['exit_node'], true);
     });
 
     test('write produces pretty-printed JSON', () async {
-      await svc.write('demo', {'a': 1});
+      await pluginCfgService.write('demo', {'a': 1});
       final text = File(
         '${home.path}/plugins/demo/config.json',
       ).readAsStringSync();

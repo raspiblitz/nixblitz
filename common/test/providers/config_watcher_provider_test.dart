@@ -33,14 +33,14 @@ Future<bool> _waitFor(
 void main() {
   group('configWatcherProvider', () {
     late Directory home;
-    late ConfigService cfgSvc;
+    late ConfigService configService;
 
     setUp(() async {
       home = Directory.systemTemp.createTempSync('nixblitz_cwp_');
-      cfgSvc = ConfigService(baseDir: home.path);
+      configService = ConfigService(baseDir: home.path);
       // Seed a config so configProvider.load lands AsyncData
       // immediately rather than sitting in loading.
-      await cfgSvc.writeConfig(NixblitzConfig.defaults());
+      await configService.writeConfig(NixblitzConfig.defaults());
     });
 
     tearDown(() {
@@ -67,7 +67,7 @@ void main() {
       final mutated = initial.copyWith(
         system: initial.system.copyWith(hostname: 'externally-set'),
       );
-      await cfgSvc.writeConfig(mutated);
+      await configService.writeConfig(mutated);
 
       final reloaded = await _waitFor(() {
         final v = container.read(configProvider).value;
@@ -226,7 +226,7 @@ void main() {
       File(
         '${home.path}/plugins/foo/manifest.json',
       ).writeAsStringSync('{"manifest":{"schema_version":2}}');
-      await cfgSvc.writeConfig(
+      await configService.writeConfig(
         NixblitzConfig.defaults().copyWith(
           system: const SystemConfig(
             hostname: 'burst',

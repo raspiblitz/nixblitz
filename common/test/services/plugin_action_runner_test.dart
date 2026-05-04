@@ -32,26 +32,26 @@ Future<({List<String> output, int exitCode})> _runAndCollect(
 
 void main() {
   group('PluginActionRunner command actions', () {
-    final svc = PluginActionRunner(
+    final pluginActionRunner = PluginActionRunner(
       sudoSession: SudoSession(authBackend: _NoopAuth()),
     );
 
     test('happy path: echo command exits 0 with output', () async {
       final action = PluginAction(label: 'echo', command: 'echo hello-world');
-      final r = await _runAndCollect(svc, action);
+      final r = await _runAndCollect(pluginActionRunner, action);
       expect(r.exitCode, 0);
       expect(r.output.join(), contains('hello-world'));
     });
 
     test('non-zero exit code is captured', () async {
       final action = PluginAction(label: 'fail', command: 'exit 7');
-      final r = await _runAndCollect(svc, action);
+      final r = await _runAndCollect(pluginActionRunner, action);
       expect(r.exitCode, 7);
     });
 
     test('stderr is interleaved into the output stream', () async {
       final action = PluginAction(label: 'err', command: 'echo to-stderr 1>&2');
-      final r = await _runAndCollect(svc, action);
+      final r = await _runAndCollect(pluginActionRunner, action);
       expect(r.exitCode, 0);
       expect(r.output.join(), contains('to-stderr'));
     });
@@ -64,7 +64,7 @@ void main() {
           command: 'sleep 30',
           timeoutSeconds: 1,
         );
-        final r = await _runAndCollect(svc, action);
+        final r = await _runAndCollect(pluginActionRunner, action);
         expect(r.exitCode, 124);
         expect(r.output.join(), contains('timeout'));
       },
@@ -76,18 +76,18 @@ void main() {
         label: 'no-such-binary',
         command: 'definitely-not-a-real-command-37281',
       );
-      final r = await _runAndCollect(svc, action);
+      final r = await _runAndCollect(pluginActionRunner, action);
       expect(r.exitCode, isNot(0));
     });
   });
 
   group('PluginActionRunner.runOneShot', () {
-    final svc = PluginActionRunner(
+    final pluginActionRunner = PluginActionRunner(
       sudoSession: SudoSession(authBackend: _NoopAuth()),
     );
 
     test('captures stdout and stderr separately', () async {
-      final r = await svc.runOneShot(
+      final r = await pluginActionRunner.runOneShot(
         command: r'echo to-stdout; echo to-stderr 1>&2',
       );
       expect(r.exitCode, 0);
@@ -96,13 +96,15 @@ void main() {
     });
 
     test('captures non-zero exit code', () async {
-      final r = await svc.runOneShot(command: 'echo nope; exit 3');
+      final r = await pluginActionRunner.runOneShot(
+        command: 'echo nope; exit 3',
+      );
       expect(r.exitCode, 3);
       expect(r.stdout.trim(), 'nope');
     });
 
     test('timeout surfaces as exit 124', () async {
-      final r = await svc.runOneShot(
+      final r = await pluginActionRunner.runOneShot(
         command: 'sleep 30',
         timeout: const Duration(seconds: 1),
       );

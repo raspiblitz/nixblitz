@@ -53,10 +53,10 @@ class UpdateCheckService {
   final Future<NixblitzConfig?> Function() _configReader;
 
   static Future<NixblitzConfig?> _defaultConfigReader(String flakePath) async {
-    final svc = ConfigService(baseDir: flakePath);
-    if (!svc.configExists()) return null;
+    final configService = ConfigService(baseDir: flakePath);
+    if (!configService.configExists()) return null;
     try {
-      return await svc.readConfig();
+      return await configService.readConfig();
     } catch (e, st) {
       LogService.error(
         'UpdateCheckService: config.json read/parse failed',

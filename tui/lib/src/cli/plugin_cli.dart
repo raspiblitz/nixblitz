@@ -17,22 +17,22 @@ Future<int> runPluginCli(ArgResults pluginArgs, String baseDir) async {
     return 2;
   }
 
-  final svc = PluginService(baseDir: baseDir);
+  final pluginService = PluginService(baseDir: baseDir);
 
   try {
     switch (sub.name) {
       case 'add':
-        return await _runAdd(svc, sub);
+        return await _runAdd(pluginService, sub);
       case 'remove':
-        return await _runRemove(svc, sub);
+        return await _runRemove(pluginService, sub);
       case 'list':
-        return await _runList(svc, sub);
+        return await _runList(pluginService, sub);
       case 'refresh':
-        return await _runRefresh(svc, sub);
+        return await _runRefresh(pluginService, sub);
       case 'pin':
-        return await _runPin(svc, sub, pin: true);
+        return await _runPin(pluginService, sub, pin: true);
       case 'unpin':
-        return await _runPin(svc, sub, pin: false);
+        return await _runPin(pluginService, sub, pin: false);
       default:
         stderr.writeln('unknown verb: ${sub.name}');
         return 2;

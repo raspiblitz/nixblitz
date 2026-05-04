@@ -301,7 +301,7 @@ void main() {
         NixblitzConfig.defaults().copyWith(plugins: plugins);
 
     test('runLightweight walks active auto-update plugins', () async {
-      final svc = UpdateCheckService(
+      final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
         httpClient: stubHttp({
@@ -317,9 +317,9 @@ void main() {
           ),
         ]),
       );
-      final exit = await svc.runLightweight();
+      final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
-      final status = svc.readStatus();
+      final status = updateCheckService.readStatus();
       expect(status.lightweight!.ok, isTrue);
       expect(status.lightweight!.pluginsAhead, hasLength(1));
       expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'b' * 40);
@@ -329,7 +329,7 @@ void main() {
 
     test('runLightweight skips pinned (autoUpdate=false) plugins', () async {
       var httpCalls = 0;
-      final svc = UpdateCheckService(
+      final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
         httpClient: MockClient((req) async {
@@ -345,16 +345,16 @@ void main() {
           ),
         ]),
       );
-      final exit = await svc.runLightweight();
+      final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
-      final status = svc.readStatus();
+      final status = updateCheckService.readStatus();
       expect(status.lightweight!.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
 
     test('runLightweight skips uninstalled (tombstone) plugins', () async {
       var httpCalls = 0;
-      final svc = UpdateCheckService(
+      final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
         httpClient: MockClient((req) async {
@@ -371,16 +371,16 @@ void main() {
           ),
         ]),
       );
-      final exit = await svc.runLightweight();
+      final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
-      final status = svc.readStatus();
+      final status = updateCheckService.readStatus();
       expect(status.lightweight!.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
 
     test('runLightweight skips disabled plugins', () async {
       var httpCalls = 0;
-      final svc = UpdateCheckService(
+      final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
         httpClient: MockClient((req) async {
@@ -396,9 +396,9 @@ void main() {
           ),
         ]),
       );
-      final exit = await svc.runLightweight();
+      final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
-      final status = svc.readStatus();
+      final status = updateCheckService.readStatus();
       expect(status.lightweight!.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
@@ -407,7 +407,7 @@ void main() {
       // Plugin "bad" returns 500 → throws inside _queryUpstreamRev,
       // caller catches and records an error. Plugin "good" still gets
       // walked and emits a PluginAhead entry.
-      final svc = UpdateCheckService(
+      final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
         httpClient: stubHttp({
@@ -431,9 +431,9 @@ void main() {
           ),
         ]),
       );
-      final exit = await svc.runLightweight();
+      final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
-      final status = svc.readStatus();
+      final status = updateCheckService.readStatus();
       expect(status.lightweight!.ok, isTrue);
       // Good plugin still surfaced.
       expect(status.lightweight!.pluginsAhead, hasLength(1));
@@ -447,7 +447,7 @@ void main() {
     test('runLightweight skips plugins with unsupported transport', () async {
       // file:// URL → lockedInputForPlugin returns null → skipped silently.
       var httpCalls = 0;
-      final svc = UpdateCheckService(
+      final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
         httpClient: MockClient((req) async {
@@ -462,9 +462,9 @@ void main() {
           ),
         ]),
       );
-      final exit = await svc.runLightweight();
+      final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
-      final status = svc.readStatus();
+      final status = updateCheckService.readStatus();
       expect(status.lightweight!.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
@@ -473,7 +473,7 @@ void main() {
       'runLightweight emits no PluginAhead when upstream matches pin',
       () async {
         // pinned and upstream are the same SHA → not "ahead".
-        final svc = UpdateCheckService(
+        final updateCheckService = UpdateCheckService(
           flakePath: flakePath,
           statusPath: statusPath,
           httpClient: stubHttp({
@@ -489,9 +489,9 @@ void main() {
             ),
           ]),
         );
-        final exit = await svc.runLightweight();
+        final exit = await updateCheckService.runLightweight();
         expect(exit, 0);
-        final status = svc.readStatus();
+        final status = updateCheckService.readStatus();
         expect(status.lightweight!.pluginsAhead, isEmpty);
       },
     );

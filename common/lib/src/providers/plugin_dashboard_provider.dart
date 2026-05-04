@@ -4,9 +4,9 @@ import 'package:common/src/models/plugin/plugin_tile.dart';
 import 'package:common/src/services/plugin_dashboard_service.dart';
 
 final pluginDashboardServiceProvider = Provider<PluginDashboardService>((ref) {
-  final svc = PluginDashboardService(ref);
-  ref.onDispose(svc.dispose);
-  return svc;
+  final pluginDashboardService = PluginDashboardService(ref);
+  ref.onDispose(pluginDashboardService.dispose);
+  return pluginDashboardService;
 });
 
 /// Late subscribers see the service's current snapshot map without
@@ -22,6 +22,9 @@ Stream<Map<String, PluginTileSnapshot?>> _withSeed(
 
 final pluginTileSnapshotsProvider =
     StreamProvider<Map<String, PluginTileSnapshot?>>((ref) {
-      final svc = ref.watch(pluginDashboardServiceProvider);
-      return _withSeed(svc.seed, svc.snapshots);
+      final pluginDashboardService = ref.watch(pluginDashboardServiceProvider);
+      return _withSeed(
+        pluginDashboardService.seed,
+        pluginDashboardService.snapshots,
+      );
     });

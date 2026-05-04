@@ -33,12 +33,12 @@ class _DashboardViewState extends State<DashboardView> {
   /// dashboard staying functional matters more than surfacing
   /// per-plugin manifest errors here.
   List<Component> _pluginTiles(BuildContext context, NixblitzConfig config) {
-    final svc = context.read(pluginServiceProvider);
+    final pluginService = context.read(pluginServiceProvider);
     final entries = <({String dirName, String title, String accent})>[];
     for (final p in config.plugins) {
       if (p.uninstalledAt != null || !p.enabled) continue;
       try {
-        final manifest = svc.readManifest(p.dirName);
+        final manifest = pluginService.readManifest(p.dirName);
         final spec = manifest.dashboard;
         if (spec == null) continue;
         entries.add((

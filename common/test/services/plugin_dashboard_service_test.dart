@@ -85,8 +85,10 @@ Future<PluginTileSnapshot?> _waitForSnapshot(
 }) async {
   final deadline = DateTime.now().add(timeout);
   while (DateTime.now().isBefore(deadline)) {
-    final svc = container.read(pluginDashboardServiceProvider);
-    final snap = svc.seed[dirName];
+    final pluginDashboardService = container.read(
+      pluginDashboardServiceProvider,
+    );
+    final snap = pluginDashboardService.seed[dirName];
     if (snap != null) return snap;
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
@@ -115,8 +117,10 @@ void main() {
       final container = _makeContainer(home);
       addTearDown(container.dispose);
 
-      final svc = container.read(pluginDashboardServiceProvider);
-      addTearDown(svc.dispose);
+      final pluginDashboardService = container.read(
+        pluginDashboardServiceProvider,
+      );
+      addTearDown(pluginDashboardService.dispose);
 
       final snap = await _waitForSnapshot(container, 'demo');
       expect(snap, isNotNull);
@@ -138,8 +142,10 @@ void main() {
 
       final container = _makeContainer(home);
       addTearDown(container.dispose);
-      final svc = container.read(pluginDashboardServiceProvider);
-      addTearDown(svc.dispose);
+      final pluginDashboardService = container.read(
+        pluginDashboardServiceProvider,
+      );
+      addTearDown(pluginDashboardService.dispose);
 
       final snap = await _waitForSnapshot(container, 'demo');
       expect(snap, isNotNull);
@@ -169,8 +175,10 @@ void main() {
 
         final container = _makeContainer(home);
         addTearDown(container.dispose);
-        final svc = container.read(pluginDashboardServiceProvider);
-        addTearDown(svc.dispose);
+        final pluginDashboardService = container.read(
+          pluginDashboardServiceProvider,
+        );
+        addTearDown(pluginDashboardService.dispose);
 
         final snap = await _waitForSnapshot(container, 'demo');
         expect(snap, isNotNull);
@@ -188,8 +196,10 @@ void main() {
 
       final container = _makeContainer(home);
       addTearDown(container.dispose);
-      final svc = container.read(pluginDashboardServiceProvider);
-      addTearDown(svc.dispose);
+      final pluginDashboardService = container.read(
+        pluginDashboardServiceProvider,
+      );
+      addTearDown(pluginDashboardService.dispose);
 
       final snap = await _waitForSnapshot(container, 'demo');
       expect(snap, isNotNull);
@@ -221,12 +231,14 @@ void main() {
 
       final container = _makeContainer(home);
       addTearDown(container.dispose);
-      final svc = container.read(pluginDashboardServiceProvider);
-      addTearDown(svc.dispose);
+      final pluginDashboardService = container.read(
+        pluginDashboardServiceProvider,
+      );
+      addTearDown(pluginDashboardService.dispose);
 
       // Wait briefly to ensure no poller would have run.
       await Future<void>.delayed(const Duration(milliseconds: 500));
-      expect(svc.seed.containsKey('headless'), isFalse);
+      expect(pluginDashboardService.seed.containsKey('headless'), isFalse);
     });
   });
 }

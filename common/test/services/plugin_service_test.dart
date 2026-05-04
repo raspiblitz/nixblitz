@@ -65,22 +65,22 @@ Future<String> _seedPluginRepo(
 }
 
 Future<void> _seedBaseConfig(String baseDir) async {
-  final svc = ConfigService(baseDir: baseDir);
-  await svc.writeConfig(NixblitzConfig.defaults());
+  final configService = ConfigService(baseDir: baseDir);
+  await configService.writeConfig(NixblitzConfig.defaults());
 }
 
 void main() {
   group('PluginService', () {
     late Directory home;
     late Directory srcRepo;
-    late PluginService svc;
+    late PluginService pluginService;
 
     setUp(() async {
       home = Directory.systemTemp.createTempSync('nixblitz_plugin_home_');
       srcRepo = Directory.systemTemp.createTempSync('nixblitz_plugin_src_');
       await _seedBaseConfig(home.path);
       await _seedPluginRepo(srcRepo.path);
-      svc = PluginService(baseDir: home.path);
+      pluginService = PluginService(baseDir: home.path);
     });
 
     tearDown(() {
@@ -89,7 +89,7 @@ void main() {
     });
 
     test('install from file:// creates plugin dir + config entry', () async {
-      final entry = await svc.install(
+      final entry = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
@@ -119,16 +119,22 @@ void main() {
     });
 
     test('install refuses duplicate of same URL', () async {
-      await svc.install('file://${srcRepo.path}', allowInsecure: true);
+      await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
       expect(
-        () => svc.install('file://${srcRepo.path}', allowInsecure: true),
+        () => pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        ),
         throwsA(isA<StateError>()),
       );
     });
 
     test('install confirm callback receives manifest preview', () async {
       PluginInstallPreview? captured;
-      final entry = await svc.install(
+      final entry = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
         confirm: (preview) async {
@@ -151,7 +157,7 @@ void main() {
 
     test('install confirm returning false aborts cleanly', () async {
       expect(
-        () => svc.install(
+        () => pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
           confirm: (_) async => false,
@@ -172,7 +178,7 @@ void main() {
       // Counter to verify no callback is constructed/called when
       // `confirm` is omitted (the --yes / non-interactive case).
       var calls = 0;
-      final entry = await svc.install(
+      final entry = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
         // confirm: null, by omission
@@ -186,7 +192,7 @@ void main() {
       await _seedPluginRepo(bad.path, manifestOverride: {'not': 'a manifest'});
 
       expect(
-        () => svc.install('file://${bad.path}', allowInsecure: true),
+        () => pluginService.install('file://${bad.path}', allowInsecure: true),
         throwsA(anything),
       );
 
@@ -208,7 +214,10 @@ void main() {
       await _seedPluginRepo(noPluginNix.path, includePluginNix: false);
 
       expect(
-        () => svc.install('file://${noPluginNix.path}', allowInsecure: true),
+        () => pluginService.install(
+          'file://${noPluginNix.path}',
+          allowInsecure: true,
+        ),
         throwsA(isA<StateError>()),
       );
 
@@ -217,7 +226,7 @@ void main() {
 
     test('insecure schemes refused without --insecure', () async {
       expect(
-        () => svc.install('file://${srcRepo.path}'),
+        () => pluginService.install('file://${srcRepo.path}'),
         throwsA(isA<FormatException>()),
       );
     });
@@ -242,7 +251,10 @@ void main() {
         );
 
         await expectLater(
-          () => svc.install('${outer.path}/tailscale', allowInsecure: true),
+          () => pluginService.install(
+            '${outer.path}/tailscale',
+            allowInsecure: true,
+          ),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -295,7 +307,10 @@ void main() {
           }
 
           await expectLater(
-            () => svc.install('file://${multi.path}', allowInsecure: true),
+            () => pluginService.install(
+              'file://${multi.path}',
+              allowInsecure: true,
+            ),
             throwsA(
               isA<StateError>().having(
                 (e) => e.message,
@@ -344,7 +359,7 @@ void main() {
           expect(r.exitCode, 0, reason: r.stderr.toString());
         }
 
-        final entry = await svc.install(
+        final entry = await pluginService.install(
           'file://${multi.path}',
           allowInsecure: true,
           subdir: 'tailscale',
@@ -389,7 +404,10 @@ void main() {
         // would race on `malicious.deleteSync` completing before the
         // install's git clone actually runs.
         await expectLater(
-          () => svc.install('file://${malicious.path}', allowInsecure: true),
+          () => pluginService.install(
+            'file://${malicious.path}',
+            allowInsecure: true,
+          ),
           throwsA(
             isA<StateError>().having(
               (e) => e.message,
@@ -410,14 +428,14 @@ void main() {
     });
 
     test('remove wipes dir and tombstones config entry', () async {
-      final entry = await svc.install(
+      final entry = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
       final pluginDir = Directory('${home.path}/plugins/${entry.dirName}');
       expect(pluginDir.existsSync(), isTrue);
 
-      await svc.remove(entry.id);
+      await pluginService.remove(entry.id);
 
       expect(pluginDir.existsSync(), isFalse);
       final config = await ConfigService(baseDir: home.path).readConfig();
@@ -427,13 +445,13 @@ void main() {
     });
 
     test('reinstall revives tombstoned entry in place', () async {
-      final first = await svc.install(
+      final first = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
-      await svc.remove(first.id);
+      await pluginService.remove(first.id);
 
-      final second = await svc.install(
+      final second = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
@@ -451,7 +469,7 @@ void main() {
     test(
       'refresh re-fetches files but preserves per-plugin config.json',
       () async {
-        final first = await svc.install(
+        final first = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
@@ -474,7 +492,10 @@ void main() {
           expect(r.exitCode, 0, reason: r.stderr.toString());
         }
 
-        final refreshed = await svc.refresh(first.id, allowInsecure: true);
+        final refreshed = await pluginService.refresh(
+          first.id,
+          allowInsecure: true,
+        );
 
         // Pin advanced.
         expect(refreshed.pinnedRev, isNot(first.pinnedRev));
@@ -501,7 +522,7 @@ void main() {
     );
 
     test('refresh is a no-op when upstream pin matches existing', () async {
-      final first = await svc.install(
+      final first = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
@@ -509,7 +530,10 @@ void main() {
       // No upstream change between install and refresh — the new
       // pin will equal the existing one, refresh should bail before
       // touching anything.
-      final refreshed = await svc.refresh(first.id, allowInsecure: true);
+      final refreshed = await pluginService.refresh(
+        first.id,
+        allowInsecure: true,
+      );
 
       expect(refreshed.pinnedRev, first.pinnedRev);
       expect(
@@ -525,7 +549,8 @@ void main() {
 
     test('refresh throws when plugin is not installed', () async {
       expect(
-        () => svc.refresh('file:///nope/not-here', allowInsecure: true),
+        () =>
+            pluginService.refresh('file:///nope/not-here', allowInsecure: true),
         throwsA(isA<StateError>()),
       );
     });
@@ -538,7 +563,7 @@ void main() {
       // that the plumbing from `git log --format=%G…` reaches the
       // CLI callback intact.
       PluginInstallPreview? captured;
-      await svc.install(
+      await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
         confirm: (preview) async {
@@ -561,7 +586,7 @@ void main() {
         // pin null. That null is the trigger for the "silent upgrade"
         // path on a future signed refresh — without this guarantee,
         // the upgrade case could be confused with a key change.
-        final entry = await svc.install(
+        final entry = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
@@ -582,7 +607,7 @@ void main() {
         // fake fingerprint into the entry, then push a new (still
         // unsigned) upstream commit — the pinned `fake-fp` vs new
         // `(unsigned, null)` diff is enough to trip the check.
-        final entry = await svc.install(
+        final entry = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
@@ -614,7 +639,7 @@ void main() {
         }
 
         await expectLater(
-          () => svc.refresh(entry.id, allowInsecure: true),
+          () => pluginService.refresh(entry.id, allowInsecure: true),
           throwsA(
             isA<PluginSignatureMismatch>()
                 .having((e) => e.pluginId, 'pluginId', entry.id)
@@ -645,7 +670,7 @@ void main() {
         // null, so this test pins down the null→null no-throw shape;
         // the null→fingerprint variant requires real signing keys
         // outside the test scope.
-        final entry = await svc.install(
+        final entry = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
@@ -664,7 +689,10 @@ void main() {
           expect(r.exitCode, 0, reason: r.stderr.toString());
         }
 
-        final refreshed = await svc.refresh(entry.id, allowInsecure: true);
+        final refreshed = await pluginService.refresh(
+          entry.id,
+          allowInsecure: true,
+        );
         expect(refreshed.signatureFingerprint, isNull);
         expect(refreshed.pinnedRev, isNot(entry.pinnedRev));
       },
@@ -677,10 +705,16 @@ void main() {
       );
       try {
         await _seedPluginRepo(secondRepo.path, manifestName: 'second');
-        await svc.install('file://${srcRepo.path}', allowInsecure: true);
-        await svc.install('file://${secondRepo.path}', allowInsecure: true);
+        await pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        await pluginService.install(
+          'file://${secondRepo.path}',
+          allowInsecure: true,
+        );
 
-        final result = await svc.refreshAll(allowInsecure: true);
+        final result = await pluginService.refreshAll(allowInsecure: true);
         expect(result.refreshed.length, 2);
         expect(result.failures, isEmpty);
         expect(result.skipped, isEmpty);
@@ -690,20 +724,20 @@ void main() {
     });
 
     test('pin flips auto_update to false; unpin flips it back', () async {
-      final entry = await svc.install(
+      final entry = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
       expect(entry.autoUpdate, isTrue);
 
-      final pinned = await svc.pin(entry.id);
+      final pinned = await pluginService.pin(entry.id);
       expect(pinned.autoUpdate, isFalse);
 
       // Persisted on disk.
       final cfg = await ConfigService(baseDir: home.path).readConfig();
       expect(cfg.plugins.first.autoUpdate, isFalse);
 
-      final unpinned = await svc.unpin(entry.id);
+      final unpinned = await pluginService.unpin(entry.id);
       expect(unpinned.autoUpdate, isTrue);
     });
 
@@ -713,16 +747,19 @@ void main() {
       );
       try {
         await _seedPluginRepo(secondRepo.path, manifestName: 'second');
-        final first = await svc.install(
+        final first = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
-        await svc.install('file://${secondRepo.path}', allowInsecure: true);
+        await pluginService.install(
+          'file://${secondRepo.path}',
+          allowInsecure: true,
+        );
 
         // Pin the first one so includePinned=false should skip it.
-        await svc.pin(first.id);
+        await pluginService.pin(first.id);
 
-        final result = await svc.refreshAll(
+        final result = await pluginService.refreshAll(
           allowInsecure: true,
           includePinned: false,
         );
@@ -746,18 +783,21 @@ void main() {
       );
       try {
         await _seedPluginRepo(secondRepo.path, manifestName: 'good');
-        final bad = await svc.install(
+        final bad = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
-        await svc.install('file://${secondRepo.path}', allowInsecure: true);
+        await pluginService.install(
+          'file://${secondRepo.path}',
+          allowInsecure: true,
+        );
 
         // Poison: move the first source repo so refresh's clone
         // fails for it.
         movedRepo.deleteSync(recursive: true);
         Directory(srcRepo.path).renameSync(movedRepo.path);
 
-        final result = await svc.refreshAll(allowInsecure: true);
+        final result = await pluginService.refreshAll(allowInsecure: true);
         expect(result.refreshed.length, 1);
         expect(result.failures.length, 1);
         expect(result.failures.first.plugin.id, bad.id);
@@ -773,14 +813,14 @@ void main() {
     });
 
     test('list hides tombstones unless requested', () async {
-      final entry = await svc.install(
+      final entry = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
-      await svc.remove(entry.id);
+      await pluginService.remove(entry.id);
 
-      final active = await svc.list();
-      final all = await svc.list(includeTombstones: true);
+      final active = await pluginService.list();
+      final all = await pluginService.list(includeTombstones: true);
 
       expect(active, isEmpty);
       expect(all.length, 1);
