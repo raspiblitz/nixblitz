@@ -13,6 +13,10 @@ class TileRow {
 /// A boxed status card used on the dashboard. Deliberately minimal —
 /// a coloured top rule + title, N key/value rows, optional footer for
 /// error states.
+///
+/// When [child] is provided it is rendered as the body instead of [rows].
+/// This allows [TileRenderer] to inject a fully-built primitive widget tree
+/// while keeping the tile chrome (border, title bar, footer) consistent.
 class Tile extends StatelessComponent {
   final String title;
   final Color accent;
@@ -21,6 +25,10 @@ class Tile extends StatelessComponent {
   final List<TileRow> rows;
   final String? footer;
   final Color? footerColor;
+
+  /// Optional child widget. When non-null, renders as the tile body instead
+  /// of [rows]. Callers that do not pass [child] are unaffected.
+  final Component? child;
 
   const Tile({
     super.key,
@@ -31,10 +39,18 @@ class Tile extends StatelessComponent {
     this.rows = const [],
     this.footer,
     this.footerColor,
+    this.child,
   });
 
   @override
   Component build(BuildContext context) {
+    final body =
+        child ??
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: rows.map(_renderRow).toList(),
+        );
+
     return Container(
       padding: const EdgeInsets.only(left: 1, right: 1, top: 1, bottom: 1),
       decoration: BoxDecoration(
@@ -65,7 +81,7 @@ class Tile extends StatelessComponent {
             ],
           ),
           const SizedBox(height: 1),
-          ...rows.map(_renderRow),
+          body,
           if (footer != null) ...[
             const SizedBox(height: 1),
             Text(
