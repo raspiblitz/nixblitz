@@ -88,24 +88,40 @@ A tile manifest is a JSON object:
 
 ```jsonc
 {
-  "id":           "bitcoin",            // unique within the dashboard
-  "title":        "Bitcoin",
-  "accent_color": "#f7931a",            // hex, or semantic name (see Colors)
-  "layout":       [ /* primitive nodes, see below */ ],
-  "footer":       { /* optional footer node */ }
+  "id": "bitcoin", // unique within the dashboard
+  "title": "Bitcoin",
+  "accent_color": "#f7931a", // hex, or semantic name (see Colors)
+  "layout": [
+    /* primitive nodes, see below */
+  ],
+  "footer": {
+    /* optional footer node */
+  },
 }
 ```
 
-A *layout* is an ordered list of **primitive nodes**. A primitive node is a JSON
+A _layout_ is an ordered list of **primitive nodes**. A primitive node is a JSON
 object with exactly one key — the primitive's name — whose value is the primitive's
 args map. This shape is borrowed from your SSR snippet's registry pattern.
 
 ```jsonc
 [
-  { "Row":         { "label": "Peers", "value": { "$data": "peers" } } },
-  { "ProgressBar": { "label": "Sync",  "value": { "$data": "verification_progress" }, "format": "percent" } },
-  { "Spacer":      { "height": 1 } },
-  { "StatusRow":   { "label": "Network", "value": { "$data": "chain_name" }, "color": { "$data": "chain_color" } } }
+  { "Row": { "label": "Peers", "value": { "$data": "peers" } } },
+  {
+    "ProgressBar": {
+      "label": "Sync",
+      "value": { "$data": "verification_progress" },
+      "format": "percent",
+    },
+  },
+  { "Spacer": { "height": 1 } },
+  {
+    "StatusRow": {
+      "label": "Network",
+      "value": { "$data": "chain_name" },
+      "color": { "$data": "chain_color" },
+    },
+  },
 ]
 ```
 
@@ -116,14 +132,14 @@ Six primitives, each typed. The "Where" column says where each primitive may app
 the bottom of the manifest, `children` = nested inside a `Section`. Using a primitive
 outside its allowed positions is a parse error.
 
-| Primitive    | Args (all optional unless ✱)                                                      | Where                  | Purpose                                                          |
-|--------------|----------------------------------------------------------------------------------|------------------------|------------------------------------------------------------------|
-| `Row`        | `label✱`, `value✱`, `value_color`                                                 | layout, children       | One line, `label: value`. Most common.                          |
-| `StatusRow`  | `label✱`, `value✱`, `color✱`                                                      | layout, children       | Like `Row` but value is rendered as a coloured pill.            |
-| `ProgressBar`| `value✱`, `label`, `max` (default 1.0), `format` (`percent`\|`fraction`\|`bytes`), `color` | layout, children       | Horizontal bar. Width is tile-content-width minus padding. |
-| `Section`    | `title`, `children✱`                                                              | layout                 | Group with optional header. Children are other primitives.      |
-| `Spacer`     | `height` (default 1, in cells)                                                    | layout, children       | Vertical gap.                                                    |
-| `Footer`     | `text✱`, `color`                                                                  | footer                 | Tile footer (one line below layout). Only legal inside `footer:`. |
+| Primitive     | Args (all optional unless ✱)                                                               | Where            | Purpose                                                           |
+| ------------- | ------------------------------------------------------------------------------------------ | ---------------- | ----------------------------------------------------------------- |
+| `Row`         | `label✱`, `value✱`, `value_color`                                                          | layout, children | One line, `label: value`. Most common.                            |
+| `StatusRow`   | `label✱`, `value✱`, `color✱`                                                               | layout, children | Like `Row` but value is rendered as a coloured pill.              |
+| `ProgressBar` | `value✱`, `label`, `max` (default 1.0), `format` (`percent`\|`fraction`\|`bytes`), `color` | layout, children | Horizontal bar. Width is tile-content-width minus padding.        |
+| `Section`     | `title`, `children✱`                                                                       | layout           | Group with optional header. Children are other primitives.        |
+| `Spacer`      | `height` (default 1, in cells)                                                             | layout, children | Vertical gap.                                                     |
+| `Footer`      | `text✱`, `color`                                                                           | footer           | Tile footer (one line below layout). Only legal inside `footer:`. |
 
 Args may be **literal values** (strings, numbers, booleans), **data references** (see
 binding language below), or — for `children` — nested primitive nodes. The renderer
@@ -154,14 +170,14 @@ the value of `data["sync_state"]`.
 
 Semantic names map to nocterm theme colors at render time:
 
-| Name      | Use                                                  |
-|-----------|------------------------------------------------------|
-| `ok`      | Synced, healthy, running                             |
-| `warn`    | Syncing, degraded, slow                              |
-| `error`   | Failed, unreachable, stalled                         |
-| `accent`  | Tile's `accent_color`                                |
-| `muted`   | Secondary info (timestamps, fine print)              |
-| `default` | Default text color from theme                        |
+| Name      | Use                                     |
+| --------- | --------------------------------------- |
+| `ok`      | Synced, healthy, running                |
+| `warn`    | Syncing, degraded, slow                 |
+| `error`   | Failed, unreachable, stalled            |
+| `accent`  | Tile's `accent_color`                   |
+| `muted`   | Secondary info (timestamps, fine print) |
+| `default` | Default text color from theme           |
 
 Hex values (`#rrggbb`) are accepted everywhere a color is expected and bypass the
 theme. Phase 1 uses semantic names in bundled manifests; hex stays available for plugin
@@ -172,15 +188,15 @@ authors who want explicit colors.
 A handful of `$`-prefixed directives pluck values from the per-tile data map. All
 directives evaluate against `cache[tileId]` (which is a `Map<String, dynamic>`).
 
-| Directive    | Args                              | Resolves to                                                          |
-|--------------|-----------------------------------|----------------------------------------------------------------------|
-| `$data`      | string key                        | `data[key]` (any type; renderer stringifies if needed)               |
-| `$bytes`     | string key                        | `data[key]` formatted as a human-readable byte size (e.g. `4.2 GB`) |
-| `$duration`  | string key                        | `data[key]` (seconds) formatted as `1d 2h 3m`                        |
-| `$pct`       | string key                        | `data[key]` (0.0–1.0) formatted as `87%`                             |
-| `$truncate`  | `{ "key": string, "len": int }`   | `data[key]` truncated with `…` to `len` chars                        |
-| `$format`    | template string                   | `"{a}/{b}"` — keys in braces resolve against data; literals pass-through |
-| `$status`    | `{ "$on": key, <case>: <node> }`  | Selects a node based on `data[key]`'s string value                   |
+| Directive   | Args                             | Resolves to                                                              |
+| ----------- | -------------------------------- | ------------------------------------------------------------------------ |
+| `$data`     | string key                       | `data[key]` (any type; renderer stringifies if needed)                   |
+| `$bytes`    | string key                       | `data[key]` formatted as a human-readable byte size (e.g. `4.2 GB`)      |
+| `$duration` | string key                       | `data[key]` (seconds) formatted as `1d 2h 3m`                            |
+| `$pct`      | string key                       | `data[key]` (0.0–1.0) formatted as `87%`                                 |
+| `$truncate` | `{ "key": string, "len": int }`  | `data[key]` truncated with `…` to `len` chars                            |
+| `$format`   | template string                  | `"{a}/{b}"` — keys in braces resolve against data; literals pass-through |
+| `$status`   | `{ "$on": key, <case>: <node> }` | Selects a node based on `data[key]`'s string value                       |
 
 Missing keys render as a placeholder (`—`) and log once per (tileId, key) pair so we
 don't drown the log on a slow source.
@@ -218,7 +234,11 @@ Spawns a long-lived child process and parses its stdout as line-delimited JSON. 
 line is a `TileEvent`:
 
 ```jsonc
-{ "tile": "bitcoin", "data": { "blocks": 871234, "verification_progress": 0.99987 }, "ts": 1746480000000 }
+{
+  "tile": "bitcoin",
+  "data": { "blocks": 871234, "verification_progress": 0.99987 },
+  "ts": 1746480000000,
+}
 ```
 
 Behaviour:
@@ -278,12 +298,12 @@ Reads:
 Emits two tile events:
 
 - `tile=hardware` — every 2s — CPU%, memory used/total, temperature, disk used/total
-- `tile=system`   — every 5s — uptime, services map
+- `tile=system` — every 5s — uptime, services map
 
 Bundled tile manifests:
 
 - `hardware.json` — replaces today's hardware tile
-- `system.json`   — partially replaces today's system tile (uptime + service-health rows)
+- `system.json` — partially replaces today's system tile (uptime + service-health rows)
 
 ### `blitz-api-bridge` (in-process adapter, transitional)
 
@@ -317,7 +337,7 @@ Line 2 mixes data the cache happens to have available — uptime from system-sta
 that tile event lands; "applied N ago" from existing `git_provider`. Falls back to
 config-only state on cold start.
 
-This chrome is the *only* dashboard concern that knows about specific data fields. It's
+This chrome is the _only_ dashboard concern that knows about specific data fields. It's
 hardcoded because (a) hostname/platform/network are always knowable from config alone,
 (b) the chrome's role is identity, not metric display.
 
@@ -491,15 +511,15 @@ Capture before/after screenshots into `docs/superpowers/specs/2026-05-05-dashboa
 
 ## Phasing handoff
 
-| Phase | Work | Depends on |
-|---|---|---|
-| **1** *(this spec)* | DSL + streamer protocol + generic renderer + bundled `system-stats` (subprocess) + bundled `blitz-api-bridge` (in-process) | — |
-| 2 | Generalise `NixblitzConfig`: drop typed `blitzApi`, `blitzWeb`, `lnd`, `cln` fields → plugin config | 1 |
-| 3 | Generalise `configure_view.dart`: dynamic field rendering from plugin manifests | 2 |
-| 4 | Move blitz-api Nix module into a plugin; rip out `InProcessAdapterSource`; ship `blitz-api-bridge` as a real subprocess streamer in the plugin | 1, 2 |
-| 5 | Move blitz-web Nix module into a plugin (mostly Nix; almost no Dart-side change) | 2 |
-| 6 | Move lnd, cln Nix modules into plugins; install wizard discovers LN-capable plugins | 2, 3, 4 |
-| later | `system-stats` streamer becomes a "base-system" plugin (or stays bundled — small judgement call) | 4 |
+| Phase               | Work                                                                                                                                           | Depends on |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **1** _(this spec)_ | DSL + streamer protocol + generic renderer + bundled `system-stats` (subprocess) + bundled `blitz-api-bridge` (in-process)                     | —          |
+| 2                   | Generalise `NixblitzConfig`: drop typed `blitzApi`, `blitzWeb`, `lnd`, `cln` fields → plugin config                                            | 1          |
+| 3                   | Generalise `configure_view.dart`: dynamic field rendering from plugin manifests                                                                | 2          |
+| 4                   | Move blitz-api Nix module into a plugin; rip out `InProcessAdapterSource`; ship `blitz-api-bridge` as a real subprocess streamer in the plugin | 1, 2       |
+| 5                   | Move blitz-web Nix module into a plugin (mostly Nix; almost no Dart-side change)                                                               | 2          |
+| 6                   | Move lnd, cln Nix modules into plugins; install wizard discovers LN-capable plugins                                                            | 2, 3, 4    |
+| later               | `system-stats` streamer becomes a "base-system" plugin (or stays bundled — small judgement call)                                               | 4          |
 
 After Phase 1 alone: dashboard is generic, but blitz-api code still lives in core.
 After Phase 4: zero plugin-specific code in core.

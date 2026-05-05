@@ -88,6 +88,7 @@ tui/test/ui/views/dashboard/           # renderer + chrome tests
   ```
   All three must pass / produce no diff before committing.
 - **Commit format** (CLAUDE.md):
+
   ```
   <type>(<scope>): <subject>
 
@@ -95,7 +96,9 @@ tui/test/ui/views/dashboard/           # renderer + chrome tests
 
   Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
   ```
+
   Types: `feat`, `fix`, `refactor`, `chore`, `test`. No issue refs.
+
 - **VCS**: jj colocated. New files are auto-staged. Commit with `jj commit -m '...'` or `git commit` — both work.
 
 ---
@@ -103,6 +106,7 @@ tui/test/ui/views/dashboard/           # renderer + chrome tests
 ## Task 1: TileEvent + TileSnapshot value classes
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/tile_event.dart`
 - Create: `common/lib/src/services/dashboard/tile_snapshot.dart`
 - Test: `common/test/services/dashboard/tile_event_test.dart`
@@ -308,6 +312,7 @@ EOF
 ## Task 2: Color name → nocterm color mapping
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/colors.dart`
 - Test: `common/test/services/dashboard/colors_test.dart`
 
@@ -451,6 +456,7 @@ EOF
 ## Task 3: Layout primitive data classes
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/dsl/primitives.dart`
 - Test: `common/test/services/dashboard/dsl/primitives_test.dart`
 
@@ -728,6 +734,7 @@ EOF
 ## Task 4: TileManifest model + JSON parser
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/dsl/tile_manifest.dart`
 - Test: `common/test/services/dashboard/dsl/tile_manifest_test.dart`
 
@@ -907,6 +914,7 @@ EOF
 ## Task 5: Binding directive resolver
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/dsl/binding_resolver.dart`
 - Test: `common/test/services/dashboard/dsl/binding_resolver_test.dart`
 
@@ -1133,6 +1141,7 @@ EOF
 ## Task 6: TileEventSource + Registry + TileDataCache + InProcessAdapterSource
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/tile_event_source.dart`
 - Create: `common/lib/src/services/dashboard/tile_event_source_registry.dart`
 - Create: `common/lib/src/services/dashboard/tile_data_cache.dart`
@@ -1513,6 +1522,7 @@ EOF
 ## Task 7: StreamerSubprocessSource
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/sources/streamer_subprocess_source.dart`
 - Create: `common/test/fixtures/streamers/echo_streamer.dart` (test fixture)
 - Create: `common/test/fixtures/streamers/crashy_streamer.dart` (test fixture)
@@ -1856,6 +1866,7 @@ EOF
 ## Task 8: BlitzApiBridgeSource
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/sources/blitz_api_bridge_source.dart`
 - Test: `common/test/services/dashboard/sources/blitz_api_bridge_source_test.dart`
 - Read for reference: `common/lib/src/services/dashboard/api_dashboard_source.dart` (the SSE-event → snapshot logic that needs porting)
@@ -2057,6 +2068,7 @@ EOF
 ## Task 9: system-stats streamer
 
 **Files:**
+
 - Create: `common/lib/src/streamers/system_stats_streamer.dart`
 - Create: `common/lib/src/streamers/system_stats_readers.dart`
 - Test: `common/test/streamers/system_stats_readers_test.dart`
@@ -2330,6 +2342,7 @@ EOF
 ## Task 10: Wire `nixblitz streamer <name>` argv dispatch
 
 **Files:**
+
 - Modify: `tui/bin/nixblitz.dart`
 
 **Spec reference:** "system-stats (real subprocess streamer)" — single binary, hidden subcommand.
@@ -2400,6 +2413,7 @@ EOF
 ## Task 11: Bundled tile manifests
 
 **Files:**
+
 - Create: `common/lib/src/services/dashboard/bundled/manifests/bitcoin.json`
 - Create: `common/lib/src/services/dashboard/bundled/manifests/lightning.json`
 - Create: `common/lib/src/services/dashboard/bundled/manifests/hardware.json`
@@ -2416,19 +2430,35 @@ EOF
   "title": "Bitcoin",
   "accent_color": "#f7931a",
   "layout": [
-    {"StatusRow":   {"label": "Network",  "value": {"$data": "chain_name"}, "color": {"$data": "chain_color"}}},
-    {"ProgressBar": {"label": "Sync",     "value": {"$data": "verification_progress"}, "format": "percent"}},
-    {"Row":         {"label": "Blocks",   "value": {"$format": "{blocks}/{headers}"}}},
-    {"Row":         {"label": "Peers",    "value": {"$data": "peers"}}},
-    {"Row":         {"label": "Disk",     "value": {"$bytes": "size_on_disk"}}},
-    {"Row":         {"label": "Mempool",  "value": {"$format": "{mempool_txs} txs"}}}
+    {
+      "StatusRow": {
+        "label": "Network",
+        "value": { "$data": "chain_name" },
+        "color": { "$data": "chain_color" }
+      }
+    },
+    {
+      "ProgressBar": {
+        "label": "Sync",
+        "value": { "$data": "verification_progress" },
+        "format": "percent"
+      }
+    },
+    {
+      "Row": { "label": "Blocks", "value": { "$format": "{blocks}/{headers}" } }
+    },
+    { "Row": { "label": "Peers", "value": { "$data": "peers" } } },
+    { "Row": { "label": "Disk", "value": { "$bytes": "size_on_disk" } } },
+    {
+      "Row": { "label": "Mempool", "value": { "$format": "{mempool_txs} txs" } }
+    }
   ],
   "footer": {
     "$status": {
       "$on": "sync_state",
-      "synced":  {"Footer": {"text": "synced", "color": "ok"}},
-      "syncing": {"Footer": {"text": "syncing", "color": "warn"}},
-      "stalled": {"Footer": {"text": "stalled", "color": "error"}}
+      "synced": { "Footer": { "text": "synced", "color": "ok" } },
+      "syncing": { "Footer": { "text": "syncing", "color": "warn" } },
+      "stalled": { "Footer": { "text": "stalled", "color": "error" } }
     }
   }
 }
@@ -2442,13 +2472,39 @@ EOF
   "title": "Lightning",
   "accent_color": "#9b6cf2",
   "layout": [
-    {"Row":       {"label": "Alias",    "value": {"$data": "alias"}}},
-    {"Row":       {"label": "Pubkey",   "value": {"$truncate": {"key": "pubkey", "len": 12}}}},
-    {"StatusRow": {"label": "Synced",   "value": {"$data": "synced_label"}, "color": {"$data": "synced_color"}}},
-    {"Row":       {"label": "Channels", "value": {"$format": "{active}/{pending}"}}},
-    {"Row":       {"label": "Peers",    "value": {"$data": "peers"}}},
-    {"Row":       {"label": "On-chain", "value": {"$format": "{onchain_sats} sat"}}},
-    {"Row":       {"label": "In-channel", "value": {"$format": "{channel_sats} sat"}}}
+    { "Row": { "label": "Alias", "value": { "$data": "alias" } } },
+    {
+      "Row": {
+        "label": "Pubkey",
+        "value": { "$truncate": { "key": "pubkey", "len": 12 } }
+      }
+    },
+    {
+      "StatusRow": {
+        "label": "Synced",
+        "value": { "$data": "synced_label" },
+        "color": { "$data": "synced_color" }
+      }
+    },
+    {
+      "Row": {
+        "label": "Channels",
+        "value": { "$format": "{active}/{pending}" }
+      }
+    },
+    { "Row": { "label": "Peers", "value": { "$data": "peers" } } },
+    {
+      "Row": {
+        "label": "On-chain",
+        "value": { "$format": "{onchain_sats} sat" }
+      }
+    },
+    {
+      "Row": {
+        "label": "In-channel",
+        "value": { "$format": "{channel_sats} sat" }
+      }
+    }
   ]
 }
 ```
@@ -2461,10 +2517,31 @@ EOF
   "title": "Hardware",
   "accent_color": "#4caf50",
   "layout": [
-    {"ProgressBar": {"label": "CPU",  "value": {"$data": "cpu_percent"}, "max": 100, "format": "percent"}},
-    {"ProgressBar": {"label": "Mem",  "value": {"$data": "mem_used_bytes"}, "max": 1, "format": "bytes"}},
-    {"ProgressBar": {"label": "Disk", "value": {"$data": "disk_used_bytes"}, "max": 1, "format": "bytes"}},
-    {"Row":         {"label": "Temp", "value": {"$format": "{temperature_c}°C"}}}
+    {
+      "ProgressBar": {
+        "label": "CPU",
+        "value": { "$data": "cpu_percent" },
+        "max": 100,
+        "format": "percent"
+      }
+    },
+    {
+      "ProgressBar": {
+        "label": "Mem",
+        "value": { "$data": "mem_used_bytes" },
+        "max": 1,
+        "format": "bytes"
+      }
+    },
+    {
+      "ProgressBar": {
+        "label": "Disk",
+        "value": { "$data": "disk_used_bytes" },
+        "max": 1,
+        "format": "bytes"
+      }
+    },
+    { "Row": { "label": "Temp", "value": { "$format": "{temperature_c}°C" } } }
   ]
 }
 ```
@@ -2480,16 +2557,70 @@ EOF
   "accent_color": "#607d8b",
   "streamer_args": ["--units", "blitz-api,blitz-web,nginx,redis"],
   "layout": [
-    {"Row": {"label": "Uptime", "value": {"$duration": "uptime_sec"}}},
-    {"Section": {
-      "title": "Services",
-      "children": [
-        {"StatusRow": {"label": "blitz-api", "value": {"$data": "services.blitz-api"}, "color": {"$status": {"$on": "services.blitz-api", "active": "ok", "inactive": "muted", "failed": "error"}}}},
-        {"StatusRow": {"label": "blitz-web", "value": {"$data": "services.blitz-web"}, "color": {"$status": {"$on": "services.blitz-web", "active": "ok", "inactive": "muted", "failed": "error"}}}},
-        {"StatusRow": {"label": "nginx",     "value": {"$data": "services.nginx"},     "color": {"$status": {"$on": "services.nginx",     "active": "ok", "inactive": "muted", "failed": "error"}}}},
-        {"StatusRow": {"label": "redis",     "value": {"$data": "services.redis"},     "color": {"$status": {"$on": "services.redis",     "active": "ok", "inactive": "muted", "failed": "error"}}}}
-      ]
-    }}
+    { "Row": { "label": "Uptime", "value": { "$duration": "uptime_sec" } } },
+    {
+      "Section": {
+        "title": "Services",
+        "children": [
+          {
+            "StatusRow": {
+              "label": "blitz-api",
+              "value": { "$data": "services.blitz-api" },
+              "color": {
+                "$status": {
+                  "$on": "services.blitz-api",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          },
+          {
+            "StatusRow": {
+              "label": "blitz-web",
+              "value": { "$data": "services.blitz-web" },
+              "color": {
+                "$status": {
+                  "$on": "services.blitz-web",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          },
+          {
+            "StatusRow": {
+              "label": "nginx",
+              "value": { "$data": "services.nginx" },
+              "color": {
+                "$status": {
+                  "$on": "services.nginx",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          },
+          {
+            "StatusRow": {
+              "label": "redis",
+              "value": { "$data": "services.redis" },
+              "color": {
+                "$status": {
+                  "$on": "services.redis",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
   ]
 }
 ```
@@ -2553,6 +2684,7 @@ EOF
 ## Task 12: Embed manifests + bundled registry
 
 **Files:**
+
 - Create: `scripts/gen_dashboard_manifests.dart`
 - Create: `common/lib/src/services/dashboard/bundled/embedded_manifests.dart`
 - Create: `common/lib/src/services/dashboard/bundled/embedded_manifests.g.dart` (generated)
@@ -2705,6 +2837,7 @@ EOF
 ## Task 13: TileRenderer widget
 
 **Files:**
+
 - Create: `tui/lib/src/ui/views/dashboard/tile_renderer.dart`
 - Test: `tui/test/ui/views/dashboard/tile_renderer_test.dart`
 
@@ -2987,6 +3120,7 @@ EOF
 ## Task 14: Dashboard chrome widget
 
 **Files:**
+
 - Create: `tui/lib/src/ui/views/dashboard/dashboard_chrome.dart`
 - Test: `tui/test/ui/views/dashboard/dashboard_chrome_test.dart`
 
@@ -3120,6 +3254,7 @@ EOF
 ## Task 15: New Riverpod providers
 
 **Files:**
+
 - Modify: `common/lib/src/providers/dashboard_provider.dart` — full rewrite of file contents
 
 **Spec reference:** "Riverpod wiring" section.
@@ -3243,6 +3378,7 @@ EOF
 ## Task 16: Update dashboard_view.dart
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/dashboard_view.dart`
 
 **Spec reference:** "Architecture" + "Dashboard chrome" + "Riverpod wiring" sections.
@@ -3347,6 +3483,7 @@ EOF
 ## Task 17: Delete obsolete code
 
 **Files:**
+
 - Delete: `tui/lib/src/ui/views/dashboard/bitcoin_tile.dart`
 - Delete: `tui/lib/src/ui/views/dashboard/lightning_tile.dart`
 - Delete: `tui/lib/src/ui/views/dashboard/hardware_tile.dart`
@@ -3506,32 +3643,32 @@ EOF
 
 **Spec coverage:**
 
-| Spec section | Implementing task(s) |
-|---|---|
-| Tile manifest schema | Task 4 |
-| Primitive registry (six primitives) | Task 3 |
-| Data binding language (seven directives) | Task 5 |
-| Colors (semantic + hex) | Task 2 |
-| `TileEvent` / `TileSnapshot` | Task 1 |
-| `TileEventSource` contract | Task 6 |
-| `TileEventSourceRegistry` | Task 6 |
-| `TileDataCache` | Task 6 |
-| `InProcessAdapterSource` | Task 6 |
-| `StreamerSubprocessSource` | Task 7 |
-| `BlitzApiBridgeSource` | Task 8 |
-| `system-stats` streamer | Task 9 |
-| `nixblitz streamer <name>` argv dispatch | Task 10 |
-| Bundled tile manifests (4 JSONs) | Task 11 |
-| Manifest embedding (codegen) | Task 12 |
-| `TileRenderer` widget | Task 13 |
-| Dashboard chrome | Task 14 |
-| Riverpod wiring | Task 15 |
-| dashboard_view.dart update | Task 16 |
-| Deletion of obsolete code | Task 17 |
-| Manual smoke + verification | Task 18 |
-| Crash-loop diagnostic UX | Task 7 (impl) + Task 13 (footer rendering) + Task 18 (verify) |
-| "no data" footer for unregistered sources | Task 13 (impl) + Task 18 (verify) |
-| Trio gate per task | every task |
+| Spec section                              | Implementing task(s)                                          |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| Tile manifest schema                      | Task 4                                                        |
+| Primitive registry (six primitives)       | Task 3                                                        |
+| Data binding language (seven directives)  | Task 5                                                        |
+| Colors (semantic + hex)                   | Task 2                                                        |
+| `TileEvent` / `TileSnapshot`              | Task 1                                                        |
+| `TileEventSource` contract                | Task 6                                                        |
+| `TileEventSourceRegistry`                 | Task 6                                                        |
+| `TileDataCache`                           | Task 6                                                        |
+| `InProcessAdapterSource`                  | Task 6                                                        |
+| `StreamerSubprocessSource`                | Task 7                                                        |
+| `BlitzApiBridgeSource`                    | Task 8                                                        |
+| `system-stats` streamer                   | Task 9                                                        |
+| `nixblitz streamer <name>` argv dispatch  | Task 10                                                       |
+| Bundled tile manifests (4 JSONs)          | Task 11                                                       |
+| Manifest embedding (codegen)              | Task 12                                                       |
+| `TileRenderer` widget                     | Task 13                                                       |
+| Dashboard chrome                          | Task 14                                                       |
+| Riverpod wiring                           | Task 15                                                       |
+| dashboard_view.dart update                | Task 16                                                       |
+| Deletion of obsolete code                 | Task 17                                                       |
+| Manual smoke + verification               | Task 18                                                       |
+| Crash-loop diagnostic UX                  | Task 7 (impl) + Task 13 (footer rendering) + Task 18 (verify) |
+| "no data" footer for unregistered sources | Task 13 (impl) + Task 18 (verify)                             |
+| Trio gate per task                        | every task                                                    |
 
 All spec sections covered. No gaps.
 
