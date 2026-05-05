@@ -61,6 +61,7 @@ common/lib/src/models/
 ## Task 1: Relocate `BitcoinNetwork` enum
 
 **Files:**
+
 - Create: `common/lib/src/models/bitcoin_network.dart`
 - Modify: `common/lib/src/models/nixblitz_config.dart` (remove the enum from `BitcoindConfig`'s file; export from new home)
 - Modify: any consumer (search for `BitcoinNetwork` references) — update import paths
@@ -154,6 +155,7 @@ EOF
 ## Task 2: Add v17→v18 migration to `config_migrations.dart`
 
 **Files:**
+
 - Modify: `common/lib/src/models/config_migrations.dart`
 - Modify: `common/test/models/config_migrations_test.dart`
 
@@ -280,6 +282,7 @@ EOF
 ## Task 3: Refactor `NixblitzConfig` — generic storage, drop typed classes
 
 **Files:**
+
 - Modify (full rewrite of relevant sections): `common/lib/src/models/nixblitz_config.dart`
 - Modify: `common/test/models/nixblitz_config_test.dart`
 
@@ -603,6 +606,7 @@ EOF
 ## Task 4: Migrate `configure_view.dart` call sites
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/configure_view.dart`
 
 **Spec reference:** Call-site updates: `configure_view.dart` (~50 typed-field reads, ~20 copyWith chains).
@@ -618,6 +622,7 @@ grep -nE '\bconfig\.(bitcoind|lnd|cln|blitzApi|blitzWeb)\b' tui/lib/src/ui/views
 ```
 
 Categorise into:
+
 - **Reads**: `config.bitcoind.enabled`, `config.lnd.alias`, etc. → become `config.appOption<T>('bitcoind', 'enabled')` / `config.isAppEnabled('bitcoind')`.
 - **copyWith chains**: `config.copyWith(bitcoind: config.bitcoind.copyWith(enabled: !config.bitcoind.enabled))` → become `config.toggleAppOption('bitcoind', 'enabled')` or `config.setAppOption('bitcoind', 'enabled', newValue)`.
 
@@ -625,34 +630,35 @@ Categorise into:
 
 Translation table (one-shot find-and-replace patterns; verify each match is genuine):
 
-| Old pattern | New pattern |
-|---|---|
-| `config.bitcoind.enabled` | `config.isAppEnabled('bitcoind')` |
-| `config.lnd.enabled` | `config.isAppEnabled('lnd')` |
-| `config.cln.enabled` | `config.isAppEnabled('cln')` |
-| `config.blitzApi.enabled` | `config.isAppEnabled('blitz_api')` |
-| `config.blitzWeb.enabled` | `config.isAppEnabled('blitz_web')` |
-| `config.bitcoind.network` | `BitcoinNetwork.fromWireName(config.appOption<String>('bitcoind', 'network') ?? 'mainnet') ?? BitcoinNetwork.mainnet` |
-| `config.bitcoind.pruned` | `config.appOption<bool>('bitcoind', 'pruned') ?? false` |
-| `config.bitcoind.pruneSizeGb` | `config.appOption<int>('bitcoind', 'prune_size_gb') ?? 0` |
-| `config.lnd.alias` | `config.appOption<String>('lnd', 'alias') ?? ''` |
+| Old pattern                   | New pattern                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `config.bitcoind.enabled`     | `config.isAppEnabled('bitcoind')`                                                                                     |
+| `config.lnd.enabled`          | `config.isAppEnabled('lnd')`                                                                                          |
+| `config.cln.enabled`          | `config.isAppEnabled('cln')`                                                                                          |
+| `config.blitzApi.enabled`     | `config.isAppEnabled('blitz_api')`                                                                                    |
+| `config.blitzWeb.enabled`     | `config.isAppEnabled('blitz_web')`                                                                                    |
+| `config.bitcoind.network`     | `BitcoinNetwork.fromWireName(config.appOption<String>('bitcoind', 'network') ?? 'mainnet') ?? BitcoinNetwork.mainnet` |
+| `config.bitcoind.pruned`      | `config.appOption<bool>('bitcoind', 'pruned') ?? false`                                                               |
+| `config.bitcoind.pruneSizeGb` | `config.appOption<int>('bitcoind', 'prune_size_gb') ?? 0`                                                             |
+| `config.lnd.alias`            | `config.appOption<String>('lnd', 'alias') ?? ''`                                                                      |
 
 For the typed-name in `appOption`, mind the JSON snake_case:
+
 - `blitzApi` (Dart) → `'blitz_api'` (JSON key)
 - `blitzWeb` (Dart) → `'blitz_web'` (JSON key)
 - `pruneSizeGb` (Dart) → `'prune_size_gb'` (JSON key)
 
 Toggle / set patterns:
 
-| Old pattern | New pattern |
-|---|---|
-| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(enabled: !config.bitcoind.enabled));` | `config = config.toggleAppOption('bitcoind', 'enabled');` |
-| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(network: nextNetwork));` | `config = config.setAppOption('bitcoind', 'network', nextNetwork.wireName);` |
-| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(pruned: newPruned));` | `config = config.setAppOption('bitcoind', 'pruned', newPruned);` |
-| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(pruneSizeGb: newSize));` | `config = config.setAppOption('bitcoind', 'prune_size_gb', newSize);` |
-| `config = config.copyWith(lnd: config.lnd.copyWith(alias: newAlias));` | `config = config.setAppOption('lnd', 'alias', newAlias);` |
-| `config = config.copyWith(lnd: config.lnd.copyWith(enabled: !config.lnd.enabled));` | `config = config.toggleAppOption('lnd', 'enabled');` |
-| (similar for cln, blitz_api, blitz_web) | (similar) |
+| Old pattern                                                                                        | New pattern                                                                  |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(enabled: !config.bitcoind.enabled));` | `config = config.toggleAppOption('bitcoind', 'enabled');`                    |
+| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(network: nextNetwork));`              | `config = config.setAppOption('bitcoind', 'network', nextNetwork.wireName);` |
+| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(pruned: newPruned));`                 | `config = config.setAppOption('bitcoind', 'pruned', newPruned);`             |
+| `config = config.copyWith(bitcoind: config.bitcoind.copyWith(pruneSizeGb: newSize));`              | `config = config.setAppOption('bitcoind', 'prune_size_gb', newSize);`        |
+| `config = config.copyWith(lnd: config.lnd.copyWith(alias: newAlias));`                             | `config = config.setAppOption('lnd', 'alias', newAlias);`                    |
+| `config = config.copyWith(lnd: config.lnd.copyWith(enabled: !config.lnd.enabled));`                | `config = config.toggleAppOption('lnd', 'enabled');`                         |
+| (similar for cln, blitz_api, blitz_web)                                                            | (similar)                                                                    |
 
 Special cases to watch for:
 
@@ -709,6 +715,7 @@ EOF
 ## Task 5: Migrate `install_view.dart` and `setup_view.dart` call sites
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/install_view.dart`
 - Modify: `tui/lib/src/ui/views/setup_view.dart`
 
@@ -805,6 +812,7 @@ EOF
 ## Task 6: Migrate `dashboard_view.dart` + adapt `dashboard_chrome.dart`
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/dashboard_view.dart`
 - Modify: `tui/lib/src/ui/views/dashboard/dashboard_chrome.dart`
 - Modify: `tui/test/ui/views/dashboard/dashboard_chrome_test.dart`
@@ -913,6 +921,7 @@ EOF
 ## Task 7: Update `scaffold_service.dart` — fresh-install writes v18 shape
 
 **Files:**
+
 - Modify: `common/lib/src/services/scaffold_service.dart`
 - Modify: `common/test/services/scaffold_service_test.dart` (if it exists)
 
@@ -981,6 +990,7 @@ EOF
 ## Task 8: Rewrite `templates/hosts/installed.nix` for generic shape
 
 **Files:**
+
 - Modify: `templates/hosts/installed.nix`
 
 **Spec reference:** Nix template rewrite section.
@@ -1157,23 +1167,23 @@ EOF
 
 **Spec coverage:**
 
-| Spec section | Implementing task(s) |
-|---|---|
-| Goal — drop typed fields | Task 3 |
-| `BitcoinNetwork` relocation | Task 1 |
-| Migration v17 → v18 | Task 2 |
-| `NixblitzConfig` refactor + generic accessors | Task 3 |
-| `appOption` / `setAppOption` / friends | Task 3 |
-| Deletion of 5 typed classes | Task 3 |
-| `configure_view.dart` call-site rewrite | Task 4 |
-| `install_view.dart` + `setup_view.dart` | Task 5 |
-| `dashboard_view.dart` + `dashboard_chrome.dart` | Task 6 |
-| Nullable network field | Task 6 |
-| `scaffold_service.dart` writes v18 shape | Task 7 |
-| Nix template `appOpt`/`appEnabled` | Task 8 |
-| Test-LND regtest auto-enable adaptation | Task 8 |
-| Manual smoke (v17 migration, fresh install, apply) | Task 9 |
-| Trio gate per task | every task (with explicit mid-stream-red flags on 3–6) |
+| Spec section                                       | Implementing task(s)                                   |
+| -------------------------------------------------- | ------------------------------------------------------ |
+| Goal — drop typed fields                           | Task 3                                                 |
+| `BitcoinNetwork` relocation                        | Task 1                                                 |
+| Migration v17 → v18                                | Task 2                                                 |
+| `NixblitzConfig` refactor + generic accessors      | Task 3                                                 |
+| `appOption` / `setAppOption` / friends             | Task 3                                                 |
+| Deletion of 5 typed classes                        | Task 3                                                 |
+| `configure_view.dart` call-site rewrite            | Task 4                                                 |
+| `install_view.dart` + `setup_view.dart`            | Task 5                                                 |
+| `dashboard_view.dart` + `dashboard_chrome.dart`    | Task 6                                                 |
+| Nullable network field                             | Task 6                                                 |
+| `scaffold_service.dart` writes v18 shape           | Task 7                                                 |
+| Nix template `appOpt`/`appEnabled`                 | Task 8                                                 |
+| Test-LND regtest auto-enable adaptation            | Task 8                                                 |
+| Manual smoke (v17 migration, fresh install, apply) | Task 9                                                 |
+| Trio gate per task                                 | every task (with explicit mid-stream-red flags on 3–6) |
 
 All spec sections covered.
 
