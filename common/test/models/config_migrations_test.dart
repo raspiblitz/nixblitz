@@ -80,4 +80,63 @@ void main() {
       }
     });
   });
+
+  group('v17 → v18', () {
+    test('moves all five typed-app keys into app_configs', () {
+      final v17 = <String, dynamic>{
+        'version': 17,
+        'system': {'hostname': 'h', 'platform': 'p'},
+        'bitcoind': {
+          'enabled': true,
+          'network': 'regtest',
+          'pruned': false,
+          'prune_size_gb': 0,
+        },
+        'lnd': {'enabled': true, 'alias': 'node-1'},
+        'cln': {'enabled': false},
+        'blitz_api': {'enabled': true},
+        'blitz_web': {'enabled': true},
+      };
+      final v18 = migrateConfig(Map.from(v17));
+      expect(v18['version'], 18);
+      expect(v18.containsKey('bitcoind'), isFalse);
+      expect(v18.containsKey('lnd'), isFalse);
+      expect(v18.containsKey('cln'), isFalse);
+      expect(v18.containsKey('blitz_api'), isFalse);
+      expect(v18.containsKey('blitz_web'), isFalse);
+      expect(v18['app_configs'], isA<Map>());
+      expect(v18['app_configs']['bitcoind']['enabled'], isTrue);
+      expect(v18['app_configs']['lnd']['alias'], 'node-1');
+      expect(v18['app_configs']['cln']['enabled'], isFalse);
+    });
+
+    test('handles partial v17 (some keys missing)', () {
+      final v17 = <String, dynamic>{
+        'version': 17,
+        'system': {'hostname': 'h', 'platform': 'p'},
+        'bitcoind': {'enabled': true, 'network': 'mainnet'},
+        // No lnd/cln/blitz_api/blitz_web
+      };
+      final v18 = migrateConfig(Map.from(v17));
+      expect(v18['version'], 18);
+      expect(v18['app_configs']['bitcoind']['enabled'], isTrue);
+      expect(v18['app_configs'].containsKey('lnd'), isFalse);
+      expect(v18['app_configs'].containsKey('blitz_api'), isFalse);
+    });
+
+    test('idempotent on v18 input', () {
+      final v18Input = <String, dynamic>{
+        'version': 18,
+        'system': {'hostname': 'h', 'platform': 'p'},
+        'app_configs': {
+          'bitcoind': {'enabled': true, 'network': 'mainnet'},
+        },
+      };
+      final result = migrateConfig(Map.from(v18Input));
+      expect(result['version'], 18);
+      expect(result['app_configs']['bitcoind']['enabled'], isTrue);
+      // Nothing accidentally restored at top level
+      expect(result.containsKey('bitcoind'), isFalse);
+    });
+  });
 }

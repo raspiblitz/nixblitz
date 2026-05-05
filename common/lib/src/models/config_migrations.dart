@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 17;
+const int currentConfigVersion = 18;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -57,6 +57,30 @@ class ConfigTooNewException implements Exception {
       'Config requires TUI schema version >= $configMinVersion '
       'but this TUI only supports up to $thisTuiVersion. '
       'Please update NixBlitz.';
+}
+
+/// Move the five typed-app top-level keys (bitcoind, lnd, cln, blitz_api,
+/// blitz_web) into a generic `app_configs` map. Idempotent on already-v18
+/// input (no top-level matches → empty migration into already-present
+/// app_configs).
+Map<String, dynamic> _migrateV17ToV18(Map<String, dynamic> json) {
+  final apps =
+      (json['app_configs'] as Map?)?.cast<String, dynamic>() ??
+      <String, dynamic>{};
+  for (final key in const [
+    'bitcoind',
+    'lnd',
+    'cln',
+    'blitz_api',
+    'blitz_web',
+  ]) {
+    if (json.containsKey(key)) {
+      apps[key] = json[key];
+      json.remove(key);
+    }
+  }
+  json['app_configs'] = apps;
+  return json;
 }
 
 /// Map of source version → migration function.
@@ -154,6 +178,11 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
       // operator logs into the box. Bumping forces existing installs
       // to refresh on-disk templates on next launch.
       16: (json) => json,
+      // v17 → v18: reshape five typed-app top-level keys (bitcoind, lnd,
+      // cln, blitz_api, blitz_web) into a generic `app_configs` map.
+      // Idempotent on already-v18 input (no top-level matches → empty
+      // migration into already-present app_configs).
+      17: _migrateV17ToV18,
     };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].
