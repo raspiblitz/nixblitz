@@ -1,0 +1,72 @@
+{
+  "id": "system",
+  "title": "System",
+  "accent_color": "#607d8b",
+  "streamer_args": ["--units", "blitz-api,blitz-web,nginx,redis"],
+  "layout": [
+    { "Row": { "label": "Uptime", "value": { "$duration": "uptime_sec" } } },
+    {
+      "Section": {
+        "title": "Services",
+        "children": [
+          {
+            "StatusRow": {
+              "label": "blitz-api",
+              "value": { "$data": "services.blitz-api" },
+              "color": {
+                "$status": {
+                  "$on": "services.blitz-api",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          },
+          {
+            "StatusRow": {
+              "label": "blitz-web",
+              "value": { "$data": "services.blitz-web" },
+              "color": {
+                "$status": {
+                  "$on": "services.blitz-web",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          },
+          {
+            "StatusRow": {
+              "label": "nginx",
+              "value": { "$data": "services.nginx" },
+              "color": {
+                "$status": {
+                  "$on": "services.nginx",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          },
+          {
+            "StatusRow": {
+              "label": "redis",
+              "value": { "$data": "services.redis" },
+              "color": {
+                "$status": {
+                  "$on": "services.redis",
+                  "active": "ok",
+                  "inactive": "muted",
+                  "failed": "error"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "hardware",
+  "title": "Hardware",
+  "accent_color": "#4caf50",
+  "layout": [
+    {
+      "ProgressBar": {
+        "label": "CPU",
+        "value": { "$data": "cpu_percent" },
+        "max": 100,
+        "format": "percent"
+      }
+    },
+    {
+      "ProgressBar": {
+        "label": "Mem",
+        "value": { "$data": "mem_used_bytes" },
+        "max": 1,
+        "format": "bytes"
+      }
+    },
+    {
+      "ProgressBar": {
+        "label": "Disk",
+        "value": { "$data": "disk_used_bytes" },
+        "max": 1,
+        "format": "bytes"
+      }
+    },
+    { "Row": { "label": "Temp", "value": { "$format": "{temperature_c}°C" } } }
+  ]
+}

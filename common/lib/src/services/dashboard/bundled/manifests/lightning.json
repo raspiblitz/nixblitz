@@ -1,0 +1,40 @@
+{
+  "id": "lightning",
+  "title": "Lightning",
+  "accent_color": "#9b6cf2",
+  "layout": [
+    { "Row": { "label": "Alias", "value": { "$data": "alias" } } },
+    {
+      "Row": {
+        "label": "Pubkey",
+        "value": { "$truncate": { "key": "pubkey", "len": 12 } }
+      }
+    },
+    {
+      "StatusRow": {
+        "label": "Synced",
+        "value": { "$data": "synced_label" },
+        "color": { "$data": "synced_color" }
+      }
+    },
+    {
+      "Row": {
+        "label": "Channels",
+        "value": { "$format": "{active}/{pending}" }
+      }
+    },
+    { "Row": { "label": "Peers", "value": { "$data": "peers" } } },
+    {
+      "Row": {
+        "label": "On-chain",
+        "value": { "$format": "{onchain_sats} sat" }
+      }
+    },
+    {
+      "Row": {
+        "label": "In-channel",
+        "value": { "$format": "{channel_sats} sat" }
+      }
+    }
+  ]
+}

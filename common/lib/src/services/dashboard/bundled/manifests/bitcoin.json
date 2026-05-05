@@ -1,0 +1,37 @@
+{
+  "id": "bitcoin",
+  "title": "Bitcoin",
+  "accent_color": "#f7931a",
+  "layout": [
+    {
+      "StatusRow": {
+        "label": "Network",
+        "value": { "$data": "chain_name" },
+        "color": { "$data": "chain_color" }
+      }
+    },
+    {
+      "ProgressBar": {
+        "label": "Sync",
+        "value": { "$data": "verification_progress" },
+        "format": "percent"
+      }
+    },
+    {
+      "Row": { "label": "Blocks", "value": { "$format": "{blocks}/{headers}" } }
+    },
+    { "Row": { "label": "Peers", "value": { "$data": "peers" } } },
+    { "Row": { "label": "Disk", "value": { "$bytes": "size_on_disk" } } },
+    {
+      "Row": { "label": "Mempool", "value": { "$format": "{mempool_txs} txs" } }
+    }
+  ],
+  "footer": {
+    "$status": {
+      "$on": "sync_state",
+      "synced": { "Footer": { "text": "synced", "color": "ok" } },
+      "syncing": { "Footer": { "text": "syncing", "color": "warn" } },
+      "stalled": { "Footer": { "text": "stalled", "color": "error" } }
+    }
+  }
+}
