@@ -86,18 +86,17 @@ bool _isInstallerEnvironment() {
 /// terminals.
 List<({String text, Color color})> _headerSegments(
   NixblitzConfig config,
-  LnSnapshot? lnSnapshot,
+  String liveAlias,
   int pendingCount,
 ) {
   const dim = Color.fromRGB(180, 180, 200);
   const pending = Color.fromRGB(220, 180, 100); // same yellow as `*` markers
   final segs = <({String text, Color color})>[];
 
-  // Live alias from blitz-api wins; fall back to config only
-  // when the snapshot has nothing (no LN yet, blitz-api down,
-  // SSE hasn't reconnected). config.lnd.enabled gates so we
-  // don't show a config-only stub when LN isn't enabled at all.
-  final liveAlias = lnSnapshot?.alias ?? '';
+  // Live alias from tileDataCache's lightning snapshot wins; fall
+  // back to config only when no event has landed yet (LN not set up,
+  // blitz-api down, SSE hasn't reconnected). config.lnd.enabled
+  // gates so we don't show a config-only stub when LN isn't enabled.
   final fallbackAlias = (config.lnd.enabled && config.lnd.alias.isNotEmpty)
       ? config.lnd.alias
       : '';
@@ -438,7 +437,8 @@ class _Shell extends StatelessComponent {
                           child: () {
                             // Header pulls from three providers:
                             // config (alias fallback / platform),
-                            // lnSnapshot (live LN alias), and
+                            // tileDataCache (live LN alias from
+                            // lightning snapshot), and
                             // pendingChangeKeysProvider (the
                             // count of dotted-path keys differing
                             // from HEAD).
@@ -446,21 +446,25 @@ class _Shell extends StatelessComponent {
                                 .watch(configProvider)
                                 .maybeWhen(data: (c) => c, orElse: () => null);
                             if (cfg == null) return const Text('');
-                            final snap = context
-                                .watch(lnSnapshotProvider)
-                                .maybeWhen(data: (s) => s, orElse: () => null);
                             // Synchronous Provider — direct read,
                             // no AsyncValue unwrap. The header
                             // status updates in the same frame as
                             // the configProvider tick that
                             // triggered it (no flicker through a
                             // loading state).
+                            final lnData = context
+                                .watch(tileDataCacheProvider)
+                                .snapshotFor('lightning')
+                                .data;
+                            final liveAlias = lnData['alias'] is String
+                                ? lnData['alias'] as String
+                                : '';
                             final pendingCount = context
                                 .watch(pendingChangeKeysProvider)
                                 .length;
                             final segs = _headerSegments(
                               cfg,
-                              snap,
+                              liveAlias,
                               pendingCount,
                             );
                             // Render as a Row of segment + " | "

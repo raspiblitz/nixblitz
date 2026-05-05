@@ -1,12 +1,11 @@
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:common/common.dart';
-import 'dashboard/bitcoin_tile.dart';
-import 'dashboard/hardware_tile.dart';
-import 'dashboard/lightning_tile.dart';
+import 'package:common/src/services/dashboard/tile_snapshot.dart';
+import 'dashboard/dashboard_chrome.dart';
 import 'dashboard/plugin_tile.dart';
-import 'dashboard/system_tile.dart';
 import 'dashboard/tile_layout.dart';
+import 'dashboard/tile_renderer.dart';
 import '../format.dart';
 import '../../providers/ui_state_provider.dart';
 
@@ -209,26 +208,33 @@ class _DashboardViewState extends State<DashboardView> {
           orElse: () => 0,
         );
 
+        // Build one TileRenderer per bundled manifest, each wired to
+        // its live snapshot. The snapshot is seeded from the cache so
+        // a late subscriber sees data immediately (no flicker through
+        // loading state on re-entry).
+        final manifests = context.watch(tileManifestsProvider);
+        final bundledTiles = <Component>[
+          for (final m in manifests)
+            TileRenderer(
+              manifest: m,
+              snapshot:
+                  context.watch(tileSnapshotProvider(m.id)).value ??
+                  const TileSnapshot(),
+            ),
+        ];
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    config.system.hostname,
-                    style: const TextStyle(
-                      color: Color.fromRGB(220, 220, 220),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    '${config.system.platform} | ${config.bitcoind.network}',
-                    style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-                  ),
-                ],
+              child: DashboardChrome(
+                hostname: config.system.hostname,
+                platform: config.system.platform,
+                network: config.bitcoind.network,
+                uptimeSec: _readUptimeSec(context),
+                appliedAgo:
+                    null, // Stub; future task wires git_provider's last-applied
               ),
             ),
             if (pendingCount > 0)
@@ -271,13 +277,7 @@ class _DashboardViewState extends State<DashboardView> {
                   builder: (context, constraints) {
                     final cols = columnsFor(constraints.maxWidth);
                     final pluginTiles = _pluginTiles(context, config);
-                    final tiles = <Component>[
-                      const SystemTile(),
-                      const HardwareTile(),
-                      const BitcoinTile(),
-                      const LightningTile(),
-                      ...pluginTiles,
-                    ];
+                    final tiles = <Component>[...bundledTiles, ...pluginTiles];
                     return Focusable(
                       focused: true,
                       onKeyEvent: _handleScrollKey,
@@ -298,4 +298,12 @@ class _DashboardViewState extends State<DashboardView> {
       },
     );
   }
+}
+
+/// Reads the system tile's `uptime_sec` from the cache without
+/// throwing when no event has arrived yet.
+int? _readUptimeSec(BuildContext context) {
+  final cache = context.read(tileDataCacheProvider);
+  final v = cache.snapshotFor('system').data['uptime_sec'];
+  return v is num ? v.toInt() : null;
 }
