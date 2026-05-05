@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:common/common.dart';
+import 'package:common/src/streamers/system_stats_streamer.dart';
 import 'package:tui/src/build_info.dart';
 import 'package:tui/src/cli/check_cli.dart';
 import 'package:tui/src/cli/plugin_cli.dart';
@@ -11,6 +12,24 @@ import 'package:tui/src/ui/app.dart';
 const int buildNumber = 9;
 
 void main(List<String> arguments) async {
+  // Streamer dispatch: runs BEFORE TUI startup so the binary can be invoked as a subprocess.
+  if (arguments.isNotEmpty && arguments.first == 'streamer') {
+    if (arguments.length < 2) {
+      stderr.writeln('usage: nixblitz streamer <name> [args...]');
+      exit(2);
+    }
+    final name = arguments[1];
+    final streamerArgs = arguments.skip(2).toList();
+    switch (name) {
+      case 'system-stats':
+        await systemStatsMain(streamerArgs);
+        return;
+      default:
+        stderr.writeln('unknown streamer: $name');
+        exit(2);
+    }
+  }
+
   final parser = ArgParser()
     ..addFlag('help', abbr: 'h', negatable: false, help: 'Print this help')
     ..addFlag(
