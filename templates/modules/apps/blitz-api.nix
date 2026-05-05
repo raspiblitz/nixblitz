@@ -68,5 +68,30 @@ in {
         openFirewall = cfg.openFirewall;
       };
     };
+
+    # Make the auto-generated `.login-password` (and the dataDir
+    # itself) readable to wheel members so the TUI can read it
+    # directly via File.readAsString — no sudo dance required. The
+    # upstream `services.blitz-api-setup-env` oneshot writes the file
+    # mode 0600 owned by root in a 0700 dataDir, which on installed
+    # systems (wheelNeedsPassword = true, no NOPASSWD rules) means
+    # the admin user can't read it without a cached sudo timestamp.
+    # We relax to:
+    #   - dataDir 0750 root:wheel (wheel can enter; can't list other
+    #     blitz-api private state because per-file modes still
+    #     control read access)
+    #   - .login-password 0640 root:wheel (wheel can read)
+    # Trust boundary: any wheel member is already root-equivalent
+    # via sudo, so sharing the JWT password adds nothing. See
+    # `common/lib/src/services/blitz_api/blitz_api_client.dart`'s
+    # _readPassword for the consumer side.
+    systemd.services.blitz-api-setup-env.postStart = ''
+      if [ -f /var/lib/blitz_api/.login-password ]; then
+        chgrp wheel /var/lib/blitz_api/.login-password
+        chmod 0640 /var/lib/blitz_api/.login-password
+      fi
+      chgrp wheel /var/lib/blitz_api
+      chmod 0750 /var/lib/blitz_api
+    '';
   };
 }

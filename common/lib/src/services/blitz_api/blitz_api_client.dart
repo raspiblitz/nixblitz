@@ -21,16 +21,15 @@ class BlitzApiClient {
   /// (skip the nginx proxy to avoid SSE buffering gotchas).
   final Uri baseUrl;
 
-  /// Path to the password file. Read via `sudo -n cat` because the
-  /// admin user isn't in the blitz_api group. Under Posture A
-  /// (wheelNeedsPassword=true) the very first read after TUI launch
-  /// fails — there's no cached sudo timestamp yet — and the
-  /// SSE stream stays disconnected until the user authorizes sudo
-  /// somewhere (Apply, Update, Change Password, …). The
-  /// `_runWithBackoff` retry loop picks up the new auth on the next
-  /// poll cycle (≤30s). See sudo posture plan for follow-up:
-  /// move this off sudo entirely (group-readable file or systemd
-  /// LoadCredential) so the dashboard works without auth.
+  /// Path to the password file. The nixblitz blitz-api Nix module
+  /// (templates/modules/apps/blitz-api.nix) chgrps this file to
+  /// `wheel` and chmods it 0640 in a postStart hook on
+  /// `blitz-api-setup-env`, so the admin user (a wheel member) can
+  /// read it directly via [File.readAsString] — no sudo dance, no
+  /// dependence on a cached sudo timestamp. If the file is missing
+  /// or unreadable, [_readPassword] throws [BlitzApiAuthFailure]
+  /// and [_runWithBackoff] terminates the retry loop instead of
+  /// spinning forever.
   final String passwordFilePath;
 
   /// Backoff sequence in seconds; last value repeats indefinitely.
@@ -127,15 +126,30 @@ class BlitzApiClient {
   // ── private ──────────────────────────────────────────────────
 
   Future<String> _readPassword() async {
-    // sudo -n: non-interactive; fails fast if we can't sudo.
-    final res = await Process.run('sudo', ['-n', 'cat', passwordFilePath]);
-    if (res.exitCode != 0) {
-      throw StateError(
-        'Could not read $passwordFilePath (sudo exit ${res.exitCode}): '
-        '${(res.stderr as String).trim()}',
+    final f = File(passwordFilePath);
+    if (!f.existsSync()) {
+      throw BlitzApiAuthFailure(
+        'password file $passwordFilePath does not exist — is '
+        'blitz-api initialized? '
+        '(`sudo systemctl status blitz-api-setup-env`)',
       );
     }
-    return (res.stdout as String).trim();
+    try {
+      final raw = await f.readAsString();
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) {
+        throw BlitzApiAuthFailure('password file $passwordFilePath is empty');
+      }
+      return trimmed;
+    } on FileSystemException catch (e) {
+      // Mode/owner mismatch — admin needs to be in `wheel` and the
+      // file needs mode 0640 group `wheel`. The blitz-api.nix
+      // postStart hook should have set this up.
+      throw BlitzApiAuthFailure(
+        'password file $passwordFilePath unreadable (mode/owner): '
+        '${e.osError?.message ?? e.message}',
+      );
+    }
   }
 
   Future<void> _login() async {
@@ -167,15 +181,38 @@ class BlitzApiClient {
 
   Future<void> _runWithBackoff() async {
     var attempt = 0;
+    var consecutiveFailures = 0;
     while (!_disposed) {
       try {
         if (_jwt == null) await _login();
         await _streamSse();
         // _streamSse returns normally when the server closes — treat
         // as reconnect-worthy.
+        consecutiveFailures = 0;
       } catch (e, st) {
-        LogService.warn('BlitzApi SSE error: $e');
-        LogService.error('BlitzApi SSE trace', e, st);
+        // Auth-shaped failure (missing / unreadable password file).
+        // No amount of retrying will help — the operator needs to
+        // fix the install. Log once, surface to subscribers via the
+        // events stream's error channel, and exit the loop so the
+        // log doesn't keep spamming every 30s.
+        if (e is BlitzApiAuthFailure) {
+          LogService.warn('BlitzApi auth failure (giving up): $e');
+          if (!_events.isClosed) _events.addError(e, st);
+          return;
+        }
+        consecutiveFailures++;
+        // First failure gets a full warn + stack trace; thereafter
+        // log only every 10th to bound the log noise on prolonged
+        // outages without losing visibility entirely. Restored to a
+        // full log on the next success.
+        if (consecutiveFailures == 1) {
+          LogService.warn('BlitzApi SSE error: $e');
+          LogService.error('BlitzApi SSE trace', e, st);
+        } else if (consecutiveFailures % 10 == 0) {
+          LogService.warn(
+            'BlitzApi SSE error (#$consecutiveFailures consecutive): $e',
+          );
+        }
         // 401 likely means the JWT expired; drop it and re-login.
         if (e.toString().contains('401')) _jwt = null;
       }
@@ -224,4 +261,13 @@ class BlitzApiClient {
       _sseSub = null;
     }
   }
+}
+
+/// Thrown when the password file is missing, empty, or unreadable.
+/// Distinguishes "no point retrying — operator must fix the install"
+/// from generic transient SSE failures (network blip, blitz-api
+/// restart, etc.). [BlitzApiClient._runWithBackoff] surfaces this
+/// via the events stream's error channel and exits the retry loop.
+class BlitzApiAuthFailure extends StateError {
+  BlitzApiAuthFailure(super.message);
 }

@@ -115,7 +115,7 @@ class ApiDashboardSource implements DashboardDataSource {
     if (_btc != null) _btcCtrl.add(_btc);
     if (_ln != null) _lnCtrl.add(_ln);
 
-    _sub = _client.events.listen(_onEvent);
+    _sub = _client.events.listen(_onEvent, onError: _onSourceError);
     unawaited(
       _client.start().catchError((e, st) {
         LogService.error('ApiDashboardSource failed to start', e, st);
@@ -243,6 +243,25 @@ class ApiDashboardSource implements DashboardDataSource {
     'hardware_info',
     'system_info',
   };
+
+  /// Errors on the client's events stream — currently only fired by
+  /// [BlitzApiClient] when the password file is missing or
+  /// unreadable, in which case the client gives up retrying. Push
+  /// the error onto every snapshot controller so the tile renderers
+  /// transition to their `.error` branch ("unreachable") instead of
+  /// staying in `.loading` forever.
+  ///
+  /// Don't close the controllers — a future re-init could reattach
+  /// (e.g. operator fixes the file and the source is recreated by
+  /// the dashboard provider). Stream subscribers handle the error
+  /// without unsubscribing.
+  void _onSourceError(Object e, StackTrace st) {
+    LogService.warn('ApiDashboardSource: client error: $e');
+    if (!_systemCtrl.isClosed) _systemCtrl.addError(e, st);
+    if (!_hardwareCtrl.isClosed) _hardwareCtrl.addError(e, st);
+    if (!_btcCtrl.isClosed) _btcCtrl.addError(e, st);
+    if (!_lnCtrl.isClosed) _lnCtrl.addError(e, st);
+  }
 
   void _onEvent(dynamic ev) {
     final String event;
