@@ -70,6 +70,10 @@ gen-workspace-graph:
 gen-templates:
   dart run scripts/gen_embedded_templates.dart
 
+# Regenerate embedded dashboard manifests from bundled/manifests/
+gen-manifests:
+  dart run scripts/gen_dashboard_manifests.dart
+
 # Compile Tailwind CSS for the website (web/input.css → web/styles.css)
 web-css:
   #!/usr/bin/env nu
