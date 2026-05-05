@@ -126,7 +126,7 @@
     "cli_util": ["meta", "path"],
     "clock": [],
     "collection": [],
-    "common": ["riverpod", "path", "http"],
+    "common": ["riverpod", "path", "http", "meta", "nocterm"],
     "convert": ["typed_data"],
     "coverage": [
       "args",
@@ -562,7 +562,7 @@
   "roots": {
     "common": {
       "dev": ["lints", "test"],
-      "main": ["riverpod", "path", "http"]
+      "main": ["riverpod", "path", "http", "meta", "nocterm"]
     },
     "tui": {
       "dev": ["lints", "test"],

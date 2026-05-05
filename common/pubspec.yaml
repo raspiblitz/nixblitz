@@ -13,6 +13,13 @@ dependencies:
   path: ^1.9.1
   http: ^1.2.2
   meta: ^1.18.0
+  # Used by services/dashboard/colors.dart for the tile DSL's color
+  # resolution. nocterm.Color is a plain RGB value object — depending
+  # on it doesn't pull in widget infrastructure.
+  nocterm:
+    git:
+      url: https://forge.f44.fyi/f44/nocterm
+      ref: 6f6f5a51d337c3b5744e82c01c0fd4576bc64192
 
 dev_dependencies:
   lints: ^6.1.0
