@@ -61,7 +61,7 @@ const String _hardwareJson = r'''
       "ProgressBar": {
         "label": "Mem",
         "value": { "$data": "mem_used_bytes" },
-        "max": 1,
+        "max": { "$data": "mem_total_bytes" },
         "format": "bytes"
       }
     },
@@ -69,7 +69,7 @@ const String _hardwareJson = r'''
       "ProgressBar": {
         "label": "Disk",
         "value": { "$data": "disk_used_bytes" },
-        "max": 1,
+        "max": { "$data": "disk_total_bytes" },
         "format": "bytes"
       }
     },

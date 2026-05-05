@@ -111,6 +111,41 @@ void main() {
         expect(out, contains('Net: main'));
       },
     );
+
+    test('ProgressBar with directive max computes correct percent', () {
+      final m = TileManifest.fromJsonString(r'''
+        {"id":"x","title":"X","layout":[
+          {"ProgressBar": {"label": "Mem", "value": {"$data": "used"}, "max": {"$data": "total"}, "format": "bytes"}}
+        ]}
+      ''');
+      final snap = const TileSnapshot().copyWith(
+        data: {'used': 250, 'total': 1000},
+        lastEventTs: DateTime.utc(2026, 5, 5),
+      );
+      final out = renderTileToText(m, snap, width: 30);
+      expect(out, contains('Mem'));
+      expect(out, contains('25%')); // 250 / 1000 = 25%
+    });
+
+    test(
+      'ProgressBar with directive max falls back gracefully when max missing',
+      () {
+        final m = TileManifest.fromJsonString(r'''
+        {"id":"x","title":"X","layout":[
+          {"ProgressBar": {"label": "Mem", "value": {"$data": "used"}, "max": {"$data": "total"}, "format": "bytes"}}
+        ]}
+      ''');
+        // total field absent — resolveValue returns a placeholder string,
+        // the renderer falls back to max=1.0 and clamps to 100%.
+        final snap = const TileSnapshot().copyWith(
+          data: {'used': 250},
+          lastEventTs: DateTime.utc(2026, 5, 5),
+        );
+        final out = renderTileToText(m, snap, width: 30);
+        expect(out, contains('Mem'));
+        // Don't assert specific percent — just that it doesn't crash.
+      },
+    );
   });
 
   group('TileRenderer.widget', () {

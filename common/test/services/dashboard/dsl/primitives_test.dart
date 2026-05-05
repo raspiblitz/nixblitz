@@ -157,5 +157,19 @@ void main() {
               as ProgressBar;
       expect(p.max, 100);
     });
+
+    test('ProgressBar with directive max parses', () {
+      final p =
+          Primitive.fromJson({
+                'ProgressBar': {
+                  'value': {'\$data': 'used'},
+                  'max': {'\$data': 'total'},
+                  'format': 'bytes',
+                },
+              })
+              as ProgressBar;
+      expect(p.max, isA<Map>());
+      expect(p.max['\$data'], 'total');
+    });
   });
 }

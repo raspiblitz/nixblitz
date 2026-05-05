@@ -99,7 +99,7 @@ class ProgressBar extends Primitive {
   final dynamic
   value; // 0..1 if format=percent; current count if format=fraction/bytes
   final String? label;
-  final double max;
+  final dynamic max; // literal number OR a binding directive map
   final String format; // 'percent' | 'fraction' | 'bytes'
   final String? color;
   const ProgressBar({
@@ -119,10 +119,13 @@ class ProgressBar extends Primitive {
         'ProgressBar.format must be percent|fraction|bytes',
       );
     }
+    // max may be a literal number or a binding directive map (e.g.
+    // {"\$data": "mem_total_bytes"}) — keep it dynamic so the renderer
+    // can resolve at render time. Default 1.0 if absent.
     return ProgressBar(
       value: a['value'],
       label: a['label'] as String?,
-      max: ((a['max'] as num?) ?? 1.0).toDouble(),
+      max: a['max'] ?? 1.0,
       format: fmt,
       color: a['color'] as String?,
     );

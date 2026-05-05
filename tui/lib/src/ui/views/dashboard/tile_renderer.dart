@@ -108,7 +108,9 @@ class TileRenderer extends StatelessComponent {
       case dsl.ProgressBar():
         final rawVal = resolveValue(p.value, data);
         final numVal = rawVal is num ? rawVal.toDouble() : 0.0;
-        final pct = (numVal / p.max).clamp(0.0, 1.0);
+        final rawMax = resolveValue(p.max, data);
+        final maxNum = (rawMax is num) ? rawMax.toDouble() : 1.0;
+        final pct = maxNum > 0 ? (numVal / maxNum).clamp(0.0, 1.0) : 0.0;
         final pctText = '${(pct * 100).round()}%';
         final barColor = resolveTileColor(p.color, accent: accent);
         return Column(
@@ -273,7 +275,9 @@ void _renderPrimitiveToText(
     case dsl.ProgressBar():
       final rawVal = resolveValue(p.value, data);
       final numVal = rawVal is num ? rawVal.toDouble() : 0.0;
-      final pct = (numVal / p.max).clamp(0.0, 1.0);
+      final rawMax = resolveValue(p.max, data);
+      final maxNum = (rawMax is num) ? rawMax.toDouble() : 1.0;
+      final pct = maxNum > 0 ? (numVal / maxNum).clamp(0.0, 1.0) : 0.0;
       final pctText = '${(pct * 100).round()}%';
 
       // Bar width: subtract label + space + percent + spaces from width
