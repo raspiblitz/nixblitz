@@ -1,135 +1,101 @@
+// common/lib/src/providers/dashboard_provider.dart
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:riverpod/riverpod.dart';
 
-import 'package:common/src/models/dashboard/snapshots.dart';
-import 'package:common/src/models/service_status.dart';
 import 'package:common/src/providers/config_provider.dart';
-import 'package:common/src/services/dashboard/api_dashboard_source.dart';
-import 'package:common/src/services/dashboard/dashboard_data_source.dart';
+import 'package:common/src/services/dashboard/bundled/registry.dart';
+import 'package:common/src/services/dashboard/dsl/tile_manifest.dart';
+import 'package:common/src/services/dashboard/sources/blitz_api_bridge_source.dart';
+import 'package:common/src/services/dashboard/sources/streamer_subprocess_source.dart';
+import 'package:common/src/services/dashboard/tile_data_cache.dart';
+import 'package:common/src/services/dashboard/tile_event_source_registry.dart';
+import 'package:common/src/services/dashboard/tile_snapshot.dart';
 
-/// Persists the four dashboard snapshots across
-/// `dashboardDataSourceProvider` recreates. Without this cache,
-/// every config change (operator edits, FS-watcher pickup,
-/// post-rebuild config writeback) tears down the SSE source and
-/// rebuilds from scratch — flipping all four tiles back to
-/// "loading" until SSE reconnects.
-///
-/// Cache lives for the ProviderScope's lifetime (i.e. the whole
-/// TUI session). Re-creates seed from it; live snapshot updates
-/// flow into it via subscriptions on the active source's streams
-/// (set up below).
-class _SnapshotCache {
-  SystemSnapshot? system;
-  HardwareSnapshot? hardware;
-  BtcSnapshot? bitcoin;
-  LnSnapshot? lightning;
-}
-
-final _snapshotCacheProvider = Provider<_SnapshotCache>(
-  (_) => _SnapshotCache(),
-);
-
-/// Picks the right data source for the current config. Blitz-api
-/// enabled → SSE-driven source seeded from the persistent cache
-/// (so a config-change-driven recreate doesn't blank the tiles).
-/// Otherwise a null source (tiles say "unavailable"); a future
-/// CLI-polling source will slot in here.
-final dashboardDataSourceProvider = Provider<DashboardDataSource>((ref) {
+/// Holds 0..N TileEventSource instances. Phase 1: always registers
+/// `system-stats` (procfs/sysfs reader, no blitz-api dep). When
+/// `config.blitzApi.enabled`, also registers blitz-api-bridge.
+/// Phase 4 will swap the bridge gate for "is the blitz-api plugin
+/// installed."
+final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
   final configAsync = ref.watch(configProvider);
   final config = configAsync.value;
-  final cache = ref.read(_snapshotCacheProvider);
+  final reg = TileEventSourceRegistry();
 
-  final apiEnabled = config?.blitzApi.enabled ?? false;
-  if (!apiEnabled) {
-    final ds = NullDashboardSource();
-    ref.onDispose(() async => ds.dispose());
-    return ds;
-  }
-
-  // System seed combines two sources: the canonical hostname /
-  // platform / network from config (always derivable, even on
-  // first launch), and any prior services-map / uptime captured
-  // by the cache. Prefer the cache version when we have one
-  // because it carries richer state; fall back to the freshly
-  // computed config-only seed on cold start.
-  final freshSystemSeed = config == null
-      ? null
-      : SystemSnapshot(
-          hostname: config.system.hostname,
-          platform: config.system.platform,
-          network: config.bitcoind.network,
-          uptime: Duration.zero,
-          services: <String, ServiceState>{
-            'blitz-api': ServiceState.unknown,
-            'blitz-web': ServiceState.unknown,
-            'nginx': ServiceState.unknown,
-            'redis': ServiceState.unknown,
-          },
-        );
-
-  final ds = ApiDashboardSource(
-    seedSystem: cache.system ?? freshSystemSeed,
-    seedHardware: cache.hardware,
-    seedBitcoin: cache.bitcoin,
-    seedLightning: cache.lightning,
+  // system-stats: always on. Reads procfs/sysfs; no blitz-api dep.
+  // The Phase-1 unit list is hardcoded here; Phase 2/3 will pull it
+  // from system.json's streamer_args once NixblitzConfig is generalized.
+  reg.register(
+    StreamerSubprocessSource(
+      id: 'system-stats',
+      providedTileIds: const {'hardware', 'system'},
+      command: Platform.resolvedExecutable,
+      args: const [
+        'streamer',
+        'system-stats',
+        '--units',
+        'blitz-api,blitz-web,nginx,redis',
+      ],
+    ),
   );
 
-  // Tap the source's broadcast streams to keep the cache fresh
-  // for the NEXT recreate. Subscriptions ride the same lifetime
-  // as the source — torn down together in onDispose below. Ignore
-  // null emissions (the NullDashboardSource shape isn't used
-  // here, but defensively the dashboard expects null = unknown).
-  final subs = <StreamSubscription>[
-    ds.system.listen((s) {
-      if (s != null) cache.system = s;
-    }),
-    ds.hardware.listen((s) {
-      if (s != null) cache.hardware = s;
-    }),
-    ds.bitcoin.listen((s) {
-      if (s != null) cache.bitcoin = s;
-    }),
-    ds.lightning.listen((s) {
-      if (s != null) cache.lightning = s;
-    }),
-  ];
+  if (config != null && config.blitzApi.enabled) {
+    reg.register(BlitzApiBridgeSource());
+  }
 
+  unawaited(reg.startAll());
+  ref.onDispose(reg.disposeAll);
+  return reg;
+});
+
+/// Aggregates events from all registered sources into per-tile snapshots.
+final tileDataCacheProvider = Provider<TileDataCache>((ref) {
+  final reg = ref.watch(tileSourceRegistryProvider);
+  final cache = TileDataCache();
+  final subs = <StreamSubscription>[];
+  for (final src in reg.sources) {
+    subs.add(
+      src.events.listen(
+        cache.apply,
+        onError: (e, st) {
+          for (final tid in src.providedTileIds) {
+            cache.applyError(tid, e);
+          }
+        },
+      ),
+    );
+  }
   ref.onDispose(() async {
     for (final s in subs) {
       await s.cancel();
     }
-    await ds.dispose();
+    await cache.dispose();
   });
-
-  return ds;
+  return cache;
 });
 
-/// Merge the source's current seed value into the stream so a late
-/// subscriber (e.g. user navigating back to the dashboard) sees the
-/// last-known snapshot immediately, not "loading".
-Stream<T?> _withSeed<T>(T? seed, Stream<T?> stream) async* {
-  if (seed != null) yield seed;
-  yield* stream;
-}
+/// The four bundled tile manifests, parsed at startup.
+final tileManifestsProvider = Provider<List<TileManifest>>(
+  (ref) => bundledManifests,
+);
 
-/// Per-stream providers so tiles watch one thing each.
-final systemSnapshotProvider = StreamProvider<SystemSnapshot?>((ref) {
-  final ds = ref.watch(dashboardDataSourceProvider);
-  return _withSeed(ds.seedSystem, ds.system);
-});
-
-final hardwareSnapshotProvider = StreamProvider<HardwareSnapshot?>((ref) {
-  final ds = ref.watch(dashboardDataSourceProvider);
-  return _withSeed(ds.seedHardware, ds.hardware);
-});
-
-final btcSnapshotProvider = StreamProvider<BtcSnapshot?>((ref) {
-  final ds = ref.watch(dashboardDataSourceProvider);
-  return _withSeed(ds.seedBitcoin, ds.bitcoin);
-});
-
-final lnSnapshotProvider = StreamProvider<LnSnapshot?>((ref) {
-  final ds = ref.watch(dashboardDataSourceProvider);
-  return _withSeed(ds.seedLightning, ds.lightning);
+/// Per-tile snapshot stream the renderer subscribes to. Seeded with the
+/// current cache value so a late subscriber sees data immediately.
+final tileSnapshotProvider = StreamProvider.family<TileSnapshot, String>((
+  ref,
+  tileId,
+) {
+  final cache = ref.watch(tileDataCacheProvider);
+  return Stream<TileSnapshot>.multi((controller) async {
+    controller.add(cache.snapshotFor(tileId));
+    final sub = cache
+        .streamFor(tileId)
+        .listen(
+          controller.add,
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+    controller.onCancel = sub.cancel;
+  });
 });
