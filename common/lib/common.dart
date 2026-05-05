@@ -14,7 +14,6 @@ export 'src/models/update_status.dart';
 export 'src/services/config_service.dart';
 export 'src/services/git_service.dart';
 export 'src/services/system_service.dart';
-export 'src/models/dashboard/snapshots.dart';
 export 'src/providers/config_provider.dart';
 export 'src/providers/config_watcher_provider.dart';
 export 'src/providers/dashboard_provider.dart';
