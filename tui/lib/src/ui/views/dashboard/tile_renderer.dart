@@ -112,25 +112,30 @@ class TileRenderer extends StatelessComponent {
         final maxNum = (rawMax is num) ? rawMax.toDouble() : 1.0;
         final pct = maxNum > 0 ? (numVal / maxNum).clamp(0.0, 1.0) : 0.0;
         final pctText = '${(pct * 100).round()}%';
-        final barColor = resolveTileColor(p.color, accent: accent);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // Default progress bar fill is muted (not the bright default text color)
+        // so the wide filled portion doesn't dominate the tile visually.
+        final barColor = resolveTileColor(p.color ?? 'muted', accent: accent);
+        return Row(
           children: [
-            if (p.label != null)
+            if (p.label != null) ...[
               Text(
                 '$prefix${p.label}',
                 style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
               ),
-            Row(
-              children: [
-                Expanded(
-                  child: _ProgressBarWidget(value: pct, color: barColor),
-                ),
-                Text(
-                  ' $pctText',
-                  style: const TextStyle(color: Color.fromRGB(220, 220, 220)),
-                ),
-              ],
+              const SizedBox(width: 2),
+            ],
+            Expanded(
+              child: ProgressBar(
+                value: pct,
+                valueColor: barColor,
+                fillCharacter: '█',
+                emptyCharacter: '░',
+              ),
+            ),
+            const SizedBox(width: 1),
+            Text(
+              pctText,
+              style: const TextStyle(color: Color.fromRGB(220, 220, 220)),
             ),
           ],
         );
@@ -220,23 +225,6 @@ class TileRenderer extends StatelessComponent {
   }
 }
 
-/// Internal widget for rendering a simple text-based progress bar.
-class _ProgressBarWidget extends StatelessComponent {
-  final double value; // 0.0 to 1.0
-  final Color color;
-
-  const _ProgressBarWidget({required this.value, required this.color});
-
-  @override
-  Component build(BuildContext context) {
-    // We'll use 20 cells for the bar.
-    const cells = 20;
-    final filled = (value * cells).round().clamp(0, cells);
-    final bar = '${'█' * filled}${'·' * (cells - filled)}';
-    return Text(bar, style: TextStyle(color: color));
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Text-rendering helper for golden-style tests.
 // Not used at runtime.
@@ -280,19 +268,20 @@ void _renderPrimitiveToText(
       final pct = maxNum > 0 ? (numVal / maxNum).clamp(0.0, 1.0) : 0.0;
       final pctText = '${(pct * 100).round()}%';
 
-      // Bar width: subtract label + space + percent + spaces from width
-      final labelPart = p.label != null ? '${p.label} ' : '';
-      final barWidth = (width - labelPart.length - pctText.length - 3).clamp(
-        4,
-        40,
-      );
+      // Overhead mirrors the widget Row layout:
+      //   prefix + label + SizedBox(2) + bar + SizedBox(1) + pctText
+      final labelLen = p.label != null
+          ? prefix.length + p.label!.length + 2
+          : 0;
+      final overhead = labelLen + 1 + pctText.length;
+      final barWidth = (width - overhead).clamp(4, 80);
       final filled = (pct * barWidth).round().clamp(0, barWidth);
-      final bar = '${'█' * filled}${'·' * (barWidth - filled)}';
+      final bar = '${'█' * filled}${'░' * (barWidth - filled)}';
 
       if (p.label != null) {
-        out.writeln('$prefix${p.label} [$bar] $pctText');
+        out.writeln('$prefix${p.label}  $bar $pctText');
       } else {
-        out.writeln('$prefix[$bar] $pctText');
+        out.writeln('$prefix$bar $pctText');
       }
 
     case dsl.Section():
