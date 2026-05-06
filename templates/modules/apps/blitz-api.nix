@@ -69,6 +69,24 @@ in {
       };
     };
 
+    # Upstream blitz-api's setup-env script splits bitcoind.zmqpubrawblock
+    # on ":" and indexes [2] for the port — assuming a fully-qualified
+    # `tcp://addr:port` URL. nix-bitcoin's lnd / cln modules set this option
+    # to a sensible default when their LN backend is enabled, but with
+    # blitz-api standalone (no LN backend) the option stays null and the
+    # upstream script crashes with "elemAt 2 on size 1".
+    #
+    # Backstop the URL ourselves when no LN backend is on; LND/CLN keep
+    # their own mkDefault when they are on.
+    services.bitcoind.zmqpubrawblock =
+      lib.mkIf
+      (!lndEnabled && !clnEnabled)
+      (lib.mkDefault "tcp://127.0.0.1:28332");
+    services.bitcoind.zmqpubrawtx =
+      lib.mkIf
+      (!lndEnabled && !clnEnabled)
+      (lib.mkDefault "tcp://127.0.0.1:28333");
+
     # Make the auto-generated `.login-password` (and the dataDir
     # itself) readable to wheel members so the TUI can read it
     # directly via File.readAsString — no sudo dance required. The
