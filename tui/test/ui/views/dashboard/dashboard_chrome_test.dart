@@ -54,5 +54,16 @@ void main() {
       expect(out(const Duration(days: 3)), contains('applied 3d ago'));
       expect(out(const Duration(seconds: 30)), contains('applied <1m ago'));
     });
+
+    test('drops network segment when network is null', () {
+      final out = renderChromeText(
+        hostname: 'h',
+        platform: 'p',
+        network: null,
+        uptimeSec: null,
+        appliedAgo: null,
+      );
+      expect(out.split('\n').first, equals('h  ·  p'));
+    });
   });
 }

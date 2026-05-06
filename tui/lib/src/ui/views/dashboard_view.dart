@@ -231,7 +231,7 @@ class _DashboardViewState extends State<DashboardView> {
               child: DashboardChrome(
                 hostname: config.system.hostname,
                 platform: config.system.platform,
-                network: config.bitcoind.network,
+                network: config.appOption<String>('bitcoind', 'network'),
                 uptimeSec: _readUptimeSec(context),
                 appliedAgo:
                     null, // Stub; future task wires git_provider's last-applied

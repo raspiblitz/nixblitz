@@ -95,10 +95,11 @@ List<({String text, Color color})> _headerSegments(
 
   // Live alias from tileDataCache's lightning snapshot wins; fall
   // back to config only when no event has landed yet (LN not set up,
-  // blitz-api down, SSE hasn't reconnected). config.lnd.enabled
-  // gates so we don't show a config-only stub when LN isn't enabled.
-  final fallbackAlias = (config.lnd.enabled && config.lnd.alias.isNotEmpty)
-      ? config.lnd.alias
+  // blitz-api down, SSE hasn't reconnected). isAppEnabled gates
+  // so we don't show a config-only stub when LN isn't enabled.
+  final configAlias = config.appOption<String>('lnd', 'alias') ?? '';
+  final fallbackAlias = (config.isAppEnabled('lnd') && configAlias.isNotEmpty)
+      ? configAlias
       : '';
   final alias = liveAlias.isNotEmpty ? liveAlias : fallbackAlias;
   if (alias.isNotEmpty) segs.add((text: alias, color: dim));

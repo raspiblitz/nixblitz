@@ -4,7 +4,7 @@ import 'package:nocterm/nocterm.dart';
 class DashboardChrome extends StatelessComponent {
   final String hostname;
   final String platform;
-  final String network;
+  final String? network;
   final int? uptimeSec;
   final Duration? appliedAgo;
 
@@ -19,11 +19,14 @@ class DashboardChrome extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    final l1 = '$hostname  ·  $platform  ·  $network';
+    final l1 = network == null
+        ? '$hostname  ·  $platform'
+        : '$hostname  ·  $platform  ·  $network';
     final parts = <String>[];
     if (uptimeSec != null) parts.add('uptime ${formatDuration(uptimeSec!)}');
-    if (appliedAgo != null)
+    if (appliedAgo != null) {
       parts.add('applied ${_appliedAgoLabel(appliedAgo!)} ago');
+    }
     final l2 = parts.join('  ·  ');
 
     return Column(
@@ -44,15 +47,18 @@ String _appliedAgoLabel(Duration d) {
 String renderChromeText({
   required String hostname,
   required String platform,
-  required String network,
+  required String? network,
   required int? uptimeSec,
   required Duration? appliedAgo,
 }) {
-  final l1 = '$hostname  ·  $platform  ·  $network';
+  final l1 = network == null
+      ? '$hostname  ·  $platform'
+      : '$hostname  ·  $platform  ·  $network';
   final parts = <String>[];
   if (uptimeSec != null) parts.add('uptime ${formatDuration(uptimeSec)}');
-  if (appliedAgo != null)
+  if (appliedAgo != null) {
     parts.add('applied ${_appliedAgoLabel(appliedAgo)} ago');
+  }
   final l2 = parts.join('  ·  ');
   return '$l1\n$l2';
 }
