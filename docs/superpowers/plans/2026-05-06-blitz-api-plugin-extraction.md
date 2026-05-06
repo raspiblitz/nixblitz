@@ -1090,13 +1090,22 @@ git init
 
 - [ ] **Step 2: Write `plugin.json`**
 
+The schema follows the existing v2 nested `manifest` block with the
+Phase 4 `id` / `url` / `version` / `requires` / `module` / `streamers`
+fields as top-level siblings of `config_schema`:
+
 ```json
 {
+  "manifest": {
+    "schema_version": 2,
+    "min_tui_version": 2,
+    "name": "Blitz API",
+    "description": "FastAPI backend for the Blitz web frontend"
+  },
+
   "id": "blitz-api",
-  "name": "Blitz API",
   "version": "0.1.0",
   "url": "git+https://forge.f44.fyi/f44/nixblitz-plugin-blitz-api",
-  "description": "FastAPI backend for the Blitz web frontend",
 
   "requires": [{ "type": "app", "id": "bitcoind" }],
 

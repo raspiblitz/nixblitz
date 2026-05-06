@@ -552,6 +552,57 @@ void main() {
       );
     });
 
+    test('manifest id defaults to name when absent', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+      });
+      expect(m.id, 'p');
+      expect(m.url, isNull);
+      expect(m.version, isNull);
+    });
+
+    test('manifest with explicit id/url/version round-trips', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': 2,
+          'min_tui_version': 2,
+          'name': 'Blitz API',
+        },
+        'id': 'blitz-api',
+        'url': 'git+https://forge.example/p',
+        'version': '0.1.0',
+      });
+      expect(m.id, 'blitz-api');
+      expect(m.name, 'Blitz API');
+      expect(m.url, 'git+https://forge.example/p');
+      expect(m.version, '0.1.0');
+
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.id, 'blitz-api');
+      expect(back.url, 'git+https://forge.example/p');
+      expect(back.version, '0.1.0');
+    });
+
+    test('manifest empty id throws PluginManifestError', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'id': '',
+        }),
+        throwsA(isA<PluginManifestError>()),
+      );
+    });
+
+    test('manifest empty url throws PluginManifestError', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'url': '',
+        }),
+        throwsA(isA<PluginManifestError>()),
+      );
+    });
+
     test('config_schema round-trips via toJson', () {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},

@@ -58,10 +58,29 @@ class PluginManifest {
   /// Lowest TUI that can render this plugin's config/UI surface.
   final int minTuiVersion;
 
+  /// Stable plugin identifier (e.g. `blitz-api`). Used as the directory
+  /// name under `~/nixblitz/plugins/<id>/` and as the lookup key in
+  /// dep-check / install-flow code. Defaults to [name] when absent in
+  /// JSON, so existing v2-shape manifests (which only had `name`)
+  /// continue to parse without modification.
+  final String id;
+
   /// Display name shown in the TUI.
   final String name;
 
   final String description;
+
+  /// Self-declared install URL (e.g. `git+https://forge.example/p`).
+  /// `PluginUrlDep` resolution matches against this verbatim — keep
+  /// it stable across versions of a plugin. Nullable: bundled or
+  /// locally-developed plugins without a registry entry leave this
+  /// unset.
+  final String? url;
+
+  /// Plugin version string (e.g. `0.1.0`). Free-form; the TUI does
+  /// not parse semver. Stored on the install marker for audit.
+  /// Nullable when absent in the manifest.
+  final String? version;
 
   /// Config fields the user can edit. Keys are field ids, values
   /// describe their type and labels. May be empty — many plugins
@@ -106,6 +125,9 @@ class PluginManifest {
     required this.minTuiVersion,
     required this.name,
     required this.description,
+    String? id,
+    this.url,
+    this.version,
     this.config = const {},
     this.actions = const {},
     this.permissions = const PluginPermissions(),
@@ -114,7 +136,7 @@ class PluginManifest {
     this.requires = const [],
     this.module,
     this.streamers = const [],
-  });
+  }) : id = id ?? name;
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
     final header = json['manifest'] as Map<String, dynamic>?;
@@ -200,6 +222,39 @@ class PluginManifest {
       );
     }
 
+    final rawId = json['id'];
+    String? id;
+    if (rawId != null) {
+      if (rawId is! String || rawId.isEmpty) {
+        throw const PluginManifestError(
+          'manifest.id must be a non-empty string when present',
+        );
+      }
+      id = rawId;
+    }
+
+    final rawUrl = json['url'];
+    String? url;
+    if (rawUrl != null) {
+      if (rawUrl is! String || rawUrl.isEmpty) {
+        throw const PluginManifestError(
+          'manifest.url must be a non-empty string when present',
+        );
+      }
+      url = rawUrl;
+    }
+
+    final rawVersion = json['version'];
+    String? version;
+    if (rawVersion != null) {
+      if (rawVersion is! String || rawVersion.isEmpty) {
+        throw const PluginManifestError(
+          'manifest.version must be a non-empty string when present',
+        );
+      }
+      version = rawVersion;
+    }
+
     final rawRequires = json['requires'];
     final requiresList = <PluginDep>[];
     if (rawRequires != null) {
@@ -252,6 +307,9 @@ class PluginManifest {
       minTuiVersion: minTui,
       name: name,
       description: header['description'] as String? ?? '',
+      id: id,
+      url: url,
+      version: version,
       config: configMap,
       actions: actionMap,
       permissions: perms,
@@ -270,6 +328,9 @@ class PluginManifest {
       'name': name,
       if (description.isNotEmpty) 'description': description,
     },
+    if (id != name) 'id': id,
+    if (url != null) 'url': url,
+    if (version != null) 'version': version,
     if (config.isNotEmpty)
       'config': {for (final e in config.entries) e.key: e.value.toJson()},
     if (actions.isNotEmpty)
