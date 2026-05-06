@@ -24,14 +24,30 @@ final _confirmSelectionProvider = StateProvider<int>(
   (ref) => 1,
 ); // 0=install, 1=go back (default safe)
 final _configOptionIndexProvider = StateProvider<int>((ref) => 0);
-// Initial config choices
-const _networks = ['mainnet', 'regtest'];
 
-enum _LightningChoice { none, lnd, cln }
+/// A lightning backend choice. [appId] is the manifest id (e.g. 'lnd', 'cln'),
+/// or null for "no LN backend".
+class _LightningChoice {
+  final String? appId;
+  final String label;
+  const _LightningChoice({this.appId, required this.label});
+  bool get isNone => appId == null;
+
+  @override
+  int get hashCode => appId.hashCode ^ label.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _LightningChoice &&
+          runtimeType == other.runtimeType &&
+          appId == other.appId &&
+          label == other.label;
+}
 
 final _networkIndexProvider = StateProvider<int>((ref) => 0); // mainnet
 final _lightningChoiceProvider = StateProvider<_LightningChoice>(
-  (ref) => _LightningChoice.none,
+  (ref) => const _LightningChoice(appId: null, label: 'None'),
 );
 
 // Which popup is open (null = none)
@@ -470,6 +486,7 @@ class _InstallViewState extends State<InstallView> {
     final lightningChoice = context.watch(_lightningChoiceProvider);
     final activePopup = context.watch(_activePopupProvider);
     final popupIndex = context.watch(_popupSelectionIndexProvider);
+    final registry = context.watch(appManifestRegistryProvider);
 
     return configAsync.when(
       loading: () => const Text('Loading...'),
@@ -478,6 +495,19 @@ class _InstallViewState extends State<InstallView> {
         final platform = systemInfoAsync.value?.platform ?? 'x86';
         const optionCount = 3; // 0=network, 1=lightning, 2=continue
 
+        // Get network choices from bitcoind manifest's network field
+        final networkField = registry.get('bitcoind')?.field('network');
+        final networks = (networkField is EnumField)
+            ? networkField.choices
+            : const ['mainnet', 'testnet', 'regtest', 'signet'];
+
+        // Get LN backend choices from manifest registry
+        final lnApps = registry.withCapability('lightning_backend');
+        final lnChoices = [
+          ...lnApps.map((m) => _LightningChoice(appId: m.id, label: m.label)),
+          const _LightningChoice(appId: null, label: 'None'),
+        ];
+
         // If a popup is open, show it as an overlay
         if (activePopup != null) {
           return _buildPopup(
@@ -485,6 +515,8 @@ class _InstallViewState extends State<InstallView> {
             popupIndex,
             networkIndex,
             lightningChoice,
+            networks,
+            lnChoices,
           );
         }
 
@@ -518,8 +550,9 @@ class _InstallViewState extends State<InstallView> {
                   return true;
                 }
                 if (selectedOption == 1) {
+                  final lnIndex = lnChoices.indexOf(lightningChoice);
                   context.read(_popupSelectionIndexProvider.notifier).state =
-                      lightningChoice.index;
+                      lnIndex >= 0 ? lnIndex : lnChoices.length - 1;
                   context.read(_activePopupProvider.notifier).state =
                       _PopupType.lightning;
                   return true;
@@ -565,7 +598,7 @@ class _InstallViewState extends State<InstallView> {
                 const SizedBox(height: 1),
                 _configLine(
                   label: 'Network',
-                  value: _networks[networkIndex],
+                  value: networks[networkIndex],
                   focused: selectedOption == 0,
                 ),
                 _configLine(
@@ -605,6 +638,8 @@ class _InstallViewState extends State<InstallView> {
     int popupIndex,
     int networkIndex,
     _LightningChoice lightningChoice,
+    List<String> networks,
+    List<_LightningChoice> lnChoices,
   ) {
     final String title;
     final List<String> options;
@@ -613,11 +648,11 @@ class _InstallViewState extends State<InstallView> {
     switch (type) {
       case _PopupType.network:
         title = 'Select Network';
-        options = _networks;
+        options = networks;
         currentIndex = popupIndex;
       case _PopupType.lightning:
         title = 'Select Lightning';
-        options = ['None', 'LND', 'CLN'];
+        options = lnChoices.map((c) => c.label).toList();
         currentIndex = popupIndex;
     }
 
@@ -647,7 +682,7 @@ class _InstallViewState extends State<InstallView> {
                   context.read(_networkIndexProvider.notifier).state = index;
                 case _PopupType.lightning:
                   context.read(_lightningChoiceProvider.notifier).state =
-                      _LightningChoice.values[index];
+                      lnChoices[index];
               }
               context.read(_activePopupProvider.notifier).state = null;
             },
@@ -673,11 +708,7 @@ class _InstallViewState extends State<InstallView> {
   }
 
   String _lightningLabel(_LightningChoice choice) {
-    return switch (choice) {
-      _LightningChoice.none => 'None',
-      _LightningChoice.lnd => 'LND',
-      _LightningChoice.cln => 'CLN',
-    };
+    return choice.label;
   }
 
   void _saveConfigAndProceed(
@@ -693,6 +724,7 @@ class _InstallViewState extends State<InstallView> {
       final baseDirPath = context.read(baseDirProvider);
       final configNotifier = context.read(configProvider.notifier);
       final configService = context.read(configServiceProvider);
+      final registry = context.read(appManifestRegistryProvider);
 
       // Persist the disk path the operator picked alongside the
       // other config bits — disko-x86's `device` reads it on
@@ -703,30 +735,38 @@ class _InstallViewState extends State<InstallView> {
       final selectedDisk = context.read(selectedDiskProvider);
       final diskDevice = selectedDisk?.path ?? '';
 
+      // Get network choices (for logging)
+      final networkField = registry.get('bitcoind')?.field('network');
+      final networks = (networkField is EnumField)
+          ? networkField.choices
+          : const ['mainnet', 'testnet', 'regtest', 'signet'];
+
       LogService.info(
-        'Save config start: network=${_networks[networkIndex]}, '
+        'Save config start: network=${networks[networkIndex]}, '
         'lightning=${_lightningLabel(lightningChoice)}, '
         'platform=$platform, disk=$diskDevice',
       );
 
-      final updatedConfig = config
+      // Build updated config by setting the network and enabling/disabling
+      // each lightning backend based on the user's choice
+      var updatedConfig = config
           .copyWith(
             system: config.system.copyWith(
               platform: platform,
               diskDevice: diskDevice,
             ),
           )
-          .setAppOption('bitcoind', 'network', _networks[networkIndex])
-          .setAppOption(
-            'lnd',
-            'enabled',
-            lightningChoice == _LightningChoice.lnd,
-          )
-          .setAppOption(
-            'cln',
-            'enabled',
-            lightningChoice == _LightningChoice.cln,
-          );
+          .setAppOption('bitcoind', 'network', networks[networkIndex]);
+
+      // Enable/disable all lightning backends based on selection
+      final lnApps = registry.withCapability('lightning_backend');
+      for (final app in lnApps) {
+        updatedConfig = updatedConfig.setAppOption(
+          app.id,
+          'enabled',
+          app.id == lightningChoice.appId,
+        );
+      }
       LogService.info('Save config: updated config prepared');
 
       final targetDir = Directory(baseDirPath);
