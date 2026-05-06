@@ -12,6 +12,7 @@ import 'package:common/src/services/dashboard/sources/streamer_subprocess_source
 import 'package:common/src/services/dashboard/tile_data_cache.dart';
 import 'package:common/src/services/dashboard/tile_event_source_registry.dart';
 import 'package:common/src/services/dashboard/tile_snapshot.dart';
+import 'package:common/src/services/log_service.dart';
 
 /// Holds 0..N TileEventSource instances. Phase 1: always registers
 /// `system-stats` (procfs/sysfs reader, no blitz-api dep). When
@@ -57,7 +58,17 @@ final tileDataCacheProvider = Provider<TileDataCache>((ref) {
   for (final src in reg.sources) {
     subs.add(
       src.events.listen(
-        cache.apply,
+        (event) {
+          if (src.providedTileIds.contains(event.tileId)) {
+            cache.apply(event);
+          } else {
+            LogService.warn(
+              'source ${src.id} emitted event for unauthorized tile '
+              '"${event.tileId}" (declared: ${src.providedTileIds.join(", ")}); '
+              'dropped',
+            );
+          }
+        },
         onError: (e, st) {
           for (final tid in src.providedTileIds) {
             cache.applyError(tid, e);
