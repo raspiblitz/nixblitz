@@ -84,9 +84,11 @@ class _DebugMenu extends StatelessComponent {
   Component build(BuildContext context) {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
-    final regtest = config?.bitcoind.network == "regtest";
-    final blitzApi = config?.blitzApi.enabled ?? false;
-    final lndEnabled = config?.lnd.enabled ?? false;
+    final regtest =
+        (config?.appOption<String>('bitcoind', 'network') ?? 'mainnet') ==
+        'regtest';
+    final blitzApi = config?.isAppEnabled('blitz_api') ?? false;
+    final lndEnabled = config?.isAppEnabled('lnd') ?? false;
     final testLnAvailable = regtest && lndEnabled;
 
     final entries = <_MenuEntry>[

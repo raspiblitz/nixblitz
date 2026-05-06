@@ -452,7 +452,7 @@ class _SetupViewState extends State<SetupView> {
 
     // Skip when there's no LN backend that uses an alias.
     // CLN-only operators bypass this step entirely.
-    if (config != null && !config.lnd.enabled) {
+    if (config != null && !config.isAppEnabled('lnd')) {
       Future.microtask(() {
         _markStepCompleted(SetupStep.setLightningAlias);
         context.read(_setupStepProvider.notifier).state =
@@ -467,7 +467,7 @@ class _SetupViewState extends State<SetupView> {
     // Lazy-init the buffer from the existing alias so a re-run
     // (operator backed out, came back) sees what they typed last
     // time. Fresh installs get an empty string.
-    _aliasBuffer ??= config.lnd.alias;
+    _aliasBuffer ??= config.appOption<String>('lnd', 'alias') ?? '';
     final buffer = _aliasBuffer!;
 
     return Focusable(
@@ -485,9 +485,7 @@ class _SetupViewState extends State<SetupView> {
           if (event.logicalKey == LogicalKey.enter) {
             // Persist whatever the buffer holds (including
             // empty — that's "let LND default") and advance.
-            final updated = config.copyWith(
-              lnd: config.lnd.copyWith(alias: buffer),
-            );
+            final updated = config.setAppOption('lnd', 'alias', buffer);
             final configService = context.read(configServiceProvider);
             configService.writeConfigSync(updated);
             context.read(configProvider.notifier).updateConfig(updated);
@@ -733,7 +731,7 @@ class _SetupViewState extends State<SetupView> {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
 
-    if (config != null && !config.bitcoind.enabled) {
+    if (config != null && !config.isAppEnabled('bitcoind')) {
       Future.microtask(() {
         _markStepCompleted(SetupStep.waitBitcoind);
         context.read(_setupStepProvider.notifier).state =
@@ -874,8 +872,8 @@ class _SetupViewState extends State<SetupView> {
   Component _buildInitLightning() {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
-    final lndEnabled = config != null && config.lnd.enabled;
-    final clnEnabled = config != null && config.cln.enabled;
+    final lndEnabled = config != null && config.isAppEnabled('lnd');
+    final clnEnabled = config != null && config.isAppEnabled('cln');
 
     if (config == null) {
       return const Text('Loading config...');

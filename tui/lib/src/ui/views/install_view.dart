@@ -709,19 +709,24 @@ class _InstallViewState extends State<InstallView> {
         'platform=$platform, disk=$diskDevice',
       );
 
-      final updatedConfig = config.copyWith(
-        system: config.system.copyWith(
-          platform: platform,
-          diskDevice: diskDevice,
-        ),
-        bitcoind: config.bitcoind.copyWith(network: _networks[networkIndex]),
-        lnd: config.lnd.copyWith(
-          enabled: lightningChoice == _LightningChoice.lnd,
-        ),
-        cln: config.cln.copyWith(
-          enabled: lightningChoice == _LightningChoice.cln,
-        ),
-      );
+      final updatedConfig = config
+          .copyWith(
+            system: config.system.copyWith(
+              platform: platform,
+              diskDevice: diskDevice,
+            ),
+          )
+          .setAppOption('bitcoind', 'network', _networks[networkIndex])
+          .setAppOption(
+            'lnd',
+            'enabled',
+            lightningChoice == _LightningChoice.lnd,
+          )
+          .setAppOption(
+            'cln',
+            'enabled',
+            lightningChoice == _LightningChoice.cln,
+          );
       LogService.info('Save config: updated config prepared');
 
       final targetDir = Directory(baseDirPath);
