@@ -15,7 +15,7 @@ import 'package:common/src/services/dashboard/tile_snapshot.dart';
 
 /// Holds 0..N TileEventSource instances. Phase 1: always registers
 /// `system-stats` (procfs/sysfs reader, no blitz-api dep). When
-/// `config.blitzApi.enabled`, also registers blitz-api-bridge.
+/// `config.isAppEnabled('blitz_api')`, also registers blitz-api-bridge.
 /// Phase 4 will swap the bridge gate for "is the blitz-api plugin
 /// installed."
 final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
@@ -40,7 +40,7 @@ final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
     ),
   );
 
-  if (config != null && config.blitzApi.enabled) {
+  if (config != null && config.isAppEnabled('blitz_api')) {
     reg.register(BlitzApiBridgeSource());
   }
 

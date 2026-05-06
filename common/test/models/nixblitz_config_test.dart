@@ -4,42 +4,272 @@ import 'package:common/src/models/config_migrations.dart';
 import 'package:common/src/models/nixblitz_config.dart';
 
 void main() {
-  group('NixblitzConfig', () {
-    test('should create default config', () {
-      final config = NixblitzConfig.defaults();
-      expect(config.version, currentConfigVersion);
-      expect(config.initialized, false);
-      expect(config.system.hostname, 'nixblitz');
-      expect(config.system.timezone, 'UTC');
-      expect(config.system.platform, 'x86');
-      // Empty by default — set by the install wizard from the
-      // operator's chosen disk. Falls back to the disko module's
-      // per-platform default at eval time when empty.
-      expect(config.system.diskDevice, '');
-      // Bash is the default. Nushell stays available behind a
-      // Configure → system → shell flip.
-      expect(config.system.shell, 'bash');
-      expect(config.bitcoind.enabled, true);
-      expect(config.bitcoind.network, 'mainnet');
-      expect(config.bitcoind.pruned, true);
-      expect(config.bitcoind.pruneSizeGb, 550);
-      expect(config.lnd.enabled, false);
-      expect(config.cln.enabled, false);
-      expect(config.blitzApi.enabled, true);
-      expect(config.blitzWeb.enabled, true);
+  group('NixblitzConfig generic accessors', () {
+    test('appOption returns null for missing app', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      expect(c.appOption<bool>('bitcoind', 'enabled'), isNull);
+    });
+
+    test('appOption returns null for missing key', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true},
+        },
+      );
+      expect(c.appOption<String>('bitcoind', 'network'), isNull);
+    });
+
+    test('appOption returns null on type mismatch', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': 'yes'},
+        },
+      );
+      expect(c.appOption<bool>('bitcoind', 'enabled'), isNull);
+    });
+
+    test('appOption returns value on type match', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true, 'network': 'mainnet'},
+        },
+      );
+      expect(c.appOption<bool>('bitcoind', 'enabled'), isTrue);
+      expect(c.appOption<String>('bitcoind', 'network'), 'mainnet');
+    });
+
+    test('isAppEnabled reads from app_configs', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true},
+          'lnd': {'enabled': false},
+        },
+      );
+      expect(c.isAppEnabled('bitcoind'), isTrue);
+      expect(c.isAppEnabled('lnd'), isFalse);
+      expect(c.isAppEnabled('cln'), isFalse);
+    });
+
+    test('setAppOption creates app entry when absent', () {
+      final c0 = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      final c1 = c0.setAppOption('bitcoind', 'enabled', true);
+      expect(c1.appOption<bool>('bitcoind', 'enabled'), isTrue);
+    });
+
+    test('setAppOption preserves other apps + other keys within same app', () {
+      final c0 = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true, 'network': 'regtest'},
+          'lnd': {'enabled': true},
+        },
+      );
+      final c1 = c0.setAppOption('bitcoind', 'pruned', true);
+      expect(c1.appOption<bool>('bitcoind', 'enabled'), isTrue);
+      expect(c1.appOption<String>('bitcoind', 'network'), 'regtest');
+      expect(c1.appOption<bool>('bitcoind', 'pruned'), isTrue);
+      expect(c1.isAppEnabled('lnd'), isTrue);
+    });
+
+    test('toggleAppOption flips bool', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true},
+        },
+      );
+      expect(
+        c.toggleAppOption('bitcoind', 'enabled').isAppEnabled('bitcoind'),
+        isFalse,
+      );
+    });
+
+    test('toggleAppOption from missing → true', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      expect(
+        c.toggleAppOption('bitcoind', 'enabled').isAppEnabled('bitcoind'),
+        isTrue,
+      );
+    });
+
+    test('removeAppConfig is no-op when app absent', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true},
+        },
+      );
+      expect(c.removeAppConfig('lnd').appConfigs.length, c.appConfigs.length);
+    });
+
+    test('removeAppConfig drops the named app, preserves others', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true},
+          'lnd': {'enabled': true},
+        },
+      );
+      final c1 = c.removeAppConfig('bitcoind');
+      expect(c1.appConfigs.containsKey('bitcoind'), isFalse);
+      expect(c1.isAppEnabled('lnd'), isTrue);
+    });
+
+    test('appConfig returns empty map for absent app', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      expect(c.appConfig('bitcoind'), isEmpty);
+    });
+
+    test('appConfig returns full map for present app', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true, 'network': 'mainnet'},
+        },
+      );
+      expect(c.appConfig('bitcoind'), {'enabled': true, 'network': 'mainnet'});
+    });
+
+    test('setAppConfig replaces whole app config', () {
+      final c0 = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'bitcoind': {'enabled': true, 'network': 'mainnet'},
+        },
+      );
+      final c1 = c0.setAppConfig('bitcoind', {
+        'enabled': false,
+        'network': 'regtest',
+      });
+      expect(c1.appOption<bool>('bitcoind', 'enabled'), isFalse);
+      expect(c1.appOption<String>('bitcoind', 'network'), 'regtest');
+    });
+  });
+
+  group('NixblitzConfig.fromJson v18', () {
+    test('round-trip with five apps', () {
+      final systemJson = SystemConfig.defaults().toJson();
+      final json = <String, dynamic>{
+        'schema_version': 18,
+        'system': systemJson,
+        'app_configs': {
+          'bitcoind': {
+            'enabled': true,
+            'network': 'regtest',
+            'pruned': false,
+            'prune_size_gb': 0,
+          },
+          'lnd': {'enabled': true, 'alias': 'hello'},
+          'cln': {'enabled': false},
+          'blitz_api': {'enabled': true},
+          'blitz_web': {'enabled': true},
+        },
+      };
+      final c = NixblitzConfig.fromJson(json);
+      expect(c.schemaVersion, 18);
+      expect(c.isAppEnabled('bitcoind'), isTrue);
+      expect(c.appOption<String>('bitcoind', 'network'), 'regtest');
+      expect(c.appOption<String>('lnd', 'alias'), 'hello');
+      expect(c.isAppEnabled('cln'), isFalse);
+
+      final back = c.toJson();
+      expect(back['schema_version'], 18);
+      expect((back['app_configs'] as Map)['bitcoind']['network'], 'regtest');
+    });
+
+    test('empty app_configs', () {
+      final c = NixblitzConfig.fromJson({
+        'schema_version': 18,
+        'system': SystemConfig.defaults().toJson(),
+        'app_configs': <String, dynamic>{},
+      });
+      expect(c.isAppEnabled('bitcoind'), isFalse);
+    });
+
+    test('missing app_configs defaults to empty', () {
+      final c = NixblitzConfig.fromJson({
+        'schema_version': 18,
+        'system': SystemConfig.defaults().toJson(),
+      });
+      expect(c.appConfigs, isEmpty);
+    });
+  });
+
+  group('NixblitzConfig fields', () {
+    test('schemaVersion preserved through copyWith', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      expect(c.copyWith(system: SystemConfig.defaults()).schemaVersion, 18);
+    });
+
+    test('initialized round-trips through JSON', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        initialized: true,
+      );
+      final json = jsonDecode(jsonEncode(c.toJson())) as Map<String, dynamic>;
+      final r = NixblitzConfig.fromJson(json);
+      expect(r.initialized, isTrue);
+    });
+
+    test('setupStepCompleted nullable copyWith sentinel', () {
+      final c0 = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        setupStepCompleted: 'buildServices',
+      );
+      // Omit → inherit
+      final c1 = c0.copyWith(initialized: true);
+      expect(c1.setupStepCompleted, 'buildServices');
+      // Explicit null → clear
+      final c2 = c0.copyWith(setupStepCompleted: () => null);
+      expect(c2.setupStepCompleted, isNull);
+    });
+
+    test('plugins list round-trips empty', () {
+      final c = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      final json = c.toJson();
+      expect((json['plugins'] as List).isEmpty, isTrue);
+      final r = NixblitzConfig.fromJson(json);
+      expect(r.plugins, isEmpty);
     });
 
     test('disk_device round-trips through JSON', () {
-      // The post-install grub-install regression on bare-metal
-      // x86 was caused by this field NOT being persisted, so the
-      // installed system kept defaulting `disko.devices.disk.main.device`
-      // to /dev/vda even though disko-install partitioned /dev/sda.
-      // Pin the round-trip so a future refactor can't quietly
-      // drop the field.
-      final config = NixblitzConfig.defaults().copyWith(
-        system: NixblitzConfig.defaults().system.copyWith(
-          diskDevice: '/dev/sda',
-        ),
+      final config = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults().copyWith(diskDevice: '/dev/sda'),
       );
       final json =
           jsonDecode(jsonEncode(config.toJson())) as Map<String, dynamic>;
@@ -51,33 +281,10 @@ void main() {
       expect(restored.system.diskDevice, '/dev/sda');
     });
 
-    test('disk_device defaults to empty when missing from JSON', () {
-      // Configs from before v15 don't have disk_device. Reading
-      // them must not throw — the field falls through to the
-      // disko module's default. Regression guard for older
-      // installs upgrading.
-      final json = {
-        'version': 14,
-        'initialized': false,
-        'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
-        'bitcoind': {
-          'enabled': true,
-          'network': 'mainnet',
-          'pruned': true,
-          'prune_size_gb': 550,
-        },
-        'lnd': {'enabled': false, 'alias': ''},
-        'cln': {'enabled': false},
-        'blitz_api': {'enabled': false},
-        'blitz_web': {'enabled': false},
-      };
-      final config = NixblitzConfig.fromJson(json);
-      expect(config.system.diskDevice, '');
-    });
-
     test('shell round-trips through JSON', () {
-      final config = NixblitzConfig.defaults().copyWith(
-        system: NixblitzConfig.defaults().system.copyWith(shell: 'nushell'),
+      final config = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults().copyWith(shell: 'nushell'),
       );
       final json =
           jsonDecode(jsonEncode(config.toJson())) as Map<String, dynamic>;
@@ -86,120 +293,15 @@ void main() {
       expect(restored.system.shell, 'nushell');
     });
 
-    test('shell defaults to bash when missing from JSON', () {
-      // Configs from before v16 don't have system.shell. Reading
-      // them must not throw — the field falls through to the new
-      // bash default. Pre-v16 installs were running nushell
-      // implicitly (the old hard-coded default in base.nix), so
-      // this also encodes the upgrade-path behaviour: missing
-      // field → bash, on next Apply.
-      final json = {
-        'version': 15,
-        'initialized': false,
-        'system': {
-          'hostname': 'x',
-          'timezone': 'UTC',
-          'platform': 'x86',
-          'disk_device': '',
-        },
-        'bitcoind': {
-          'enabled': true,
-          'network': 'mainnet',
-          'pruned': true,
-          'prune_size_gb': 550,
-        },
-        'lnd': {'enabled': false, 'alias': ''},
-        'cln': {'enabled': false},
-        'blitz_api': {'enabled': false},
-        'blitz_web': {'enabled': false},
-      };
-      final config = NixblitzConfig.fromJson(json);
-      expect(config.system.shell, 'bash');
-    });
-
-    test('should include version in serialized JSON', () {
-      final config = NixblitzConfig.defaults();
-      final json = config.toJson();
-      expect(json['version'], currentConfigVersion);
-    });
-
-    test('should default to version 1 when version field is missing', () {
-      final json = {
-        'initialized': false,
-        'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
-        'bitcoind': {
-          'enabled': true,
-          'network': 'mainnet',
-          'pruned': true,
-          'prune_size_gb': 550,
-        },
-        'lnd': {'enabled': false, 'alias': ''},
-        'cln': {'enabled': false},
-        'blitz_api': {'enabled': false},
-        'blitz_web': {'enabled': false},
-      };
-      final config = NixblitzConfig.fromJson(json);
-      expect(config.version, currentConfigVersion);
-    });
-
-    test(
-      'should preserve unknown fields from newer config (forward compat)',
-      () {
-        final json = {
-          'version': 999,
-          'initialized': true,
-          'system': {
-            'hostname': 'future',
-            'timezone': 'UTC',
-            'platform': 'x86',
-          },
-          'bitcoind': {
-            'enabled': true,
-            'network': 'mainnet',
-            'pruned': true,
-            'prune_size_gb': 550,
-          },
-          'lnd': {'enabled': false, 'alias': ''},
-          'cln': {'enabled': false},
-          'blitz_api': {'enabled': false},
-          'blitz_web': {'enabled': false},
-          'newer_service': {'enabled': true, 'endpoint': 'localhost:1234'},
-        };
-        final config = NixblitzConfig.fromJson(json);
-        expect(config.version, 999);
-        final reencoded = config.toJson();
-        expect(reencoded['newer_service'], {
-          'enabled': true,
-          'endpoint': 'localhost:1234',
-        });
-      },
-    );
-
-    test('should preserve version through copyWith', () {
-      final config = NixblitzConfig.defaults();
-      final modified = config.copyWith(initialized: true);
-      expect(modified.version, currentConfigVersion);
-    });
-
     test(
       'should throw ConfigTooNewException when min_compatible_version is higher',
       () {
         final tooNewMin = currentConfigVersion + 2;
         final json = {
-          'version': tooNewMin + 2,
+          'schema_version': tooNewMin + 2,
           'min_compatible_version': tooNewMin,
-          'initialized': false,
-          'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
-          'bitcoind': {
-            'enabled': true,
-            'network': 'mainnet',
-            'pruned': true,
-            'prune_size_gb': 550,
-          },
-          'lnd': {'enabled': false, 'alias': ''},
-          'cln': {'enabled': false},
-          'blitz_api': {'enabled': false},
-          'blitz_web': {'enabled': false},
+          'system': SystemConfig.defaults().toJson(),
+          'app_configs': <String, dynamic>{},
         };
         expect(
           () => NixblitzConfig.fromJson(json),
@@ -207,218 +309,38 @@ void main() {
         );
       },
     );
+  });
 
-    test(
-      'should preserve configMinCompatibleVersion from file on write-back',
-      () {
-        // Newer TUI wrote a config with its own min_compatible_version. An
-        // older TUI at the same version reads it, modifies it, writes it
-        // back — the min should survive the round-trip unchanged.
-        final json = {
-          'version': currentConfigVersion,
-          'min_compatible_version': minCompatibleVersion,
-          'initialized': true,
-          'system': {'hostname': 'x', 'timezone': 'UTC', 'platform': 'x86'},
-          'bitcoind': {
-            'enabled': true,
-            'network': 'mainnet',
-            'pruned': true,
-            'prune_size_gb': 550,
-          },
-          'lnd': {'enabled': false, 'alias': ''},
-          'cln': {'enabled': false},
-          'blitz_api': {'enabled': false},
-          'blitz_web': {'enabled': false},
-        };
-        final config = NixblitzConfig.fromJson(json);
-        expect(config.configMinCompatibleVersion, minCompatibleVersion);
-        final written = config.toJson();
-        expect(written['min_compatible_version'], minCompatibleVersion);
-        expect(written['version'], currentConfigVersion);
-      },
-    );
-
-    test('should write current minCompatibleVersion for fresh configs', () {
-      final config = NixblitzConfig.defaults();
-      final json = config.toJson();
-      expect(json['min_compatible_version'], minCompatibleVersion);
+  group('SystemConfig', () {
+    test('defaults are correct', () {
+      final s = SystemConfig.defaults();
+      expect(s.hostname, 'nixblitz');
+      expect(s.timezone, 'UTC');
+      expect(s.platform, 'x86');
+      expect(s.diskDevice, '');
+      expect(s.shell, 'bash');
     });
 
-    test('should round-trip via JSON without losing version', () {
-      final config = NixblitzConfig.defaults().copyWith(initialized: true);
-      final json = jsonEncode(config.toJson());
-      final restored = NixblitzConfig.fromJson(jsonDecode(json));
-      expect(restored.version, currentConfigVersion);
-    });
-
-    test(
-      'older TUI reading newer config then writing back preserves forward-compat fields',
-      () {
-        // Simulate: newer TUI wrote v999 with extra sections.
-        // Older TUI (at currentConfigVersion) reads it, makes a change,
-        // and writes it back. The unknown fields must survive.
-        final newerJson = {
-          'version': 999,
-          'initialized': true,
-          'system': {'hostname': 'host', 'timezone': 'UTC', 'platform': 'x86'},
-          'bitcoind': {
-            'enabled': true,
-            'network': 'mainnet',
-            'pruned': true,
-            'prune_size_gb': 550,
-          },
-          'lnd': {'enabled': false, 'alias': ''},
-          'cln': {'enabled': false},
-          'blitz_api': {'enabled': false},
-          'blitz_web': {'enabled': false},
-          'zeus': {'enabled': true, 'port': 9999},
-          'nostr_relay': {'enabled': false},
-        };
-
-        // Read with older TUI
-        final config = NixblitzConfig.fromJson(newerJson);
-        expect(config.version, 999);
-
-        // Older TUI modifies a known field
-        final modified = config.copyWith(
-          bitcoind: config.bitcoind.copyWith(network: 'testnet'),
-        );
-
-        // Write back
-        final written = modified.toJson();
-
-        // Forward-compat fields still there
-        expect(written['zeus'], {'enabled': true, 'port': 9999});
-        expect(written['nostr_relay'], {'enabled': false});
-
-        // Version preserved (older TUI doesn't downgrade newer configs)
-        expect(written['version'], 999);
-
-        // Modified field is updated
-        expect((written['bitcoind'] as Map)['network'], 'testnet');
-      },
-    );
-
-    test('should serialize to JSON and back', () {
-      final config = NixblitzConfig.defaults();
-      final json = jsonEncode(config.toJson());
-      final restored = NixblitzConfig.fromJson(jsonDecode(json));
-      expect(restored.initialized, config.initialized);
-      expect(restored.system.hostname, config.system.hostname);
-      expect(restored.bitcoind.network, config.bitcoind.network);
-      expect(restored.lnd.enabled, config.lnd.enabled);
-    });
-
-    test('should produce diff description for changed fields', () {
-      final before = NixblitzConfig.defaults();
-      final after = before.copyWith(
-        bitcoind: before.bitcoind.copyWith(network: 'testnet'),
+    test('round-trips through JSON', () {
+      final s = SystemConfig(
+        hostname: 'mynode',
+        timezone: 'Europe/Berlin',
+        platform: 'rpi4',
+        diskDevice: '/dev/sda',
+        shell: 'nushell',
       );
-      final diff = after.diffFrom(before);
-      expect(diff, contains('bitcoind'));
-      expect(diff, contains('testnet'));
+      final r = SystemConfig.fromJson(s.toJson());
+      expect(r, s);
     });
 
-    group('diffKeysFrom', () {
-      test('returns empty set for equal configs', () {
-        final a = NixblitzConfig.defaults();
-        final b = NixblitzConfig.defaults();
-        expect(a.diffKeysFrom(b), isEmpty);
+    test('missing fields default correctly', () {
+      final s = SystemConfig.fromJson({
+        'hostname': 'x',
+        'timezone': 'UTC',
+        'platform': 'x86',
       });
-
-      test('flags single field changed in each section', () {
-        final base = NixblitzConfig.defaults();
-
-        final sys = base.copyWith(
-          system: base.system.copyWith(hostname: 'newname'),
-        );
-        expect(sys.diffKeysFrom(base), {'system.hostname'});
-
-        final btc = base.copyWith(
-          bitcoind: base.bitcoind.copyWith(pruned: !base.bitcoind.pruned),
-        );
-        expect(btc.diffKeysFrom(base), {'bitcoind.pruned'});
-
-        final lnd = base.copyWith(lnd: base.lnd.copyWith(alias: 'MyNode'));
-        expect(lnd.diffKeysFrom(base), {'lnd.alias'});
-
-        final cln = base.copyWith(
-          cln: base.cln.copyWith(enabled: !base.cln.enabled),
-        );
-        expect(cln.diffKeysFrom(base), {'cln.enabled'});
-
-        final api = base.copyWith(
-          blitzApi: base.blitzApi.copyWith(enabled: !base.blitzApi.enabled),
-        );
-        expect(api.diffKeysFrom(base), {'blitz_api.enabled'});
-
-        final web = base.copyWith(
-          blitzWeb: base.blitzWeb.copyWith(enabled: !base.blitzWeb.enabled),
-        );
-        expect(web.diffKeysFrom(base), {'blitz_web.enabled'});
-      });
-
-      test('flags multiple sections at once with snake_case keys', () {
-        final base = NixblitzConfig.defaults();
-        final after = base.copyWith(
-          system: base.system.copyWith(hostname: 'foo'),
-          bitcoind: base.bitcoind.copyWith(pruneSizeGb: 1024),
-          lnd: base.lnd.copyWith(alias: 'bar'),
-        );
-        // The numeric-field assertion specifically guards the
-        // snake_case requirement that diffKeysFrom must mirror
-        // toJson()'s key shape — Configure view's
-        // _pendingKeyFor lookup depends on this.
-        expect(after.diffKeysFrom(base), {
-          'system.hostname',
-          'bitcoind.prune_size_gb',
-          'lnd.alias',
-        });
-      });
-
-      test('flags top-level field toggles', () {
-        final base = NixblitzConfig.defaults();
-        final after = base.copyWith(
-          initialized: !base.initialized,
-          setupStepCompleted: () => 'buildServices',
-        );
-        expect(after.diffKeysFrom(base), {
-          'initialized',
-          'setup_step_completed',
-        });
-      });
-
-      test('ignores _extra (forward-compat) fields', () {
-        // Round-trip a config that carries an unknown field
-        // through fromJson/_extra. diffKeysFrom must not
-        // surface that field — it's not operator-visible and
-        // doesn't have a Configure-view row to mark.
-        final base = NixblitzConfig.defaults();
-        final json = base.toJson()..['some_future_field'] = {'a': 1};
-        final withExtra = NixblitzConfig.fromJson(json);
-        expect(withExtra.diffKeysFrom(base), isEmpty);
-      });
-    });
-
-    test('should round-trip unknown fields in JSON', () {
-      final json = {
-        'initialized': false,
-        'system': {'hostname': 'test', 'timezone': 'UTC', 'platform': 'x86'},
-        'bitcoind': {
-          'enabled': true,
-          'network': 'mainnet',
-          'pruned': false,
-          'prune_size_gb': 550,
-        },
-        'lnd': {'enabled': false, 'alias': ''},
-        'cln': {'enabled': false},
-        'blitz_api': {'enabled': false},
-        'blitz_web': {'enabled': false},
-        'some_future_field': {'value': 42},
-      };
-      final config = NixblitzConfig.fromJson(json);
-      final reencoded = config.toJson();
-      expect(reencoded['some_future_field'], {'value': 42});
+      expect(s.diskDevice, '');
+      expect(s.shell, 'bash');
     });
   });
 }

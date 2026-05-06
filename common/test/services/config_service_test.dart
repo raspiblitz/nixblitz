@@ -29,7 +29,10 @@ void main() {
         expect(service.configExists(), true);
         final restored = await service.readConfig();
         expect(restored.system.hostname, config.system.hostname);
-        expect(restored.bitcoind.network, config.bitcoind.network);
+        expect(
+          restored.appOption<String>('bitcoind', 'network'),
+          config.appOption<String>('bitcoind', 'network'),
+        );
       },
     );
 

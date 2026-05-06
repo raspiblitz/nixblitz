@@ -85,167 +85,11 @@ class SystemConfig {
       Object.hash(hostname, timezone, platform, diskDevice, shell);
 }
 
-class BitcoindConfig {
-  final bool enabled;
-  final String network;
-  final bool pruned;
-  final int pruneSizeGb;
-
-  const BitcoindConfig({
-    required this.enabled,
-    required this.network,
-    required this.pruned,
-    required this.pruneSizeGb,
-  });
-
-  factory BitcoindConfig.defaults() => const BitcoindConfig(
-    enabled: true,
-    network: 'mainnet',
-    pruned: true,
-    pruneSizeGb: 550,
-  );
-
-  factory BitcoindConfig.fromJson(Map<String, dynamic> json) => BitcoindConfig(
-    enabled: json['enabled'] as bool? ?? true,
-    network: json['network'] as String? ?? 'mainnet',
-    pruned: json['pruned'] as bool? ?? true,
-    pruneSizeGb: json['prune_size_gb'] as int? ?? 550,
-  );
-
-  Map<String, dynamic> toJson() => {
-    'enabled': enabled,
-    'network': network,
-    'pruned': pruned,
-    'prune_size_gb': pruneSizeGb,
-  };
-
-  BitcoindConfig copyWith({
-    bool? enabled,
-    String? network,
-    bool? pruned,
-    int? pruneSizeGb,
-  }) => BitcoindConfig(
-    enabled: enabled ?? this.enabled,
-    network: network ?? this.network,
-    pruned: pruned ?? this.pruned,
-    pruneSizeGb: pruneSizeGb ?? this.pruneSizeGb,
-  );
-
-  @override
-  bool operator ==(Object other) =>
-      other is BitcoindConfig &&
-      other.enabled == enabled &&
-      other.network == network &&
-      other.pruned == pruned &&
-      other.pruneSizeGb == pruneSizeGb;
-
-  @override
-  int get hashCode => Object.hash(enabled, network, pruned, pruneSizeGb);
-}
-
-class LndConfig {
-  final bool enabled;
-  final String alias;
-
-  const LndConfig({required this.enabled, required this.alias});
-
-  factory LndConfig.defaults() => const LndConfig(enabled: false, alias: '');
-
-  factory LndConfig.fromJson(Map<String, dynamic> json) => LndConfig(
-    enabled: json['enabled'] as bool? ?? false,
-    alias: json['alias'] as String? ?? '',
-  );
-
-  Map<String, dynamic> toJson() => {'enabled': enabled, 'alias': alias};
-
-  LndConfig copyWith({bool? enabled, String? alias}) =>
-      LndConfig(enabled: enabled ?? this.enabled, alias: alias ?? this.alias);
-
-  @override
-  bool operator ==(Object other) =>
-      other is LndConfig && other.enabled == enabled && other.alias == alias;
-
-  @override
-  int get hashCode => Object.hash(enabled, alias);
-}
-
-class ClnConfig {
-  final bool enabled;
-
-  const ClnConfig({required this.enabled});
-
-  factory ClnConfig.defaults() => const ClnConfig(enabled: false);
-
-  factory ClnConfig.fromJson(Map<String, dynamic> json) =>
-      ClnConfig(enabled: json['enabled'] as bool? ?? false);
-
-  Map<String, dynamic> toJson() => {'enabled': enabled};
-
-  ClnConfig copyWith({bool? enabled}) =>
-      ClnConfig(enabled: enabled ?? this.enabled);
-
-  @override
-  bool operator ==(Object other) =>
-      other is ClnConfig && other.enabled == enabled;
-
-  @override
-  int get hashCode => enabled.hashCode;
-}
-
-class BlitzApiConfig {
-  final bool enabled;
-
-  const BlitzApiConfig({required this.enabled});
-
-  factory BlitzApiConfig.defaults() => const BlitzApiConfig(enabled: true);
-
-  factory BlitzApiConfig.fromJson(Map<String, dynamic> json) =>
-      BlitzApiConfig(enabled: json['enabled'] as bool? ?? true);
-
-  Map<String, dynamic> toJson() => {'enabled': enabled};
-
-  BlitzApiConfig copyWith({bool? enabled}) =>
-      BlitzApiConfig(enabled: enabled ?? this.enabled);
-
-  @override
-  bool operator ==(Object other) =>
-      other is BlitzApiConfig && other.enabled == enabled;
-
-  @override
-  int get hashCode => enabled.hashCode;
-}
-
-class BlitzWebConfig {
-  final bool enabled;
-
-  const BlitzWebConfig({required this.enabled});
-
-  factory BlitzWebConfig.defaults() => const BlitzWebConfig(enabled: true);
-
-  factory BlitzWebConfig.fromJson(Map<String, dynamic> json) =>
-      BlitzWebConfig(enabled: json['enabled'] as bool? ?? true);
-
-  Map<String, dynamic> toJson() => {'enabled': enabled};
-
-  BlitzWebConfig copyWith({bool? enabled}) =>
-      BlitzWebConfig(enabled: enabled ?? this.enabled);
-
-  @override
-  bool operator ==(Object other) =>
-      other is BlitzWebConfig && other.enabled == enabled;
-
-  @override
-  int get hashCode => enabled.hashCode;
-}
-
 class NixblitzConfig {
-  final int version;
+  final int schemaVersion;
 
   /// The minimum TUI schema version required to safely read this config.
   /// Preserved from the file if present, otherwise defaults to [minCompatibleVersion].
-  /// This means: if a newer TUI wrote v5 requiring min v3, an older TUI at v3
-  /// or v4 reading this config preserves the "min v3" on write-back, so even
-  /// older TUIs (v1, v2) continue to be blocked.
   final int configMinCompatibleVersion;
 
   final bool initialized;
@@ -270,156 +114,94 @@ class NixblitzConfig {
   final String? setupStepCompleted;
 
   final SystemConfig system;
-  final BitcoindConfig bitcoind;
-  final LndConfig lnd;
-  final ClnConfig cln;
-  final BlitzApiConfig blitzApi;
-  final BlitzWebConfig blitzWeb;
+
+  /// Generic per-app config storage. Key is the app identifier
+  /// (e.g. `"bitcoind"`, `"lnd"`, `"cln"`, `"blitz_api"`,
+  /// `"blitz_web"`); value is the app's flat config map.
+  /// Use [appOption], [isAppEnabled], [setAppOption], etc. for
+  /// type-safe access.
+  final Map<String, Map<String, dynamic>> appConfigs;
+
   final List<PluginEntry> plugins;
   final Map<String, dynamic> _extra;
 
   const NixblitzConfig({
-    this.version = currentConfigVersion,
+    this.schemaVersion = currentConfigVersion,
     this.configMinCompatibleVersion = minCompatibleVersion,
-    required this.initialized,
+    this.initialized = false,
     this.setupStepCompleted,
     required this.system,
-    required this.bitcoind,
-    required this.lnd,
-    required this.cln,
-    required this.blitzApi,
-    required this.blitzWeb,
+    this.appConfigs = const {},
     this.plugins = const [],
     Map<String, dynamic> extra = const {},
   }) : _extra = extra;
 
   factory NixblitzConfig.defaults() => NixblitzConfig(
-    initialized: false,
-    setupStepCompleted: null,
     system: SystemConfig.defaults(),
-    bitcoind: BitcoindConfig.defaults(),
-    lnd: LndConfig.defaults(),
-    cln: ClnConfig.defaults(),
-    blitzApi: BlitzApiConfig.defaults(),
-    blitzWeb: BlitzWebConfig.defaults(),
+    appConfigs: const {
+      'bitcoind': {
+        'enabled': true,
+        'network': 'mainnet',
+        'pruned': true,
+        'prune_size_gb': 550,
+      },
+      'lnd': {'enabled': false, 'alias': ''},
+      'cln': {'enabled': false},
+      'blitz_api': {'enabled': true},
+      'blitz_web': {'enabled': true},
+    },
   );
 
-  static const _knownKeys = {
-    'version',
-    'min_compatible_version',
-    'initialized',
-    'setup_step_completed',
-    'system',
-    'bitcoind',
-    'lnd',
-    'cln',
-    'blitz_api',
-    'blitz_web',
-    'plugins',
-  };
+  // ── generic accessors ──────────────────────────────────────────────
 
-  /// Parse a config from JSON. Runs migrations if the version is older than
-  /// the current one. Unknown fields (future versions) are preserved in
-  /// `_extra` and written back out on save.
-  ///
-  /// Throws [ConfigTooNewException] if the config was written by a TUI that
-  /// declared a higher minimum compatible version than this TUI supports.
-  factory NixblitzConfig.fromJson(Map<String, dynamic> json) {
-    // Check minimum compatible version — if the config was written by a newer
-    // TUI that declared a breaking change, refuse to load it.
-    final configMinVersion = json['min_compatible_version'] as int? ?? 1;
-    if (configMinVersion > currentConfigVersion) {
-      throw ConfigTooNewException(configMinVersion, currentConfigVersion);
-    }
-
-    // Run migrations if needed (noop if already current version)
-    final migrated =
-        json.containsKey('version') &&
-            (json['version'] as int) >= currentConfigVersion
-        ? json
-        : migrateConfig(json);
-
-    final extra = <String, dynamic>{};
-    for (final entry in migrated.entries) {
-      if (!_knownKeys.contains(entry.key)) {
-        extra[entry.key] = entry.value;
-      }
-    }
-
-    return NixblitzConfig(
-      version: (migrated['version'] as int?) ?? currentConfigVersion,
-      // Preserve max(file's min, our min) — never weaken protection.
-      configMinCompatibleVersion: configMinVersion > minCompatibleVersion
-          ? configMinVersion
-          : minCompatibleVersion,
-      initialized: migrated['initialized'] as bool? ?? false,
-      // Old configs predate this field. Two cases to handle on
-      // load:
-      //   - `initialized=false`: fresh / never started → null,
-      //     wizard begins at the first step.
-      //   - `initialized=true`: a previous wizard run ran the
-      //     services build before this field existed. We don't
-      //     know whether it then finished, so be conservative
-      //     and treat the operator as "got past buildServices
-      //     but no further" — wizard resumes at waitBitcoind.
-      //     Already-finished operators see one extra prompt
-      //     (which they confirm and never see again); the
-      //     alternative is leaving stuck-mid-wizard users
-      //     unable to resume.
-      setupStepCompleted:
-          migrated['setup_step_completed'] as String? ??
-          ((migrated['initialized'] as bool? ?? false)
-              ? 'buildServices'
-              : null),
-      system: migrated['system'] != null
-          ? SystemConfig.fromJson(migrated['system'] as Map<String, dynamic>)
-          : SystemConfig.defaults(),
-      bitcoind: migrated['bitcoind'] != null
-          ? BitcoindConfig.fromJson(
-              migrated['bitcoind'] as Map<String, dynamic>,
-            )
-          : BitcoindConfig.defaults(),
-      lnd: migrated['lnd'] != null
-          ? LndConfig.fromJson(migrated['lnd'] as Map<String, dynamic>)
-          : LndConfig.defaults(),
-      cln: migrated['cln'] != null
-          ? ClnConfig.fromJson(migrated['cln'] as Map<String, dynamic>)
-          : ClnConfig.defaults(),
-      blitzApi: migrated['blitz_api'] != null
-          ? BlitzApiConfig.fromJson(
-              migrated['blitz_api'] as Map<String, dynamic>,
-            )
-          : BlitzApiConfig.defaults(),
-      blitzWeb: migrated['blitz_web'] != null
-          ? BlitzWebConfig.fromJson(
-              migrated['blitz_web'] as Map<String, dynamic>,
-            )
-          : BlitzWebConfig.defaults(),
-      plugins:
-          (migrated['plugins'] as List<dynamic>?)
-              ?.map((e) => PluginEntry.fromJson(e as Map<String, dynamic>))
-              .toList(growable: false) ??
-          const [],
-      extra: extra,
-    );
+  /// Read a single config value for an app. Returns null if the app or
+  /// key is missing, or the stored value's type doesn't match T.
+  T? appOption<T>(String app, String key) {
+    final m = appConfigs[app];
+    if (m == null) return null;
+    final v = m[key];
+    return v is T ? v : null;
   }
 
-  Map<String, dynamic> toJson() => {
-    'version': version,
-    'min_compatible_version': configMinCompatibleVersion,
-    'initialized': initialized,
-    'setup_step_completed': setupStepCompleted,
-    'system': system.toJson(),
-    'bitcoind': bitcoind.toJson(),
-    'lnd': lnd.toJson(),
-    'cln': cln.toJson(),
-    'blitz_api': blitzApi.toJson(),
-    'blitz_web': blitzWeb.toJson(),
-    'plugins': plugins.map((p) => p.toJson()).toList(),
-    ..._extra,
-  };
+  /// Read an app's whole config map (empty map if app is absent).
+  Map<String, dynamic> appConfig(String app) => appConfigs[app] ?? const {};
 
-  String toJsonString() => const JsonEncoder.withIndent('  ').convert(toJson());
+  /// Returns whether an app is enabled. Convenience over
+  /// `appOption<bool>(app, 'enabled') ?? false`.
+  bool isAppEnabled(String app) => appOption<bool>(app, 'enabled') ?? false;
+
+  /// Set a single value, returning a new NixblitzConfig. Creates the app
+  /// entry if absent.
+  NixblitzConfig setAppOption(String app, String key, Object? value) {
+    final current = appConfigs[app] ?? const <String, dynamic>{};
+    final next = {
+      ...appConfigs,
+      app: {...current, key: value},
+    };
+    return copyWith(appConfigs: next);
+  }
+
+  /// Toggle a bool option; convenience over read+set.
+  NixblitzConfig toggleAppOption(String app, String key) {
+    final current = appOption<bool>(app, key) ?? false;
+    return setAppOption(app, key, !current);
+  }
+
+  /// Replace an app's whole config.
+  NixblitzConfig setAppConfig(String app, Map<String, dynamic> config) {
+    final next = {...appConfigs, app: config};
+    return copyWith(appConfigs: next);
+  }
+
+  /// Remove an app's config entirely (for plugin-uninstall scenarios in
+  /// later phases; harmless if app is absent).
+  NixblitzConfig removeAppConfig(String app) {
+    if (!appConfigs.containsKey(app)) return this;
+    final next = {...appConfigs}..remove(app);
+    return copyWith(appConfigs: next);
+  }
+
+  // ── diff helpers ───────────────────────────────────────────────────
 
   /// Returns a human-readable description of changes from [other] to this.
   String diffFrom(NixblitzConfig other) {
@@ -435,7 +217,6 @@ class NixblitzConfig {
       );
     }
 
-    // Compare sub-configs via JSON serialization to catch any field changes.
     void compareSection(
       String name,
       Map<String, dynamic> after,
@@ -456,33 +237,28 @@ class NixblitzConfig {
     }
 
     compareSection('system', system.toJson(), other.system.toJson());
-    compareSection('bitcoind', bitcoind.toJson(), other.bitcoind.toJson());
-    compareSection('lnd', lnd.toJson(), other.lnd.toJson());
-    compareSection('cln', cln.toJson(), other.cln.toJson());
-    compareSection('blitz_api', blitzApi.toJson(), other.blitzApi.toJson());
-    compareSection('blitz_web', blitzWeb.toJson(), other.blitzWeb.toJson());
+
+    final allApps = {...appConfigs.keys, ...other.appConfigs.keys};
+    for (final app in allApps) {
+      compareSection(
+        app,
+        appConfigs[app] ?? const {},
+        other.appConfigs[app] ?? const {},
+      );
+    }
 
     return changes.join('\n');
   }
 
   /// Structured per-key diff against [other]. Returns dotted-path
   /// keys whose live value differs, using the JSON snake_case
-  /// names that [toJson] emits — e.g. `{"system.hostname",
-  /// "lnd.alias", "bitcoind.prune_size_gb"}`. Top-level fields
-  /// use bare names (`"initialized"`, `"setup_step_completed"`).
+  /// names — e.g. `{"system.hostname", "lnd.alias",
+  /// "bitcoind.prune_size_gb"}`. Top-level fields use bare names
+  /// (`"initialized"`, `"setup_step_completed"`).
   ///
   /// Used by `pendingChangeKeysProvider` to drive Configure-view
   /// per-row pending markers and the dashboard header's
-  /// `X pending / in sync` status segment. The string-returning
-  /// [diffFrom] stays around for the Apply view's free-text diff
-  /// render — different consumers, different shapes.
-  ///
-  /// Plugins are deliberately skipped: their per-key diff would
-  /// also need plugin-specific config-schema awareness which
-  /// lives outside this model. File-level porcelain still picks
-  /// them up via the dashboard banner. `_extra` (forward-compat
-  /// unknown fields) is also skipped — round-tripped transparently
-  /// and not surfaced to operators.
+  /// `X pending / in sync` status segment.
   Set<String> diffKeysFrom(NixblitzConfig other) {
     final keys = <String>{};
 
@@ -491,9 +267,6 @@ class NixblitzConfig {
       keys.add('setup_step_completed');
     }
 
-    // Same per-section toJson() comparison as diffFrom — every
-    // field appearing in toJson is automatically covered, so new
-    // sub-config fields don't need a corresponding edit here.
     void compareSection(
       String name,
       Map<String, dynamic> after,
@@ -506,36 +279,136 @@ class NixblitzConfig {
     }
 
     compareSection('system', system.toJson(), other.system.toJson());
-    compareSection('bitcoind', bitcoind.toJson(), other.bitcoind.toJson());
-    compareSection('lnd', lnd.toJson(), other.lnd.toJson());
-    compareSection('cln', cln.toJson(), other.cln.toJson());
-    compareSection('blitz_api', blitzApi.toJson(), other.blitzApi.toJson());
-    compareSection('blitz_web', blitzWeb.toJson(), other.blitzWeb.toJson());
+
+    final allApps = {...appConfigs.keys, ...other.appConfigs.keys};
+    for (final app in allApps) {
+      compareSection(
+        app,
+        appConfigs[app] ?? const {},
+        other.appConfigs[app] ?? const {},
+      );
+    }
 
     return keys;
   }
 
+  // ── serialization ──────────────────────────────────────────────────
+
+  /// Parse a config from JSON. Runs migrations if the schema version is
+  /// older than the current one. Unknown top-level fields (future versions)
+  /// are preserved in `_extra` and written back out on save.
+  ///
+  /// Throws [ConfigTooNewException] if the config was written by a TUI that
+  /// declared a higher minimum compatible version than this TUI supports.
+  factory NixblitzConfig.fromJson(Map<String, dynamic> json) {
+    // Check minimum compatible version — if the config was written by a newer
+    // TUI that declared a breaking change, refuse to load it.
+    final configMinVersion = json['min_compatible_version'] as int? ?? 1;
+    if (configMinVersion > currentConfigVersion) {
+      throw ConfigTooNewException(configMinVersion, currentConfigVersion);
+    }
+
+    // Run migrations if needed (noop if already current version).
+    // Use 'schema_version' as the canonical key (v18+); fall back to 'version'
+    // for pre-v18 configs on disk.
+    final rawVersion =
+        (json['schema_version'] as int?) ?? (json['version'] as int?);
+    final migrated = rawVersion != null && rawVersion >= currentConfigVersion
+        ? json
+        : migrateConfig(
+            // Normalise: if we have schema_version but no version, add it so
+            // migrateConfig's version-based dispatch works.
+            rawVersion == null ? json : {...json, 'version': rawVersion},
+          );
+
+    // Parse app_configs generic map.
+    final raw = migrated['app_configs'] as Map?;
+    final apps = <String, Map<String, dynamic>>{};
+    if (raw != null) {
+      for (final entry in raw.entries) {
+        final v = entry.value;
+        if (v is Map) {
+          apps[entry.key as String] = Map<String, dynamic>.from(v);
+        }
+      }
+    }
+
+    // Collect unknown top-level fields for forward-compatibility.
+    const knownKeys = {
+      'schema_version',
+      'version', // legacy alias, consumed during migration
+      'min_compatible_version',
+      'initialized',
+      'setup_step_completed',
+      'system',
+      'app_configs',
+      'plugins',
+    };
+    final extra = <String, dynamic>{};
+    for (final entry in migrated.entries) {
+      if (!knownKeys.contains(entry.key)) {
+        extra[entry.key] = entry.value;
+      }
+    }
+
+    return NixblitzConfig(
+      schemaVersion:
+          (migrated['schema_version'] as int?) ??
+          (migrated['version'] as int?) ??
+          currentConfigVersion,
+      configMinCompatibleVersion: configMinVersion > minCompatibleVersion
+          ? configMinVersion
+          : minCompatibleVersion,
+      initialized: migrated['initialized'] as bool? ?? false,
+      setupStepCompleted:
+          migrated['setup_step_completed'] as String? ??
+          ((migrated['initialized'] as bool? ?? false)
+              ? 'buildServices'
+              : null),
+      system: migrated['system'] != null
+          ? SystemConfig.fromJson(migrated['system'] as Map<String, dynamic>)
+          : SystemConfig.defaults(),
+      appConfigs: apps,
+      plugins:
+          (migrated['plugins'] as List<dynamic>?)
+              ?.map((e) => PluginEntry.fromJson(e as Map<String, dynamic>))
+              .toList(growable: false) ??
+          const [],
+      extra: extra,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'schema_version': schemaVersion,
+    'min_compatible_version': configMinCompatibleVersion,
+    'initialized': initialized,
+    'setup_step_completed': setupStepCompleted,
+    'system': system.toJson(),
+    'app_configs': appConfigs,
+    'plugins': plugins.map((p) => p.toJson()).toList(),
+    ..._extra,
+  };
+
+  String toJsonString() => const JsonEncoder.withIndent('  ').convert(toJson());
+
+  // ── copyWith ───────────────────────────────────────────────────────
+
   NixblitzConfig copyWith({
-    int? version,
+    int? schemaVersion,
     int? configMinCompatibleVersion,
     bool? initialized,
     // Wrapped in a function-typed sentinel because this field
     // is nullable — a plain `String? setupStepCompleted` can't
     // distinguish "leave as-is" from "explicitly clear to null".
     // Pass `() => null` to clear, `() => "stepName"` to set,
-    // omit entirely to inherit. (Matches Dart's idiom for
-    // copyWith on optional nullable fields.)
+    // omit entirely to inherit.
     String? Function()? setupStepCompleted,
     SystemConfig? system,
-    BitcoindConfig? bitcoind,
-    LndConfig? lnd,
-    ClnConfig? cln,
-    BlitzApiConfig? blitzApi,
-    BlitzWebConfig? blitzWeb,
+    Map<String, Map<String, dynamic>>? appConfigs,
     List<PluginEntry>? plugins,
     Map<String, dynamic>? extra,
   }) => NixblitzConfig(
-    version: version ?? this.version,
+    schemaVersion: schemaVersion ?? this.schemaVersion,
     configMinCompatibleVersion:
         configMinCompatibleVersion ?? this.configMinCompatibleVersion,
     initialized: initialized ?? this.initialized,
@@ -543,12 +416,58 @@ class NixblitzConfig {
         ? this.setupStepCompleted
         : setupStepCompleted(),
     system: system ?? this.system,
-    bitcoind: bitcoind ?? this.bitcoind,
-    lnd: lnd ?? this.lnd,
-    cln: cln ?? this.cln,
-    blitzApi: blitzApi ?? this.blitzApi,
-    blitzWeb: blitzWeb ?? this.blitzWeb,
+    appConfigs: appConfigs ?? this.appConfigs,
     plugins: plugins ?? this.plugins,
     extra: extra ?? _extra,
   );
+
+  // ── equality ───────────────────────────────────────────────────────
+
+  @override
+  bool operator ==(Object other) =>
+      other is NixblitzConfig &&
+      other.schemaVersion == schemaVersion &&
+      other.configMinCompatibleVersion == configMinCompatibleVersion &&
+      other.initialized == initialized &&
+      other.setupStepCompleted == setupStepCompleted &&
+      other.system == system &&
+      _appConfigsEqual(other.appConfigs, appConfigs);
+
+  @override
+  int get hashCode => Object.hash(
+    schemaVersion,
+    configMinCompatibleVersion,
+    initialized,
+    setupStepCompleted,
+    system,
+    _appConfigsHash(appConfigs),
+  );
+}
+
+bool _appConfigsEqual(
+  Map<String, Map<String, dynamic>> a,
+  Map<String, Map<String, dynamic>> b,
+) {
+  if (a.length != b.length) return false;
+  for (final k in a.keys) {
+    final ma = a[k];
+    final mb = b[k];
+    if (mb == null || ma!.length != mb.length) return false;
+    for (final mk in ma.keys) {
+      if (ma[mk] != mb[mk]) return false;
+    }
+  }
+  return true;
+}
+
+int _appConfigsHash(Map<String, Map<String, dynamic>> m) {
+  var h = 0;
+  for (final entry in m.entries) {
+    var inner = 0;
+    for (final ie in entry.value.entries) {
+      inner ^= Object.hash(ie.key, ie.value);
+    }
+    h ^= Object.hash(entry.key, inner);
+  }
+  return h;
 }
