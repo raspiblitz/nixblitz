@@ -462,7 +462,8 @@ in {
   # Auto-enabled whenever bitcoind is on regtest; off on any real network.
   features.system.testLnd.enable =
     (appEnabled "bitcoind")
-    && (appOpt "bitcoind" "network" "mainnet") == "regtest";
+    && (appOpt "bitcoind" "network" "mainnet") == "regtest"
+    && (appEnabled "lnd");
 
   users.users.admin = {
     isNormalUser = true;
