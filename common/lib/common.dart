@@ -1,4 +1,6 @@
 export 'src/branding.dart';
+export 'src/models/configure/app_config_field.dart';
+export 'src/models/configure/app_manifest.dart';
 export 'src/models/bitcoin_network.dart';
 export 'src/models/config_migrations.dart';
 export 'src/models/install_state.dart';
