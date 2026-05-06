@@ -9,7 +9,7 @@
       "name": "network",
       "type": "enum",
       "label": "Network",
-      "choices": ["mainnet", "testnet", "regtest", "signet"],
+      "choices": ["mainnet", "regtest"],
       "default": "mainnet"
     },
     {

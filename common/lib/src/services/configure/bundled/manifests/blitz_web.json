@@ -3,6 +3,7 @@
   "label": "Blitz Web",
   "description": "Web frontend for monitoring + managing the node",
   "capabilities": [],
+  "service_unit": "blitz-web",
   "fields": [
     { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]

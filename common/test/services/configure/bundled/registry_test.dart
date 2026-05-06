@@ -26,5 +26,17 @@ void main() {
       final cln = bundledAppManifests.firstWhere((m) => m.id == 'cln');
       expect(cln.unitName, 'clightning');
     });
+
+    test('blitz_api unitName is blitz-api (hyphenated systemd unit)', () {
+      final m = bundledAppManifests.firstWhere((m) => m.id == 'blitz_api');
+      expect(m.serviceUnit, 'blitz-api');
+      expect(m.unitName, 'blitz-api');
+    });
+
+    test('blitz_web unitName is blitz-web (hyphenated systemd unit)', () {
+      final m = bundledAppManifests.firstWhere((m) => m.id == 'blitz_web');
+      expect(m.serviceUnit, 'blitz-web');
+      expect(m.unitName, 'blitz-web');
+    });
   });
 }

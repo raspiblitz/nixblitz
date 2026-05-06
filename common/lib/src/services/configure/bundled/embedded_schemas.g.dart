@@ -17,7 +17,7 @@ const String _bitcoindJson = r'''
       "name": "network",
       "type": "enum",
       "label": "Network",
-      "choices": ["mainnet", "testnet", "regtest", "signet"],
+      "choices": ["mainnet", "regtest"],
       "default": "mainnet"
     },
     {
@@ -43,6 +43,7 @@ const String _blitz_apiJson = r'''
   "label": "Blitz API",
   "description": "FastAPI backend for the Blitz web frontend",
   "capabilities": [],
+  "service_unit": "blitz-api",
   "fields": [
     { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]
@@ -55,6 +56,7 @@ const String _blitz_webJson = r'''
   "label": "Blitz Web",
   "description": "Web frontend for monitoring + managing the node",
   "capabilities": [],
+  "service_unit": "blitz-web",
   "fields": [
     { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]

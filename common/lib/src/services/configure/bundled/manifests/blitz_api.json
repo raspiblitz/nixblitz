@@ -3,6 +3,7 @@
   "label": "Blitz API",
   "description": "FastAPI backend for the Blitz web frontend",
   "capabilities": [],
+  "service_unit": "blitz-api",
   "fields": [
     { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]
