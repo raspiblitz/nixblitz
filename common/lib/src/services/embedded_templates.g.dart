@@ -657,10 +657,12 @@ in {
     #
     # Backstop the URL ourselves when no LN backend is on; LND/CLN keep
     # their own mkDefault when they are on.
-    services.bitcoind.zmqpubrawblock = lib.mkIf
+    services.bitcoind.zmqpubrawblock =
+      lib.mkIf
       (!lndEnabled && !clnEnabled)
       (lib.mkDefault "tcp://127.0.0.1:28332");
-    services.bitcoind.zmqpubrawtx = lib.mkIf
+    services.bitcoind.zmqpubrawtx =
+      lib.mkIf
       (!lndEnabled && !clnEnabled)
       (lib.mkDefault "tcp://127.0.0.1:28333");
 
@@ -672,9 +674,9 @@ in {
     # systems (wheelNeedsPassword = true, no NOPASSWD rules) means
     # the admin user can't read it without a cached sudo timestamp.
     # We relax to:
-    #   - dataDir 0750 root:wheel (wheel can enter; can't list other
-    #     blitz-api private state because per-file modes still
-    #     control read access)
+    #   - dataDir 0750 blitzapi:wheel (blitzapi rwx for service access;
+    #     wheel rx for admin traversal + listing; per-file modes
+    #     control individual read access)
     #   - .login-password 0640 root:wheel (wheel can read)
     # Trust boundary: any wheel member is already root-equivalent
     # via sudo, so sharing the JWT password adds nothing. See
@@ -685,7 +687,7 @@ in {
         chgrp wheel /var/lib/blitz_api/.login-password
         chmod 0640 /var/lib/blitz_api/.login-password
       fi
-      chgrp wheel /var/lib/blitz_api
+      chown blitzapi:wheel /var/lib/blitz_api
       chmod 0750 /var/lib/blitz_api
     '';
   };
