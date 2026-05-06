@@ -9,6 +9,13 @@ import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
 import 'plugin_config_view.dart';
 
+/// Translates hyphenated menu strings to JSON snake_case app keys.
+String _appKeyForMenu(String menu) => switch (menu) {
+  'blitz-api' => 'blitz_api',
+  'blitz-web' => 'blitz_web',
+  _ => menu,
+};
+
 final _selectedOptionProvider = StateProvider<int>((ref) => 0);
 final _changingPasswordProvider = StateProvider<bool>((ref) => false);
 final _statusMessageProvider = StateProvider<String>((ref) => '');
@@ -404,14 +411,15 @@ class ConfigureView extends StatelessComponent {
         }
       case 'bitcoind':
         if (optionIndex == 3) {
-          final n = int.tryParse(buffer) ?? config.bitcoind.pruneSizeGb;
-          return config.copyWith(
-            bitcoind: config.bitcoind.copyWith(pruneSizeGb: n),
-          );
+          final n =
+              int.tryParse(buffer) ??
+              config.appOption<int>('bitcoind', 'prune_size_gb') ??
+              0;
+          return config.setAppOption('bitcoind', 'prune_size_gb', n);
         }
       case 'lnd':
         if (optionIndex == 1) {
-          return config.copyWith(lnd: config.lnd.copyWith(alias: buffer));
+          return config.setAppOption('lnd', 'alias', buffer);
         }
     }
     return null;
@@ -427,56 +435,34 @@ class ConfigureView extends StatelessComponent {
       case 'bitcoind':
         switch (optionIndex) {
           case 0:
-            return config.copyWith(
-              bitcoind: config.bitcoind.copyWith(
-                enabled: !config.bitcoind.enabled,
-              ),
-            );
+            return config.toggleAppOption('bitcoind', 'enabled');
           case 1:
             const networks = ['mainnet', 'regtest'];
-            final next =
-                (networks.indexOf(config.bitcoind.network) + 1) %
-                networks.length;
-            return config.copyWith(
-              bitcoind: config.bitcoind.copyWith(network: networks[next]),
-            );
+            final rawNetwork =
+                config.appOption<String>('bitcoind', 'network') ?? 'mainnet';
+            final next = (networks.indexOf(rawNetwork) + 1) % networks.length;
+            return config.setAppOption('bitcoind', 'network', networks[next]);
           case 2:
-            return config.copyWith(
-              bitcoind: config.bitcoind.copyWith(
-                pruned: !config.bitcoind.pruned,
-              ),
-            );
+            return config.toggleAppOption('bitcoind', 'pruned');
           // prune size (index 3) needs text input, skip for now
         }
       case 'lnd':
         switch (optionIndex) {
           case 0:
-            return config.copyWith(
-              lnd: config.lnd.copyWith(enabled: !config.lnd.enabled),
-            );
+            return config.toggleAppOption('lnd', 'enabled');
           // alias (index 1) needs text input, skip for now
         }
       case 'cln':
         if (optionIndex == 0) {
-          return config.copyWith(
-            cln: config.cln.copyWith(enabled: !config.cln.enabled),
-          );
+          return config.toggleAppOption('cln', 'enabled');
         }
       case 'blitz-api':
         if (optionIndex == 0) {
-          return config.copyWith(
-            blitzApi: config.blitzApi.copyWith(
-              enabled: !config.blitzApi.enabled,
-            ),
-          );
+          return config.toggleAppOption(_appKeyForMenu('blitz-api'), 'enabled');
         }
       case 'blitz-web':
         if (optionIndex == 0) {
-          return config.copyWith(
-            blitzWeb: config.blitzWeb.copyWith(
-              enabled: !config.blitzWeb.enabled,
-            ),
-          );
+          return config.toggleAppOption(_appKeyForMenu('blitz-web'), 'enabled');
         }
       case 'system':
         switch (optionIndex) {
@@ -655,36 +641,44 @@ class ConfigureView extends StatelessComponent {
         return [
           BoolOptionEditor(
             label: 'enabled',
-            value: config.bitcoind.enabled,
+            value: config.isAppEnabled('bitcoind'),
             focused: selectedIndex == 0,
             pending: isPending(0),
           ),
           SelectOptionEditor(
             label: 'network',
-            value: config.bitcoind.network,
+            value: config.appOption<String>('bitcoind', 'network') ?? 'mainnet',
             options: const ['mainnet', 'regtest'],
             focused: selectedIndex == 1,
             pending: isPending(1),
           ),
           BoolOptionEditor(
             label: 'pruned',
-            value: config.bitcoind.pruned,
+            value: config.appOption<bool>('bitcoind', 'pruned') ?? false,
             focused: selectedIndex == 2,
             pending: isPending(2),
           ),
-          editableNumber(3, 'prune size', config.bitcoind.pruneSizeGb, 'GB'),
+          editableNumber(
+            3,
+            'prune size',
+            config.appOption<int>('bitcoind', 'prune_size_gb') ?? 0,
+            'GB',
+          ),
         ];
       case 'lnd':
         return [
           BoolOptionEditor(
             label: 'enabled',
-            value: config.lnd.enabled,
+            value: config.isAppEnabled('lnd'),
             focused: selectedIndex == 0,
             pending: isPending(0),
           ),
           TextOptionEditor(
             label: 'alias',
-            value: editableText(1, config.lnd.alias),
+            value: editableText(
+              1,
+              config.appOption<String>('lnd', 'alias') ?? '',
+            ),
             focused: selectedIndex == 1,
             pending: isPending(1),
           ),
@@ -693,7 +687,7 @@ class ConfigureView extends StatelessComponent {
         return [
           BoolOptionEditor(
             label: 'enabled',
-            value: config.cln.enabled,
+            value: config.isAppEnabled('cln'),
             focused: selectedIndex == 0,
             pending: isPending(0),
           ),
@@ -702,7 +696,7 @@ class ConfigureView extends StatelessComponent {
         return [
           BoolOptionEditor(
             label: 'enabled',
-            value: config.blitzApi.enabled,
+            value: config.isAppEnabled(_appKeyForMenu('blitz-api')),
             focused: selectedIndex == 0,
             pending: isPending(0),
           ),
@@ -711,7 +705,7 @@ class ConfigureView extends StatelessComponent {
         return [
           BoolOptionEditor(
             label: 'enabled',
-            value: config.blitzWeb.enabled,
+            value: config.isAppEnabled(_appKeyForMenu('blitz-web')),
             focused: selectedIndex == 0,
             pending: isPending(0),
           ),
@@ -883,7 +877,8 @@ class _AliasField extends _FieldAccessor {
   @override
   int get maxLength => 32; // BOLT spec: 32 bytes
   @override
-  String read(NixblitzConfig config) => config.lnd.alias;
+  String read(NixblitzConfig config) =>
+      config.appOption<String>('lnd', 'alias') ?? '';
 }
 
 class _PruneSizeField extends _FieldAccessor {
@@ -891,5 +886,6 @@ class _PruneSizeField extends _FieldAccessor {
   @override
   int get maxLength => 6; // up to 999999 GB; way past sane disk sizes
   @override
-  String read(NixblitzConfig config) => '${config.bitcoind.pruneSizeGb}';
+  String read(NixblitzConfig config) =>
+      '${config.appOption<int>('bitcoind', 'prune_size_gb') ?? 0}';
 }
