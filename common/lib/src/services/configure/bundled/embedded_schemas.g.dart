@@ -1,0 +1,102 @@
+// GENERATED — do not edit. Run 'just gen-app-schemas' to regenerate.
+// Source: common/lib/src/services/configure/bundled/manifests/
+
+// ignore_for_file: constant_identifier_names
+
+part of 'embedded_schemas.dart';
+
+const String _bitcoindJson = r'''
+{
+  "id": "bitcoind",
+  "label": "Bitcoin Core",
+  "description": "Bitcoin reference client (full or pruned node)",
+  "capabilities": [],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "network",
+      "type": "enum",
+      "label": "Network",
+      "choices": ["mainnet", "testnet", "regtest", "signet"],
+      "default": "mainnet"
+    },
+    {
+      "name": "pruned",
+      "type": "bool",
+      "label": "Prune mode",
+      "default": false
+    },
+    {
+      "name": "prune_size_gb",
+      "type": "int",
+      "label": "Prune size (GB)",
+      "default": 0,
+      "min": 0
+    }
+  ]
+}
+''';
+
+const String _blitz_apiJson = r'''
+{
+  "id": "blitz_api",
+  "label": "Blitz API",
+  "description": "FastAPI backend for the Blitz web frontend",
+  "capabilities": [],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
+  ]
+}
+''';
+
+const String _blitz_webJson = r'''
+{
+  "id": "blitz_web",
+  "label": "Blitz Web",
+  "description": "Web frontend for monitoring + managing the node",
+  "capabilities": [],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
+  ]
+}
+''';
+
+const String _clnJson = r'''
+{
+  "id": "cln",
+  "label": "Core Lightning",
+  "description": "Core Lightning (CLN) backend",
+  "capabilities": ["lightning_backend"],
+  "service_unit": "clightning",
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
+  ]
+}
+''';
+
+const String _lndJson = r'''
+{
+  "id": "lnd",
+  "label": "LND",
+  "description": "Lightning Network Daemon (LND backend)",
+  "capabilities": ["lightning_backend"],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "alias",
+      "type": "string",
+      "label": "Alias",
+      "default": "",
+      "placeholder": "my-node"
+    }
+  ]
+}
+''';
+
+const Map<String, String> _allAppSchemas = {
+  'bitcoind': _bitcoindJson,
+  'blitz_api': _blitz_apiJson,
+  'blitz_web': _blitz_webJson,
+  'cln': _clnJson,
+  'lnd': _lndJson,
+};

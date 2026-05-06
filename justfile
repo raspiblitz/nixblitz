@@ -74,6 +74,10 @@ gen-templates:
 gen-manifests:
   dart run scripts/gen_dashboard_manifests.dart
 
+# Regenerate embedded app config schemas from bundled/manifests/
+gen-app-schemas:
+  dart run scripts/gen_app_config_schemas.dart
+
 # Compile Tailwind CSS for the website (web/input.css → web/styles.css)
 web-css:
   #!/usr/bin/env nu
