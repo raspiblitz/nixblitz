@@ -1,3 +1,4 @@
+import 'package:common/src/models/configure/app_manifest.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/models/plugin/plugin_permissions.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
@@ -76,6 +77,11 @@ class PluginManifest {
   /// a `dashboard` block in `manifest.json` don't get a tile.
   final PluginTileSpec? dashboard;
 
+  /// Optional config schema for manifest-driven UI rendering (Phase 3 Task 5).
+  /// When present, the plugin's config fields appear in the Configure view
+  /// driven by this AppManifest instead of opaque plugin.config.
+  final AppManifest? configSchema;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -85,6 +91,7 @@ class PluginManifest {
     this.actions = const {},
     this.permissions = const PluginPermissions(),
     this.dashboard,
+    this.configSchema,
   });
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
@@ -151,6 +158,16 @@ class PluginManifest {
         ? PluginTileSpec.fromJson(dashboardRaw)
         : null;
 
+    final csRaw = json['config_schema'];
+    AppManifest? configSchema;
+    if (csRaw is Map<String, dynamic>) {
+      // Inject id from outer manifest if absent in config_schema.
+      // The plugin's id IS the AppManifest's id in this context.
+      final csJson = Map<String, dynamic>.from(csRaw)
+        ..putIfAbsent('id', () => name);
+      configSchema = AppManifest.fromJson(csJson);
+    }
+
     final schemaVersion = header['schema_version'] as int? ?? 1;
     if (schemaVersion < minCompatibleManifestVersion) {
       throw FormatException(
@@ -170,6 +187,7 @@ class PluginManifest {
       actions: actionMap,
       permissions: perms,
       dashboard: dashboard,
+      configSchema: configSchema,
     );
   }
 
@@ -186,6 +204,7 @@ class PluginManifest {
       'actions': {for (final e in actions.entries) e.key: e.value.toJson()},
     if (!permissions.isEmpty) 'permissions': permissions.toJson(),
     if (dashboard != null) 'dashboard': dashboard!.toJson(),
+    if (configSchema != null) 'config_schema': configSchema!.toJson(),
   };
 }
 

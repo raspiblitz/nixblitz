@@ -39,6 +39,8 @@ sealed class AppConfigField {
       _ => throw AppManifestError('unknown field type: $type'),
     };
   }
+
+  Map<String, dynamic> toJson();
 }
 
 @immutable
@@ -56,6 +58,15 @@ class BoolField extends AppConfigField {
     description: j['description'] as String?,
     defaultValue: (j['default'] as bool?) ?? false,
   );
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': 'bool',
+    'label': label,
+    'default': defaultValue,
+    if (description != null) 'description': description,
+  };
 }
 
 @immutable
@@ -76,6 +87,16 @@ class StringField extends AppConfigField {
     defaultValue: (j['default'] as String?) ?? '',
     placeholder: j['placeholder'] as String?,
   );
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': 'string',
+    'label': label,
+    'default': defaultValue,
+    if (description != null) 'description': description,
+    if (placeholder != null) 'placeholder': placeholder,
+  };
 }
 
 @immutable
@@ -99,6 +120,17 @@ class IntField extends AppConfigField {
     min: (j['min'] as num?)?.toInt(),
     max: (j['max'] as num?)?.toInt(),
   );
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': 'int',
+    'label': label,
+    'default': defaultValue,
+    if (description != null) 'description': description,
+    if (min != null) 'min': min,
+    if (max != null) 'max': max,
+  };
 }
 
 @immutable
@@ -136,4 +168,14 @@ class EnumField extends AppConfigField {
       defaultValue: def,
     );
   }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': 'enum',
+    'label': label,
+    'choices': choices,
+    'default': defaultValue,
+    if (description != null) 'description': description,
+  };
 }

@@ -414,6 +414,64 @@ void main() {
         throwsA(isA<FormatException>()),
       );
     });
+
+    test('plugin without config_schema parses fine', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': 2,
+          'min_tui_version': 1,
+          'name': 'test-plugin',
+        },
+      });
+      expect(m.configSchema, isNull);
+    });
+
+    test('plugin with config_schema parses + inherits id', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': 2,
+          'min_tui_version': 1,
+          'name': 'tailscale',
+        },
+        'config_schema': {
+          'label': 'Tailscale',
+          'fields': [
+            {
+              'name': 'enabled',
+              'type': 'bool',
+              'label': 'Enabled',
+              'default': false,
+            },
+          ],
+        },
+      });
+      expect(m.configSchema, isNotNull);
+      expect(m.configSchema!.id, 'tailscale');
+      expect(m.configSchema!.label, 'Tailscale');
+      expect(m.configSchema!.fields.length, 1);
+    });
+
+    test('config_schema round-trips via toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'config_schema': {
+          'label': 'P',
+          'fields': [
+            {
+              'name': 'enabled',
+              'type': 'bool',
+              'label': 'Enabled',
+              'default': false,
+            },
+          ],
+        },
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.configSchema, isNotNull);
+      expect(back.configSchema!.id, 'p');
+      expect(back.configSchema!.label, 'P');
+      expect(back.configSchema!.fields.length, 1);
+    });
   });
 
   group('ConfigField type parsing', () {

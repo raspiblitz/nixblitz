@@ -71,4 +71,13 @@ class AppManifest {
       serviceUnit: json['service_unit'] as String?,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'label': label,
+    if (description != null) 'description': description,
+    if (capabilities.isNotEmpty) 'capabilities': capabilities.toList(),
+    'fields': fields.map((f) => f.toJson()).toList(),
+    if (serviceUnit != null) 'service_unit': serviceUnit,
+  };
 }
