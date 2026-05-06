@@ -127,15 +127,9 @@ List<({String text, Color color})> _headerSegments(
 }
 
 /// Footer text for the current view. Dashboard omits `[a]:
-/// Apply` when the working tree is clean and only surfaces
-/// `[r]: Refresh templates` when drift was detected at launch
-/// — there's nothing to apply / refresh otherwise, so
-/// advertising the shortcut is noise.
-String _footerHint(
-  AppView view, {
-  required bool hasPending,
-  required bool hasDrift,
-}) {
+/// Apply` when the working tree is clean — there's nothing to
+/// apply otherwise, so advertising the shortcut is noise.
+String _footerHint(AppView view, {required bool hasPending}) {
   return switch (view) {
     AppView.install => '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
     AppView.setup => 'Setting up...  [?]: Help',
@@ -143,7 +137,6 @@ String _footerHint(
       '[c]: Configure',
       if (hasPending) '[a]: Apply',
       '[u]: Update',
-      if (hasDrift) '[r]: Refresh templates',
       '[D]: Debug',
       '[?]: Help',
       '[q]: Quit',
@@ -370,34 +363,6 @@ class _Shell extends StatelessComponent {
                       AppView.debug;
                   return true;
                 }
-                if (event.logicalKey == LogicalKey.keyR) {
-                  // Refresh templates from the binary's
-                  // embedded copy. Gated on actual drift —
-                  // [r] is a no-op when the dashboard banner
-                  // isn't showing, so a stray keypress doesn't
-                  // overwrite hand-edited templates the
-                  // operator hasn't reviewed yet.
-                  final drift = context.read(templatesDriftProvider);
-                  if (!drift.hasDrift) return true;
-                  try {
-                    final dir = context.read(baseDirProvider);
-                    ScaffoldService(targetDir: dir).refreshTemplatesSync();
-                    LogService.info(
-                      'refresh: rewrote ${drift.totalChanged} drifted '
-                      'template ${drift.totalChanged == 1 ? "file" : "files"}',
-                    );
-                    // Drift just got resolved — clear the
-                    // banner. The apply view picks up the
-                    // dirty tree from the file-system change.
-                    context.read(templatesDriftProvider.notifier).state =
-                        TemplatesDrift.inSync;
-                    context.read(currentViewProvider.notifier).state =
-                        AppView.apply;
-                  } catch (e, st) {
-                    LogService.error('Templates refresh failed', e, st);
-                  }
-                  return true;
-                }
                 if (event.logicalKey == LogicalKey.keyQ) {
                   shutdownWithTerminalRestore();
                   return true;
@@ -548,7 +513,6 @@ class _Shell extends StatelessComponent {
                             data: (lines) => lines.isNotEmpty,
                             orElse: () => false,
                           ),
-                      hasDrift: context.watch(templatesDriftProvider).hasDrift,
                     ),
                     style: const TextStyle(
                       color: Color.fromRGB(247, 147, 26),

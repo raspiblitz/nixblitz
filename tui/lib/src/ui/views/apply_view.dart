@@ -143,61 +143,137 @@ class _ApplyViewState extends State<ApplyView> {
     }
   }
 
+  /// Rewrite the binary's embedded Nix template files over the
+  /// operator's `~/nixblitz/`, then scoped-commit only the drifted
+  /// paths. No-op when [templatesDriftProvider] reports no drift.
+  ///
+  /// Returns true when a rewrite + commit happened. Designed to be
+  /// called as a preflight inside [_continueApply] so drift
+  /// introduced by a TUI upgrade (e.g. a schema-shape change like
+  /// v17→v18) is repaired before the main `git commitAll` + rebuild
+  /// runs. Failure is logged and swallowed — the downstream Nix
+  /// build will surface a clear error if templates are still wrong.
+  Future<bool> _maybeAutoRewriteTemplates(
+    String baseDirPath,
+    GitService git,
+  ) async {
+    try {
+      final drift = context.read(templatesDriftProvider);
+      if (!drift.hasDrift) return false;
+
+      final driftedPaths = <String>[...drift.missing, ...drift.modified];
+      final n = drift.totalChanged;
+
+      _append('');
+      _append('> auto-rewrite drifted templates ($n file${n == 1 ? "" : "s"})');
+
+      final written = ScaffoldService(
+        targetDir: baseDirPath,
+      ).refreshTemplatesSync();
+      _append('  wrote $written template files');
+
+      _append('  > git commit -m "Refresh templates from TUI" (scoped)');
+      final committed = await git.commitPaths(
+        driftedPaths,
+        'Refresh templates from TUI',
+      );
+      if (!committed) {
+        _append('  (nothing to commit — templates already in sync)');
+      }
+
+      // Drift resolved — clear the dashboard banner.
+      context.read(templatesDriftProvider.notifier).state =
+          TemplatesDrift.inSync;
+
+      return true;
+    } catch (e, st) {
+      LogService.error('apply: auto-rewrite templates failed', e, st);
+      _append('  ! auto-rewrite failed: $e — continuing with build');
+      return false;
+    }
+  }
+
   void _continueApply(
     String baseDirPath,
     GitService git,
     SystemService systemService,
   ) {
     try {
-      _append('> git add -A && git commit -m "Apply settings"');
-      git
-          .commitAll('Apply settings')
-          .then((committed) {
-            _append(
-              committed
-                  ? 'Committed.'
-                  : 'Nothing staged (no changes to commit).',
-            );
-            // Pick the rebuild attribute from the just-applied
-            // platform; the config notifier holds the up-to-date
-            // copy because the Configure view updated it before we
-            // got here.
-            final platform =
-                context.read(configProvider).value?.system.platform ?? 'x86';
-            final attr = rebuildAttributeFor(platform);
-            _append('');
-            _append('> sudo nixos-rebuild switch --flake $baseDirPath#$attr');
-            _append('');
+      // Preflight: if templates on disk differ from what this binary
+      // expects (e.g. a TUI upgrade changed the template shape without
+      // a config schema bump), rewrite them now and commit the drifted
+      // paths before the main commit. Failure is non-fatal — the build
+      // will error loudly if templates are still wrong.
+      _maybeAutoRewriteTemplates(baseDirPath, git)
+          .then((_) {
+            _append('> git add -A && git commit -m "Apply settings"');
+            git
+                .commitAll('Apply settings')
+                .then((committed) {
+                  _append(
+                    committed
+                        ? 'Committed.'
+                        : 'Nothing staged (no changes to commit).',
+                  );
+                  // Pick the rebuild attribute from the just-applied
+                  // platform; the config notifier holds the up-to-date
+                  // copy because the Configure view updated it before we
+                  // got here.
+                  final platform =
+                      context.read(configProvider).value?.system.platform ??
+                      'x86';
+                  final attr = rebuildAttributeFor(platform);
+                  _append('');
+                  _append(
+                    '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
+                  );
+                  _append('');
 
-            final (:output, :exitCode) = systemService.rebuild(
-              baseDirPath,
-              attribute: attr,
-            );
-            _outputSub = output.listen(
-              (line) {
-                LogService.info('[apply] $line');
-                _append(line);
-              },
-              onError: (e, st) {
-                LogService.error('Apply output stream error', e, st);
-              },
-            );
-            exitCode
-                .then((code) async {
-                  LogService.info('apply: rebuild exited with code $code');
-                  if (code == 0) {
-                    final startup = context.read(startupBinaryProvider);
-                    final updated = await systemService.hasNewerBinary(startup);
-                    context.read(_applyBinaryUpdatedProvider.notifier).state =
-                        updated;
-                  }
-                  context.read(_applyExitCodeProvider.notifier).state = code;
-                  context.read(_applyModeProvider.notifier).state =
-                      _ApplyMode.done;
-                  _started = false;
+                  final (:output, :exitCode) = systemService.rebuild(
+                    baseDirPath,
+                    attribute: attr,
+                  );
+                  _outputSub = output.listen(
+                    (line) {
+                      LogService.info('[apply] $line');
+                      _append(line);
+                    },
+                    onError: (e, st) {
+                      LogService.error('Apply output stream error', e, st);
+                    },
+                  );
+                  exitCode
+                      .then((code) async {
+                        LogService.info(
+                          'apply: rebuild exited with code $code',
+                        );
+                        if (code == 0) {
+                          final startup = context.read(startupBinaryProvider);
+                          final updated = await systemService.hasNewerBinary(
+                            startup,
+                          );
+                          context
+                                  .read(_applyBinaryUpdatedProvider.notifier)
+                                  .state =
+                              updated;
+                        }
+                        context.read(_applyExitCodeProvider.notifier).state =
+                            code;
+                        context.read(_applyModeProvider.notifier).state =
+                            _ApplyMode.done;
+                        _started = false;
+                      })
+                      .catchError((e, st) {
+                        LogService.error('Apply rebuild failed', e, st);
+                        context.read(_applyExitCodeProvider.notifier).state = 1;
+                        context.read(_applyModeProvider.notifier).state =
+                            _ApplyMode.done;
+                        _started = false;
+                      });
                 })
                 .catchError((e, st) {
-                  LogService.error('Apply rebuild failed', e, st);
+                  LogService.error('Apply commit failed', e, st);
+                  _append('Commit failed: $e');
                   context.read(_applyExitCodeProvider.notifier).state = 1;
                   context.read(_applyModeProvider.notifier).state =
                       _ApplyMode.done;
@@ -205,8 +281,8 @@ class _ApplyViewState extends State<ApplyView> {
                 });
           })
           .catchError((e, st) {
-            LogService.error('Apply commit failed', e, st);
-            _append('Commit failed: $e');
+            LogService.error('Apply preflight failed', e, st);
+            _append('Error: $e');
             context.read(_applyExitCodeProvider.notifier).state = 1;
             context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
             _started = false;

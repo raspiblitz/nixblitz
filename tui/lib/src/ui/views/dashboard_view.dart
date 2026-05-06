@@ -112,9 +112,9 @@ class _DashboardViewState extends State<DashboardView> {
   /// Surfaces template-content drift between the binary and
   /// `~/nixblitz/`. Triggered when an updated TUI binary ships
   /// new template content without bumping the config schema —
-  /// the case the page-size-16k fix slipped through. Operator
-  /// presses [r] (handled in app.dart's dashboard branch) to
-  /// refresh + advance to the apply view.
+  /// the case the page-size-16k fix slipped through. Apply and
+  /// Update both auto-rewrite drifted templates as a preflight,
+  /// so the operator just needs to run either one.
   List<Component> _buildDriftBanner(BuildContext context) {
     final drift = context.watch(templatesDriftProvider);
     if (!drift.hasDrift) return const [];
@@ -128,12 +128,12 @@ class _DashboardViewState extends State<DashboardView> {
             Text(
               '! $n template '
               '${n == 1 ? "file differs" : "files differ"} '
-              'from this binary — press [r] to refresh',
+              '— TUI was upgraded, run [a] Apply or [u] Update to rebuild',
               style: const TextStyle(color: Color.fromRGB(255, 200, 80)),
             ),
             const Text(
-              '  refresh writes the binary\'s embedded copies over '
-              'the on-disk files, leaves the tree dirty for [a] Apply',
+              '  Apply and Update auto-rewrite drifted templates '
+              'before rebuilding',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],
