@@ -1,5 +1,7 @@
 import 'package:test/test.dart';
+import 'package:common/src/models/plugin/plugin_dep.dart';
 import 'package:common/src/models/plugin/plugin_manifest.dart';
+import 'package:common/src/models/plugin/plugin_manifest_error.dart';
 
 void main() {
   group('PluginManifest.fromJson', () {
@@ -449,6 +451,105 @@ void main() {
       expect(m.configSchema!.id, 'tailscale');
       expect(m.configSchema!.label, 'Tailscale');
       expect(m.configSchema!.fields.length, 1);
+    });
+
+    test('manifest with requires + module + streamers (full happy path)', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 2, 'name': 'p'},
+        'requires': [
+          {'type': 'app', 'id': 'bitcoind'},
+          {'type': 'plugin', 'url': 'git+https://example.com/dep.git'},
+        ],
+        'module': 'module.nix',
+        'streamers': [
+          {
+            'name': 's',
+            'command': 'python3',
+            'args': ['streamer.py'],
+            'tile_ids': ['t1', 't2'],
+          },
+        ],
+      });
+      expect(m.requires.length, 2);
+      expect(m.requires[0], isA<AppDep>());
+      expect((m.requires[0] as AppDep).id, 'bitcoind');
+      expect(m.requires[1], isA<PluginUrlDep>());
+      expect(
+        (m.requires[1] as PluginUrlDep).url,
+        'git+https://example.com/dep.git',
+      );
+      expect(m.module, 'module.nix');
+      expect(m.streamers.length, 1);
+      expect(m.streamers.first.name, 's');
+      expect(m.streamers.first.command, 'python3');
+      expect(m.streamers.first.args, ['streamer.py']);
+      expect(m.streamers.first.tileIds, {'t1', 't2'});
+    });
+
+    test(
+      'manifest without requires/module/streamers defaults to empty/null',
+      () {
+        final m = PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        });
+        expect(m.requires, isEmpty);
+        expect(m.module, isNull);
+        expect(m.streamers, isEmpty);
+      },
+    );
+
+    test('requires + module + streamers round-trip via toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 2, 'name': 'p'},
+        'requires': [
+          {'type': 'app', 'id': 'lnd'},
+        ],
+        'module': 'nix/module.nix',
+        'streamers': [
+          {
+            'name': 'blitz-api',
+            'command': 'python3',
+            'tile_ids': ['btc-status'],
+          },
+        ],
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.requires.length, 1);
+      expect(back.requires.first, isA<AppDep>());
+      expect((back.requires.first as AppDep).id, 'lnd');
+      expect(back.module, 'nix/module.nix');
+      expect(back.streamers.length, 1);
+      expect(back.streamers.first.name, 'blitz-api');
+      expect(back.streamers.first.tileIds, {'btc-status'});
+    });
+
+    test(
+      'manifest with malformed requires entry rethrows PluginManifestError',
+      () {
+        expect(
+          () => PluginManifest.fromJson({
+            'manifest': {
+              'schema_version': 2,
+              'min_tui_version': 1,
+              'name': 'p',
+            },
+            'requires': [
+              {'type': 'unknown-kind'},
+            ],
+          }),
+          throwsA(isA<PluginManifestError>()),
+        );
+      },
+    );
+
+    test('manifest with empty module string throws PluginManifestError', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'module': '',
+        }),
+        throwsA(isA<PluginManifestError>()),
+      );
     });
 
     test('config_schema round-trips via toJson', () {

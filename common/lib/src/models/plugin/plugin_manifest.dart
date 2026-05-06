@@ -1,6 +1,9 @@
 import 'package:common/src/models/configure/app_manifest.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
+import 'package:common/src/models/plugin/plugin_dep.dart';
+import 'package:common/src/models/plugin/plugin_manifest_error.dart';
 import 'package:common/src/models/plugin/plugin_permissions.dart';
+import 'package:common/src/models/plugin/plugin_streamer_spec.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
 
 /// Plugin manifest schema (see `docs/decisions/plugins.md`, D1/D6/D14/D16).
@@ -82,6 +85,22 @@ class PluginManifest {
   /// driven by this AppManifest instead of opaque plugin.config.
   final AppManifest? configSchema;
 
+  /// Plugin dependencies declared in `requires` (Phase 4). Each entry
+  /// is either an [AppDep] (built-in app id) or a [PluginUrlDep]
+  /// (another plugin keyed by install URL). Default empty.
+  final List<PluginDep> requires;
+
+  /// Optional path within the plugin checkout to the NixOS module
+  /// (e.g. `module.nix`). Resolved relative to the plugin's source
+  /// root and imported by the generated `installed.nix`. Null when
+  /// the plugin has no NixOS-side module.
+  final String? module;
+
+  /// Subprocess streamers declared in `streamers` (Phase 4). Each
+  /// entry is launched at TUI startup and emits dashboard tile events
+  /// for its declared `tile_ids`. Default empty.
+  final List<StreamerSpec> streamers;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -92,6 +111,9 @@ class PluginManifest {
     this.permissions = const PluginPermissions(),
     this.dashboard,
     this.configSchema,
+    this.requires = const [],
+    this.module,
+    this.streamers = const [],
   });
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
@@ -178,6 +200,53 @@ class PluginManifest {
       );
     }
 
+    final rawRequires = json['requires'];
+    final requiresList = <PluginDep>[];
+    if (rawRequires != null) {
+      if (rawRequires is! List) {
+        throw const PluginManifestError(
+          'manifest.requires must be a list of dependency objects',
+        );
+      }
+      for (final entry in rawRequires) {
+        if (entry is! Map<String, dynamic>) {
+          throw PluginManifestError(
+            'manifest.requires entries must be maps, got ${entry.runtimeType}',
+          );
+        }
+        requiresList.add(PluginDep.fromJson(entry));
+      }
+    }
+
+    final rawModule = json['module'];
+    String? module;
+    if (rawModule != null) {
+      if (rawModule is! String || rawModule.isEmpty) {
+        throw const PluginManifestError(
+          'manifest.module must be a non-empty string when present',
+        );
+      }
+      module = rawModule;
+    }
+
+    final rawStreamers = json['streamers'];
+    final streamersList = <StreamerSpec>[];
+    if (rawStreamers != null) {
+      if (rawStreamers is! List) {
+        throw const PluginManifestError(
+          'manifest.streamers must be a list of streamer objects',
+        );
+      }
+      for (final entry in rawStreamers) {
+        if (entry is! Map<String, dynamic>) {
+          throw PluginManifestError(
+            'manifest.streamers entries must be maps, got ${entry.runtimeType}',
+          );
+        }
+        streamersList.add(StreamerSpec.fromJson(entry));
+      }
+    }
+
     return PluginManifest(
       schemaVersion: schemaVersion,
       minTuiVersion: minTui,
@@ -188,6 +257,9 @@ class PluginManifest {
       permissions: perms,
       dashboard: dashboard,
       configSchema: configSchema,
+      requires: List.unmodifiable(requiresList),
+      module: module,
+      streamers: List.unmodifiable(streamersList),
     );
   }
 
@@ -205,6 +277,10 @@ class PluginManifest {
     if (!permissions.isEmpty) 'permissions': permissions.toJson(),
     if (dashboard != null) 'dashboard': dashboard!.toJson(),
     if (configSchema != null) 'config_schema': configSchema!.toJson(),
+    if (requires.isNotEmpty) 'requires': [for (final d in requires) d.toJson()],
+    if (module != null) 'module': module,
+    if (streamers.isNotEmpty)
+      'streamers': [for (final s in streamers) s.toJson()],
   };
 }
 
