@@ -66,7 +66,7 @@ justfile                                   # add gen-app-schemas recipe
 
 - `templates/hosts/installed.nix` and per-app NixOS modules — Nix template wiring stays per-app named (Phases 4–6).
 - `NixblitzConfig` and `app_configs` JSON shape — unchanged from Phase 2.
-- Plugin install / refresh / pin lifecycle — only the manifest *schema* gains a `config_schema` section.
+- Plugin install / refresh / pin lifecycle — only the manifest _schema_ gains a `config_schema` section.
 - `SystemConfig` — stays typed.
 
 ---
@@ -83,6 +83,7 @@ justfile                                   # add gen-app-schemas recipe
 ## Task 1: `AppConfigField` + `AppManifest` models + parser
 
 **Files:**
+
 - Create: `common/lib/src/models/configure/app_config_field.dart`
 - Create: `common/lib/src/models/configure/app_manifest.dart`
 - Test: `common/test/models/configure/app_config_field_test.dart`
@@ -512,6 +513,7 @@ EOF
 ## Task 2: 5 bundled manifest JSON files
 
 **Files:**
+
 - Create: `common/lib/src/services/configure/bundled/manifests/bitcoind.json`
 - Create: `common/lib/src/services/configure/bundled/manifests/lnd.json`
 - Create: `common/lib/src/services/configure/bundled/manifests/cln.json`
@@ -530,13 +532,27 @@ EOF
   "description": "Bitcoin reference client (full or pruned node)",
   "capabilities": [],
   "fields": [
-    {"name": "enabled", "type": "bool", "label": "Enabled", "default": false},
-    {"name": "network", "type": "enum", "label": "Network",
-     "choices": ["mainnet", "testnet", "regtest", "signet"],
-     "default": "mainnet"},
-    {"name": "pruned", "type": "bool", "label": "Prune mode", "default": false},
-    {"name": "prune_size_gb", "type": "int", "label": "Prune size (GB)",
-     "default": 0, "min": 0}
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "network",
+      "type": "enum",
+      "label": "Network",
+      "choices": ["mainnet", "testnet", "regtest", "signet"],
+      "default": "mainnet"
+    },
+    {
+      "name": "pruned",
+      "type": "bool",
+      "label": "Prune mode",
+      "default": false
+    },
+    {
+      "name": "prune_size_gb",
+      "type": "int",
+      "label": "Prune size (GB)",
+      "default": 0,
+      "min": 0
+    }
   ]
 }
 ```
@@ -550,9 +566,14 @@ EOF
   "description": "Lightning Network Daemon (LND backend)",
   "capabilities": ["lightning_backend"],
   "fields": [
-    {"name": "enabled", "type": "bool", "label": "Enabled", "default": false},
-    {"name": "alias", "type": "string", "label": "Alias",
-     "default": "", "placeholder": "my-node"}
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "alias",
+      "type": "string",
+      "label": "Alias",
+      "default": "",
+      "placeholder": "my-node"
+    }
   ]
 }
 ```
@@ -567,7 +588,7 @@ EOF
   "capabilities": ["lightning_backend"],
   "service_unit": "clightning",
   "fields": [
-    {"name": "enabled", "type": "bool", "label": "Enabled", "default": false}
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]
 }
 ```
@@ -581,7 +602,7 @@ EOF
   "description": "FastAPI backend for the Blitz web frontend",
   "capabilities": [],
   "fields": [
-    {"name": "enabled", "type": "bool", "label": "Enabled", "default": false}
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]
 }
 ```
@@ -595,7 +616,7 @@ EOF
   "description": "Web frontend for monitoring + managing the node",
   "capabilities": [],
   "fields": [
-    {"name": "enabled", "type": "bool", "label": "Enabled", "default": false}
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
   ]
 }
 ```
@@ -663,6 +684,7 @@ EOF
 ## Task 3: Codegen + bundled registry
 
 **Files:**
+
 - Create: `scripts/gen_app_config_schemas.dart`
 - Create: `common/lib/src/services/configure/bundled/embedded_schemas.dart` (`part of` host)
 - Create: `common/lib/src/services/configure/bundled/embedded_schemas.g.dart` (generated)
@@ -851,6 +873,7 @@ EOF
 ## Task 4: `AppManifestRegistry` + Riverpod provider
 
 **Files:**
+
 - Create: `common/lib/src/services/configure/app_manifest_registry.dart`
 - Create: `common/lib/src/providers/app_manifest_registry_provider.dart`
 - Test: `common/test/services/configure/app_manifest_registry_test.dart`
@@ -1005,6 +1028,7 @@ EOF
 ## Task 5: Plugin manifest `config_schema` integration
 
 **Files:**
+
 - Modify: `common/lib/src/models/plugin_manifest.dart` — add optional `configSchema` field
 - Modify: `common/lib/src/providers/app_manifest_registry_provider.dart` — populate the plugin list
 - Test: `common/test/models/plugin_manifest_test.dart` — add cases for `config_schema` parsing
@@ -1111,6 +1135,7 @@ EOF
 ## Task 6: Generic `FieldEditor` widget
 
 **Files:**
+
 - Create: `tui/lib/src/ui/views/configure/field_editor.dart`
 - Test: `tui/test/ui/views/configure/field_editor_test.dart`
 - Read: `tui/lib/src/ui/widgets/option_editor.dart` (existing primitive editors to reuse)
@@ -1253,6 +1278,7 @@ EOF
 ## Task 7: `configure_view.dart` rewrite
 
 **Files:**
+
 - Modify (substantial rewrite): `tui/lib/src/ui/views/configure_view.dart`
 - Modify: `tui/test/ui/views/configure_view_test.dart` (or create — adapt to existing tests)
 
@@ -1268,6 +1294,7 @@ grep -n 'case .bitcoind\|case .lnd\|case .cln\|case .blitz\|services =' tui/lib/
 ```
 
 Identify:
+
 - The hardcoded services list
 - Each per-app switch case
 - The text-edit and toggle flows
@@ -1288,6 +1315,7 @@ final menuEntries = [
 ```
 
 `_MenuEntry` is a small sum type that holds either:
+
 - the system block sentinel
 - an `AppManifest`
 - the plugins screen sentinel
@@ -1331,6 +1359,7 @@ ls tui/test/ui/views/configure_view*
 
 If there's an existing test, it likely asserts specific menu items and field
 behaviours. Adapt to the new generic flow:
+
 - Menu order matches registry order (alphabetical by id, with system + plugins
   pinned)
 - Toggling each app's `enabled` updates the config via `setAppOption`
@@ -1362,6 +1391,7 @@ EOF
 ## Task 8: Install wizard refactor
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/install_view.dart`
 - Test: `tui/test/ui/views/install_view_test.dart` (extend existing)
 
@@ -1448,6 +1478,7 @@ EOF
 ## Task 9: Debug views + `system_service.dart` registry hookup
 
 **Files:**
+
 - Modify: `common/lib/src/services/system_service.dart`
 - Modify: `tui/lib/src/ui/views/debug/service_health.dart`
 - Modify: `tui/lib/src/ui/views/debug/tail_log.dart`
@@ -1538,6 +1569,7 @@ All three green.
 - [ ] **Step 2: Smoke the Configure view**
 
 In a VM or on the Pi 5:
+
 - Configure menu shows: System, bitcoind, blitz_api, blitz_web, cln, lnd, Plugins (alphabetical by id, with System + Plugins pinned).
 - Each app's page renders its manifest fields in declaration order.
 - Toggling `enabled` works; cancel returns to the list with no change; Apply commits the change.
@@ -1548,6 +1580,7 @@ In a VM or on the Pi 5:
 - [ ] **Step 3: Smoke the install wizard**
 
 Fresh install path:
+
 - Wizard's lightning step presents LND, Core Lightning, None.
 - Choosing LND writes `app_configs.lnd.enabled = true`,
   `app_configs.cln.enabled = false`.
@@ -1574,21 +1607,21 @@ Fresh install path:
 
 **Spec coverage:**
 
-| Spec section | Implementing task |
-|---|---|
-| `AppConfigField` sealed class + 4 subtypes | Task 1 |
-| `AppManifest` model + parser | Task 1 |
-| 5 bundled manifest JSON files | Task 2 |
-| Codegen + bundled registry | Task 3 |
-| `AppManifestRegistry` + provider | Task 4 |
-| Plugin `config_schema` integration | Task 5 |
-| Generic `FieldEditor` dispatcher | Task 6 |
-| `configure_view.dart` rewrite | Task 7 |
-| Install wizard capability discovery | Task 8 |
-| Debug views service-list hookup | Task 9 |
-| `system_service.dart` registry hookup | Task 9 |
-| `cln` → `clightning` service_unit override | Tasks 2, 4, 9 |
-| Manual smoke | Task 10 |
+| Spec section                               | Implementing task |
+| ------------------------------------------ | ----------------- |
+| `AppConfigField` sealed class + 4 subtypes | Task 1            |
+| `AppManifest` model + parser               | Task 1            |
+| 5 bundled manifest JSON files              | Task 2            |
+| Codegen + bundled registry                 | Task 3            |
+| `AppManifestRegistry` + provider           | Task 4            |
+| Plugin `config_schema` integration         | Task 5            |
+| Generic `FieldEditor` dispatcher           | Task 6            |
+| `configure_view.dart` rewrite              | Task 7            |
+| Install wizard capability discovery        | Task 8            |
+| Debug views service-list hookup            | Task 9            |
+| `system_service.dart` registry hookup      | Task 9            |
+| `cln` → `clightning` service_unit override | Tasks 2, 4, 9     |
+| Manual smoke                               | Task 10           |
 
 All spec sections covered.
 

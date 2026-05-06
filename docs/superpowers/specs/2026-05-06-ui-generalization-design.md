@@ -12,6 +12,7 @@ views' hardcoded service list with **manifest-driven** discovery and
 rendering.
 
 After Phase 3:
+
 - Each of the 5 bundled apps (bitcoind, lnd, cln, blitz-api, blitz-web) ships
   a JSON manifest declaring its configurable fields and capability tags.
 - `configure_view` renders any app's schema generically — adding a new app
@@ -33,7 +34,7 @@ After Phase 3:
   `common/lib/src/services/configure/bundled/`. Phases 4–6 lift each
   manifest into its plugin alongside the Nix module.
 - **Plugin install lifecycle changes.** Plugins still install/refresh/pin
-  exactly as before. Only the manifest *schema* gains a `config_schema`
+  exactly as before. Only the manifest _schema_ gains a `config_schema`
   section; plugins without it keep their opaque-config status (the same
   raw-JSON editing they have today, if any).
 - **System config generalisation.** `SystemConfig` stays typed — always-on
@@ -110,14 +111,23 @@ system_service.dart + debug views
   "description": "The Bitcoin reference client",
   "capabilities": [],
   "fields": [
-    { "name": "enabled",       "type": "bool",   "label": "Enabled",       "default": false },
-    { "name": "network",       "type": "enum",   "label": "Network",
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "network",
+      "type": "enum",
+      "label": "Network",
       "choices": ["mainnet", "testnet", "regtest", "signet"],
-      "default": "mainnet" },
-    { "name": "pruned",        "type": "bool",   "label": "Pruned",        "default": false },
-    { "name": "prune_size_gb", "type": "int",    "label": "Prune Size (GB)",
-      "default": 0, "min": 0 }
-  ]
+      "default": "mainnet",
+    },
+    { "name": "pruned", "type": "bool", "label": "Pruned", "default": false },
+    {
+      "name": "prune_size_gb",
+      "type": "int",
+      "label": "Prune Size (GB)",
+      "default": 0,
+      "min": 0,
+    },
+  ],
 }
 ```
 
@@ -225,12 +235,28 @@ Five JSON files at
   "description": "Bitcoin reference client (full or pruned node)",
   "capabilities": [],
   "fields": [
-    { "name": "enabled",       "type": "bool",   "label": "Enabled",        "default": false },
-    { "name": "network",       "type": "enum",   "label": "Network",
-      "choices": ["mainnet", "testnet", "regtest", "signet"], "default": "mainnet" },
-    { "name": "pruned",        "type": "bool",   "label": "Prune mode",     "default": false },
-    { "name": "prune_size_gb", "type": "int",    "label": "Prune size (GB)", "default": 0, "min": 0 }
-  ]
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "network",
+      "type": "enum",
+      "label": "Network",
+      "choices": ["mainnet", "testnet", "regtest", "signet"],
+      "default": "mainnet",
+    },
+    {
+      "name": "pruned",
+      "type": "bool",
+      "label": "Prune mode",
+      "default": false,
+    },
+    {
+      "name": "prune_size_gb",
+      "type": "int",
+      "label": "Prune size (GB)",
+      "default": 0,
+      "min": 0,
+    },
+  ],
 }
 ```
 
@@ -243,10 +269,15 @@ Five JSON files at
   "description": "Lightning Network Daemon (LND backend)",
   "capabilities": ["lightning_backend"],
   "fields": [
-    { "name": "enabled", "type": "bool",   "label": "Enabled", "default": false },
-    { "name": "alias",   "type": "string", "label": "Alias",   "default": "",
-      "placeholder": "my-node" }
-  ]
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "alias",
+      "type": "string",
+      "label": "Alias",
+      "default": "",
+      "placeholder": "my-node",
+    },
+  ],
 }
 ```
 
@@ -260,8 +291,8 @@ Five JSON files at
   "capabilities": ["lightning_backend"],
   "service_unit": "clightning",
   "fields": [
-    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
-  ]
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+  ],
 }
 ```
 
@@ -274,8 +305,8 @@ Five JSON files at
   "description": "FastAPI backend for the Blitz web frontend",
   "capabilities": [],
   "fields": [
-    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
-  ]
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+  ],
 }
 ```
 
@@ -288,8 +319,8 @@ Five JSON files at
   "description": "Web frontend for monitoring + managing the node",
   "capabilities": [],
   "fields": [
-    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
-  ]
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+  ],
 }
 ```
 
@@ -436,7 +467,7 @@ systemd. Two options:
 - **(b)** Manifest gains an optional `service_unit` field that defaults to
   `id` if absent. CLN's manifest declares `"service_unit": "clightning"`.
 
-*Recommend (b).* Keeps JSON keys readable; explicit declaration for the one
+_Recommend (b)._ Keeps JSON keys readable; explicit declaration for the one
 case where they differ. The Nix template wiring stays unchanged (template
 already names units explicitly).
 
@@ -559,13 +590,13 @@ All green. Plus a Pi 5 / VM smoke covering the manual cases above.
 
 ## Phasing handoff
 
-| Phase | Work | Depends on |
-|---|---|---|
-| **3** *(this spec)* | UI generalisation: bundled-app manifests, registry, generic Configure view, install wizard capabilities, debug views | 1, 2 |
-| 4 | Move blitz-api Nix module into a plugin; rip out InProcessAdapterSource; ship blitz-api-bridge as subprocess streamer; lift `blitz_api.json` manifest into the plugin | 1, 2, 3 |
-| 5 | Move blitz-web Nix module into a plugin; lift its manifest | 2, 3, 4 |
-| 6 | Move lnd, cln Nix modules into plugins; lift their manifests; install wizard's `lightning_backend` capability discovery now finds plugin-shipped manifests | 2, 3, 4 |
-| later | Move bitcoind into a plugin (last; transitively depended on by all LN/api plugins). Plugin dependency declarations probably formalise here. | 4, 5, 6 |
+| Phase               | Work                                                                                                                                                                  | Depends on |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **3** _(this spec)_ | UI generalisation: bundled-app manifests, registry, generic Configure view, install wizard capabilities, debug views                                                  | 1, 2       |
+| 4                   | Move blitz-api Nix module into a plugin; rip out InProcessAdapterSource; ship blitz-api-bridge as subprocess streamer; lift `blitz_api.json` manifest into the plugin | 1, 2, 3    |
+| 5                   | Move blitz-web Nix module into a plugin; lift its manifest                                                                                                            | 2, 3, 4    |
+| 6                   | Move lnd, cln Nix modules into plugins; lift their manifests; install wizard's `lightning_backend` capability discovery now finds plugin-shipped manifests            | 2, 3, 4    |
+| later               | Move bitcoind into a plugin (last; transitively depended on by all LN/api plugins). Plugin dependency declarations probably formalise here.                           | 4, 5, 6    |
 
 After Phase 3 alone, no user-visible UX change beyond polish — same
 Configure menu, same wizard flow, same debug views. The big internal

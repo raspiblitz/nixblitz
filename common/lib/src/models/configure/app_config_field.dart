@@ -1,0 +1,139 @@
+import 'package:meta/meta.dart';
+
+class AppManifestError implements Exception {
+  final String message;
+  AppManifestError(this.message);
+  @override
+  String toString() => 'AppManifestError: $message';
+}
+
+@immutable
+sealed class AppConfigField {
+  final String name;
+  final String label;
+  final String? description;
+  const AppConfigField({
+    required this.name,
+    required this.label,
+    this.description,
+  });
+
+  factory AppConfigField.fromJson(Map<String, dynamic> json) {
+    final name = json['name'];
+    if (name is! String || name.isEmpty) {
+      throw AppManifestError('field.name is required (non-empty string)');
+    }
+    final label = json['label'];
+    if (label is! String) {
+      throw AppManifestError('field.label is required (string)');
+    }
+    final type = json['type'];
+    if (type is! String) {
+      throw AppManifestError('field.type is required (string)');
+    }
+    return switch (type) {
+      'bool' => BoolField._fromJson(json),
+      'string' => StringField._fromJson(json),
+      'int' => IntField._fromJson(json),
+      'enum' => EnumField._fromJson(json),
+      _ => throw AppManifestError('unknown field type: $type'),
+    };
+  }
+}
+
+@immutable
+class BoolField extends AppConfigField {
+  final bool defaultValue;
+  const BoolField({
+    required super.name,
+    required super.label,
+    super.description,
+    required this.defaultValue,
+  });
+  factory BoolField._fromJson(Map<String, dynamic> j) => BoolField(
+    name: j['name'] as String,
+    label: j['label'] as String,
+    description: j['description'] as String?,
+    defaultValue: (j['default'] as bool?) ?? false,
+  );
+}
+
+@immutable
+class StringField extends AppConfigField {
+  final String defaultValue;
+  final String? placeholder;
+  const StringField({
+    required super.name,
+    required super.label,
+    super.description,
+    required this.defaultValue,
+    this.placeholder,
+  });
+  factory StringField._fromJson(Map<String, dynamic> j) => StringField(
+    name: j['name'] as String,
+    label: j['label'] as String,
+    description: j['description'] as String?,
+    defaultValue: (j['default'] as String?) ?? '',
+    placeholder: j['placeholder'] as String?,
+  );
+}
+
+@immutable
+class IntField extends AppConfigField {
+  final int defaultValue;
+  final int? min;
+  final int? max;
+  const IntField({
+    required super.name,
+    required super.label,
+    super.description,
+    required this.defaultValue,
+    this.min,
+    this.max,
+  });
+  factory IntField._fromJson(Map<String, dynamic> j) => IntField(
+    name: j['name'] as String,
+    label: j['label'] as String,
+    description: j['description'] as String?,
+    defaultValue: (j['default'] as num?)?.toInt() ?? 0,
+    min: (j['min'] as num?)?.toInt(),
+    max: (j['max'] as num?)?.toInt(),
+  );
+}
+
+@immutable
+class EnumField extends AppConfigField {
+  final List<String> choices;
+  final String defaultValue;
+  const EnumField({
+    required super.name,
+    required super.label,
+    super.description,
+    required this.choices,
+    required this.defaultValue,
+  });
+  factory EnumField._fromJson(Map<String, dynamic> j) {
+    final choices = (j['choices'] as List?)?.cast<String>() ?? const [];
+    if (choices.isEmpty) {
+      throw AppManifestError('enum field "${j['name']}" requires choices');
+    }
+    final def = j['default'];
+    if (def is! String) {
+      throw AppManifestError(
+        'enum field "${j['name']}".default required (string)',
+      );
+    }
+    if (!choices.contains(def)) {
+      throw AppManifestError(
+        'enum field "${j['name']}".default "$def" not in choices $choices',
+      );
+    }
+    return EnumField(
+      name: j['name'] as String,
+      label: j['label'] as String,
+      description: j['description'] as String?,
+      choices: choices,
+      defaultValue: def,
+    );
+  }
+}
