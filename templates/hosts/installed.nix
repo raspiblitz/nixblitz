@@ -12,6 +12,21 @@
   # flips to true and the real service configuration is built on the
   # installed system's disk (plenty of space).
   initialized = cfg.initialized or false;
+
+  # Generic helpers for the v18 app_configs shape.
+  # `apps` is the map of app-name → config-map from config.json.
+  apps = cfg.app_configs or {};
+
+  # Read a single option from apps.<name>.<key>, falling back to `default`
+  # when the app entry or the key is absent.
+  appOpt = name: key: default: let
+    m = apps.${name} or {};
+  in
+    m.${key} or default;
+
+  # An app is active only when the system has been initialized AND the app's
+  # own `enabled` flag is true.
+  appEnabled = name: initialized && (appOpt name "enabled" false);
 in {
   imports = [
     ../hardware-configuration.nix
@@ -45,33 +60,31 @@ in {
     else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
-  features.apps.bitcoind.enable = initialized && cfg.bitcoind.enabled;
-  features.apps.bitcoind.network = cfg.bitcoind.network;
-  features.apps.bitcoind.pruned = cfg.bitcoind.pruned;
-  features.apps.bitcoind.pruneSizeGb = cfg.bitcoind.prune_size_gb;
+  features.apps.bitcoind.enable = appEnabled "bitcoind";
+  features.apps.bitcoind.network = appOpt "bitcoind" "network" "mainnet";
+  features.apps.bitcoind.pruned = appOpt "bitcoind" "pruned" false;
+  features.apps.bitcoind.pruneSizeGb = appOpt "bitcoind" "prune_size_gb" 0;
 
-  features.apps.lnd.enable = initialized && cfg.lnd.enabled;
-  features.apps.lnd.alias = cfg.lnd.alias;
+  features.apps.lnd.enable = appEnabled "lnd";
+  features.apps.lnd.alias = appOpt "lnd" "alias" "";
 
-  features.apps.cln.enable = initialized && cfg.cln.enabled;
+  features.apps.cln.enable = appEnabled "cln";
 
-  features.apps.blitz-api.enable = initialized && cfg.blitz_api.enabled;
-  features.apps.blitz-web.enable = initialized && cfg.blitz_web.enabled;
+  features.apps.blitz-api.enable = appEnabled "blitz_api";
+  features.apps.blitz-web.enable = appEnabled "blitz_web";
 
   # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
   # are up. Needs at least one service enabled — nix-bitcoin.operator adds
   # the user to groups that only exist when the relevant service runs.
   features.system.operator.enable =
-    initialized
-    && (cfg.bitcoind.enabled || cfg.lnd.enabled || cfg.cln.enabled);
+    (appEnabled "bitcoind") || (appEnabled "lnd") || (appEnabled "cln");
 
   # Test-LND: secondary regtest-only LND instance for opening channels
   # against the primary node and dry-running payments via `lncli-test`.
   # Auto-enabled whenever bitcoind is on regtest; off on any real network.
   features.system.testLnd.enable =
-    initialized
-    && cfg.bitcoind.enabled
-    && cfg.bitcoind.network == "regtest";
+    (appEnabled "bitcoind")
+    && (appOpt "bitcoind" "network" "mainnet") == "regtest";
 
   users.users.admin = {
     isNormalUser = true;
