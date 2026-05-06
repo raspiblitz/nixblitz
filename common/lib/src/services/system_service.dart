@@ -75,9 +75,10 @@ class PackageDiffResult {
 }
 
 class SystemService {
-  SystemService({required this.sudoSession});
+  SystemService({required this.sudoSession, required this.serviceUnits});
 
   final SudoSession sudoSession;
+  final List<String> serviceUnits;
 
   Future<ServiceStatus> getServiceStatus(String serviceName) async {
     final result = await Process.run('systemctl', [
@@ -108,14 +109,7 @@ class SystemService {
   }
 
   Future<List<ServiceStatus>> getAllServiceStatuses() async {
-    final services = [
-      'bitcoind',
-      'lnd',
-      'clightning',
-      'blitz-api',
-      'blitz-web',
-    ];
-    return Future.wait(services.map(getServiceStatus));
+    return Future.wait(serviceUnits.map(getServiceStatus));
   }
 
   /// Phase 1 of the Update flow: run `nix flake update <inputs>` in

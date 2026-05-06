@@ -6,17 +6,6 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../../widgets/scrollable_log.dart';
 
-const _kUnits = [
-  'bitcoind',
-  'lnd',
-  'clightning',
-  'redis',
-  'blitz-api',
-  'blitz-api-celery-worker',
-  'blitz-api-celery-beat',
-  'nginx',
-];
-
 final _healthLinesProvider = StateProvider<List<String>>((ref) => []);
 final _healthLoadingProvider = StateProvider<bool>((ref) => true);
 
@@ -38,8 +27,10 @@ class _ServiceHealthViewState extends State<ServiceHealthView> {
     context.read(_healthLinesProvider.notifier).state = [];
 
     Future<void>(() async {
+      final registry = context.read(appManifestRegistryProvider);
+      final units = registry.serviceIds();
       final rows = <String>[];
-      for (final unit in _kUnits) {
+      for (final unit in units) {
         String state;
         try {
           final r = await Process.run('systemctl', [

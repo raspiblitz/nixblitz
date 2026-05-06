@@ -1,10 +1,15 @@
 import 'package:riverpod/riverpod.dart';
 import 'package:common/src/models/service_status.dart';
 import 'package:common/src/providers/sudo_session_provider.dart';
+import 'package:common/src/providers/app_manifest_registry_provider.dart';
 import 'package:common/src/services/system_service.dart';
 
 final systemServiceProvider = Provider<SystemService>((ref) {
-  return SystemService(sudoSession: ref.watch(sudoSessionProvider));
+  final registry = ref.watch(appManifestRegistryProvider);
+  return SystemService(
+    sudoSession: ref.watch(sudoSessionProvider),
+    serviceUnits: registry.serviceIds(),
+  );
 });
 
 final serviceStatusProvider = FutureProvider<List<ServiceStatus>>((ref) async {

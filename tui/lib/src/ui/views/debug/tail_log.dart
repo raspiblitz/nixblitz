@@ -6,17 +6,6 @@ import 'package:common/common.dart';
 import '../../widgets/scrollable_log.dart';
 import '../../widgets/select_popup.dart';
 
-const _kUnits = [
-  'bitcoind',
-  'lnd',
-  'clightning',
-  'redis',
-  'blitz-api',
-  'blitz-api-celery-worker',
-  'blitz-api-celery-beat',
-  'nginx',
-];
-
 enum _TailMode { picking, viewing }
 
 final _tailModeProvider = StateProvider<_TailMode>((ref) => _TailMode.picking);
@@ -77,6 +66,8 @@ class _TailLogViewState extends State<TailLogView> {
 
   Component _buildPicker(BuildContext context) {
     final selectedIndex = context.watch(_tailPickIndexProvider);
+    final registry = context.watch(appManifestRegistryProvider);
+    final units = registry.serviceIds();
     return Container(
       padding: const EdgeInsets.all(2),
       child: Column(
@@ -92,11 +83,11 @@ class _TailLogViewState extends State<TailLogView> {
           const SizedBox(height: 1),
           SelectPopup(
             title: 'Pick a unit',
-            options: _kUnits,
+            options: units,
             selectedIndex: selectedIndex,
             onHighlight: (i) =>
                 context.read(_tailPickIndexProvider.notifier).state = i,
-            onConfirm: (i) => _loadUnit(_kUnits[i]),
+            onConfirm: (i) => _loadUnit(units[i]),
             onCancel: () {
               _reset();
               component.onExit();
