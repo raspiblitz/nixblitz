@@ -1,0 +1,9 @@
+{
+  "id": "blitz_web",
+  "label": "Blitz Web",
+  "description": "Web frontend for monitoring + managing the node",
+  "capabilities": [],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
+  ]
+}

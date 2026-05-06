@@ -1,0 +1,16 @@
+{
+  "id": "lnd",
+  "label": "LND",
+  "description": "Lightning Network Daemon (LND backend)",
+  "capabilities": ["lightning_backend"],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "alias",
+      "type": "string",
+      "label": "Alias",
+      "default": "",
+      "placeholder": "my-node"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "cln",
+  "label": "Core Lightning",
+  "description": "Core Lightning (CLN) backend",
+  "capabilities": ["lightning_backend"],
+  "service_unit": "clightning",
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
+  ]
+}

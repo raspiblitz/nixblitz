@@ -1,0 +1,29 @@
+{
+  "id": "bitcoind",
+  "label": "Bitcoin Core",
+  "description": "Bitcoin reference client (full or pruned node)",
+  "capabilities": [],
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+    {
+      "name": "network",
+      "type": "enum",
+      "label": "Network",
+      "choices": ["mainnet", "testnet", "regtest", "signet"],
+      "default": "mainnet"
+    },
+    {
+      "name": "pruned",
+      "type": "bool",
+      "label": "Prune mode",
+      "default": false
+    },
+    {
+      "name": "prune_size_gb",
+      "type": "int",
+      "label": "Prune size (GB)",
+      "default": 0,
+      "min": 0
+    }
+  ]
+}
