@@ -103,6 +103,7 @@ common/lib/src/services/blitz_api/sse_event.dart                      # DELETED
 ## Task 1: Extend `PluginManifest` with `requires` / `module` / `streamers` fields (core)
 
 **Files:**
+
 - Modify: `common/lib/src/models/plugin/plugin_manifest.dart`
 - Create: `common/lib/src/models/plugin/plugin_dep.dart`
 - Create: `common/lib/src/models/plugin/plugin_streamer_spec.dart`
@@ -419,6 +420,7 @@ EOF
 ## Task 2: Marker file utility — read/write/regenerate `plugins.list` (core)
 
 **Files:**
+
 - Create: `common/lib/src/services/plugin/plugin_marker.dart`
 - Create: `common/lib/src/services/plugin/plugin_list_regen.dart`
 - Test: `common/test/services/plugin/plugin_marker_test.dart`
@@ -766,6 +768,7 @@ EOF
 ## Task 3: Plugin dependency check (core)
 
 **Files:**
+
 - Create: `common/lib/src/services/plugin/plugin_dep_check.dart`
 - Create: `common/lib/src/providers/plugin_dep_check_provider.dart`
 - Test: `common/test/services/plugin/plugin_dep_check_test.dart`
@@ -955,6 +958,7 @@ EOF
 ## Task 4: Tile event filtering at source-listener glue (core)
 
 **Files:**
+
 - Modify: `common/lib/src/providers/dashboard_provider.dart`
 - Modify: `common/test/providers/dashboard_provider_test.dart` (or create)
 
@@ -1065,6 +1069,7 @@ EOF
 **Working directory:** `/home/f44/dev/blitz/nixblitz-plugin-blitz-api/` (NEW directory; create as part of this task).
 
 **Files:**
+
 - Create directory: `~/dev/blitz/nixblitz-plugin-blitz-api/`
 - Create: `plugin.json`
 - Create: `README.md`
@@ -1093,9 +1098,7 @@ git init
   "url": "git+https://forge.f44.fyi/f44/nixblitz-plugin-blitz-api",
   "description": "FastAPI backend for the Blitz web frontend",
 
-  "requires": [
-    {"type": "app", "id": "bitcoind"}
-  ],
+  "requires": [{ "type": "app", "id": "bitcoind" }],
 
   "module": "module.nix",
 
@@ -1113,7 +1116,12 @@ git init
     "description": "FastAPI backend for the Blitz web frontend",
     "capabilities": [],
     "fields": [
-      {"name": "enabled", "type": "bool", "label": "Enabled", "default": false}
+      {
+        "name": "enabled",
+        "type": "bool",
+        "label": "Enabled",
+        "default": false
+      }
     ]
   }
 }
@@ -1210,6 +1218,7 @@ EOF
 **Working directory:** `/home/f44/dev/blitz/nixblitz-plugin-blitz-api/`
 
 **Files:**
+
 - Create: `module.nix`
 
 **Spec reference:** "What gets deleted from core" — the file's content is
@@ -1349,6 +1358,7 @@ EOF
 **Working directory:** `/home/f44/dev/blitz/nixblitz-plugin-blitz-api/`
 
 **Files:**
+
 - Create: `streamers/blitz_api_stream.py`
 - Create: `tests/test_blitz_api_stream.py`
 - Create: `tests/__init__.py`
@@ -1591,6 +1601,7 @@ EOF
 ## Task 8: `installed_plugins_provider` + plugin streamer registration (core)
 
 **Files:**
+
 - Create: `common/lib/src/providers/installed_plugins_provider.dart`
 - Modify: `common/lib/src/providers/dashboard_provider.dart` — register plugin streamers
 - Modify: `common/lib/src/providers/plugin_dep_check_provider.dart` — wire to installed plugins
@@ -1738,6 +1749,7 @@ EOF
 ## Task 9: Plugin install flow — consent prompt + clone + marker + regen (core)
 
 **Files:**
+
 - Create or modify: `tui/lib/src/ui/views/plugins/plugin_install_view.dart`
 - Test: `tui/test/ui/views/plugins/plugin_install_view_test.dart`
 
@@ -1902,6 +1914,7 @@ EOF
 ## Task 10: Plugin enable/disable flow + dep banner + auto-fill dep prompt (core)
 
 **Files:**
+
 - Create or modify: `tui/lib/src/ui/views/plugins/plugin_manage_view.dart`
 - Modify: `tui/lib/src/ui/views/dashboard_view.dart` — banner for missing-dep plugins
 - Test: applicable test files
@@ -1986,6 +1999,7 @@ EOF
 ## Task 11: `installed.nix` plugins.list import (core)
 
 **Files:**
+
 - Modify: `templates/hosts/installed.nix`
 
 **Spec reference:** "Nix module discovery: ~/nixblitz/plugins.list" section.
@@ -2048,6 +2062,7 @@ EOF
 ## Task 12: Cleanup — delete obsolete core code (core)
 
 **Files (deleted):**
+
 - `templates/modules/apps/blitz-api.nix`
 - `common/lib/src/services/configure/bundled/manifests/blitz_api.json`
 - `common/lib/src/services/dashboard/sources/blitz_api_bridge_source.dart`
@@ -2223,21 +2238,21 @@ If captured, drop it into
 
 **Spec coverage:**
 
-| Spec section | Implementing task |
-|---|---|
-| `requires`, `module`, `streamers` manifest fields | Task 1 |
-| Marker file format + `plugins.list` regen | Task 2 |
-| Dep check function | Task 3 |
-| `tile_ids` enforcement | Task 4 |
-| Plugin repo bootstrap (plugin.json + README) | Task 5 |
-| Plugin's `module.nix` (transcribed core wrapper) | Task 6 |
-| Plugin's Python streamer (Auth + SSE + routing) | Task 7 |
-| `installed_plugins_provider` + plugin streamer registration | Task 8 |
-| Install consent prompt + marker write + regen | Task 9 |
-| Enable/disable + dep banner + URL auto-fill prompt | Task 10 |
-| `installed.nix` plugins.list import | Task 11 |
-| Cleanup (delete BlitzApiBridge etc.) | Task 12 |
-| Manual smoke (deploy + install + dashboard verify) | Task 13 |
+| Spec section                                                | Implementing task |
+| ----------------------------------------------------------- | ----------------- |
+| `requires`, `module`, `streamers` manifest fields           | Task 1            |
+| Marker file format + `plugins.list` regen                   | Task 2            |
+| Dep check function                                          | Task 3            |
+| `tile_ids` enforcement                                      | Task 4            |
+| Plugin repo bootstrap (plugin.json + README)                | Task 5            |
+| Plugin's `module.nix` (transcribed core wrapper)            | Task 6            |
+| Plugin's Python streamer (Auth + SSE + routing)             | Task 7            |
+| `installed_plugins_provider` + plugin streamer registration | Task 8            |
+| Install consent prompt + marker write + regen               | Task 9            |
+| Enable/disable + dep banner + URL auto-fill prompt          | Task 10           |
+| `installed.nix` plugins.list import                         | Task 11           |
+| Cleanup (delete BlitzApiBridge etc.)                        | Task 12           |
+| Manual smoke (deploy + install + dashboard verify)          | Task 13           |
 
 All spec sections covered.
 

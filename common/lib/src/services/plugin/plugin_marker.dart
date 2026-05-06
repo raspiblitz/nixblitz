@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:common/src/services/log_service.dart';
+
 const _markerFilename = '.nixblitz-installed.json';
 
 /// Authoritative install record for a plugin.
@@ -44,6 +46,8 @@ class PluginMarker {
 }
 
 /// Write [marker] to `<pluginDir>/.nixblitz-installed.json`.
+///
+/// [pluginDir] must already exist; the install flow owns directory creation.
 void writeMarker(String pluginDir, PluginMarker marker) {
   File(
     '$pluginDir/$_markerFilename',
@@ -53,6 +57,8 @@ void writeMarker(String pluginDir, PluginMarker marker) {
 /// Read the marker from `<pluginDir>/.nixblitz-installed.json`.
 ///
 /// Returns null if the file is missing OR malformed (any decode/parse error).
+/// Malformed cases are warn-logged so an operator can debug a plugin that
+/// silently disappears from `plugins.list`.
 PluginMarker? readMarker(String pluginDir) {
   final f = File('$pluginDir/$_markerFilename');
   if (!f.existsSync()) return null;
@@ -60,7 +66,8 @@ PluginMarker? readMarker(String pluginDir) {
     return PluginMarker.fromJson(
       jsonDecode(f.readAsStringSync()) as Map<String, dynamic>,
     );
-  } catch (_) {
+  } catch (e) {
+    LogService.warn('readMarker: malformed marker at $pluginDir: $e');
     return null;
   }
 }

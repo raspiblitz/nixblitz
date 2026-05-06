@@ -25,7 +25,7 @@ blitz-web/lnd/cln.
   shape switches to `type: "plugin"` + URL.
 - **Moving the `bitcoin.json` / `lightning.json` tile manifests out of core.**
   These tiles describe bitcoind / lnd / cln respectively — the blitz-api
-  plugin is just a *data source* for them. Their canonical owners follow them
+  plugin is just a _data source_ for them. Their canonical owners follow them
   into bitcoind / lnd / cln plugins in later phases. For Phase 4 the
   blitz-api plugin's streamer feeds these still-bundled-in-core manifests.
 - **Auto-migration for existing installs.** Operator manually installs the
@@ -85,9 +85,7 @@ fields:
   "version": "1.0.0",
   "url": "git+https://forge.f44.fyi/f44/nixblitz-plugin-blitz-api",
 
-  "requires": [
-    { "type": "app", "id": "bitcoind" }
-  ],
+  "requires": [{ "type": "app", "id": "bitcoind" }],
 
   "module": "module.nix",
 
@@ -96,16 +94,21 @@ fields:
       "name": "blitz-api-stream",
       "command": "python3",
       "args": ["streamers/blitz_api_stream.py"],
-      "tile_ids": ["bitcoin", "lightning"]
-    }
+      "tile_ids": ["bitcoin", "lightning"],
+    },
   ],
 
   "config_schema": {
     "label": "Blitz API",
     "fields": [
-      { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
-    ]
-  }
+      {
+        "name": "enabled",
+        "type": "bool",
+        "label": "Enabled",
+        "default": false,
+      },
+    ],
+  },
 }
 ```
 
@@ -169,7 +172,7 @@ Key behaviour:
   user `admin`, member of `wheel`). Same trust model as before.
 - **Login:** POST password to `/system/login`, get JWT.
 - **SSE subscribe:** GET `/sse/subscribe` with `Authorization: Bearer
-  <JWT>`. Parse SSE frames.
+<JWT>`. Parse SSE frames.
 - **Event routing:** `btc_info` and `btc_mempool_status` → emit
   `{"tile": "bitcoin", "data": {…}, "ts": …}`. `ln_info` and
   `wallet_balance` → emit `{"tile": "lightning", "data": {…}, "ts": …}`.
@@ -341,7 +344,7 @@ the TUI offers to install the dep:
 Plugin blitz-api requires another plugin not yet installed.
 
   Required:  git+https://forge.f44.fyi/f44/nixblitz-plugin-bitcoind
-  
+
   Install this dependency now? [y/N]
 ```
 
@@ -366,7 +369,7 @@ plugins focus on:
 - Cross-plugin event isolation (`tile_ids` enforcement above)
 - Attempted-tampering detection (orphan paths in `plugins.list` logged)
 
-Mitigations *not* attempted: process sandboxing, capability filtering,
+Mitigations _not_ attempted: process sandboxing, capability filtering,
 runtime privilege drop. These add complexity without proportional value
 when the install-time trust grant is the actual decision point.
 
@@ -394,7 +397,7 @@ streamer stays in core.
 ## What gets added to core
 
 - `requires`, `module`, `streamers` fields added to `PluginManifest` model
-  + parser.
+  - parser.
 - **Install consent prompt** in TUI's plugin install flow (text per
   "Install consent + trust contract" section above), shown before
   `git clone`.
@@ -493,14 +496,15 @@ Plus a Pi 5 deploy + manual smoke for the install/disable/uninstall flows.
 
 ## Phasing handoff
 
-| Phase | Work | Depends on |
-|---|---|---|
-| **4** *(this spec)* | Move blitz-api into a plugin; ship subprocess streamer; depend on still-core bitcoind | 1, 2, 3 |
-| 5 | Move blitz-web into a plugin (mostly Nix; almost no Dart-side change) | 2, 3, 4 |
-| 6 | Move lnd, cln into plugins; install wizard's `lightning_backend` capability now finds plugin-shipped manifests; bitcoin/lightning tile manifests follow lnd/cln out of core | 2, 3, 4 |
-| later | Move bitcoind into a plugin (last; transitively depended on by every LN/api plugin). blitz-api's `requires` switches from `{type: "app"}` to `{type: "plugin", url: ...}` here. | 4, 5, 6 |
+| Phase               | Work                                                                                                                                                                            | Depends on |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **4** _(this spec)_ | Move blitz-api into a plugin; ship subprocess streamer; depend on still-core bitcoind                                                                                           | 1, 2, 3    |
+| 5                   | Move blitz-web into a plugin (mostly Nix; almost no Dart-side change)                                                                                                           | 2, 3, 4    |
+| 6                   | Move lnd, cln into plugins; install wizard's `lightning_backend` capability now finds plugin-shipped manifests; bitcoin/lightning tile manifests follow lnd/cln out of core     | 2, 3, 4    |
+| later               | Move bitcoind into a plugin (last; transitively depended on by every LN/api plugin). blitz-api's `requires` switches from `{type: "app"}` to `{type: "plugin", url: ...}` here. | 4, 5, 6    |
 
 After Phase 4 alone:
+
 - Real plugin running in production (the canonical example).
 - Plugin lifecycle exercised end-to-end (install, enable, dep check, streamer subprocess, uninstall).
 - Core 2200 lines lighter (deletions: BlitzApiBridgeSource, InProcessAdapterSource, BlitzApiClient, sse_event, blitz-api Nix module, bundled blitz_api.json).
