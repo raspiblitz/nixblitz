@@ -112,13 +112,10 @@ void main() {
       // config.json's app_configs map.
       expect(File('${pluginDir.path}/config.json').existsSync(), isFalse);
 
-      // plugins.list is regenerated on install.
+      // plugins.list is regenerated on install (id-only format).
       final pluginsList = File('${home.path}/plugins.list');
       expect(pluginsList.existsSync(), isTrue);
-      expect(
-        pluginsList.readAsStringSync().trim(),
-        '${home.path}/plugins/tailscale',
-      );
+      expect(pluginsList.readAsStringSync().trim(), 'tailscale');
     });
 
     test('install rejects id collision from a different URL', () async {
@@ -515,10 +512,10 @@ void main() {
       final enabled = await pluginService.enable(marker.id);
       expect(enabled.disabled, isFalse);
 
-      // plugins.list includes it again.
+      // plugins.list includes it again (id-only format).
       expect(
         File('${home.path}/plugins.list').readAsStringSync().trim(),
-        '${home.path}/plugins/${marker.id}',
+        marker.id,
       );
     });
 

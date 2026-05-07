@@ -5,10 +5,10 @@ import 'package:common/src/services/plugin/plugin_marker.dart';
 
 /// Outcome of a [regeneratePluginsList] call.
 class RegenResult {
-  /// Paths written to the new `plugins.list` (sorted).
+  /// Plugin ids written to the new `plugins.list` (sorted).
   final List<String> written;
 
-  /// Paths present in the previous `plugins.list` that had no corresponding
+  /// Ids present in the previous `plugins.list` that had no corresponding
   /// marker — dropped from the new file and warn-logged. This is the
   /// security boundary: a malicious plugin cannot sneak imports past us by
   /// editing `plugins.list` directly.
@@ -20,12 +20,17 @@ class RegenResult {
 /// Regenerate `<baseDir>/plugins.list` from the marker set under
 /// `<baseDir>/plugins/`.
 ///
+/// File format: one plugin id per line. The flake's `pluginModules`
+/// derivation joins each id with `./plugins/<id>` to locate the
+/// plugin checkout — keeps the file flake-portable (no operator
+/// `$HOME` baked in).
+///
 /// Filters:
 ///   - markers with `disabled: true` are skipped
 ///   - markers whose id is not in [satisfiedPluginIds] are skipped
 ///     (caller computes this from enabled+dep-satisfied plugins)
 ///
-/// Orphan paths in the previous `plugins.list` (no corresponding marker)
+/// Orphan ids in the previous `plugins.list` (no corresponding marker)
 /// are removed and reported in [RegenResult.dropped].
 RegenResult regeneratePluginsList({
   required String baseDir,
@@ -34,12 +39,9 @@ RegenResult regeneratePluginsList({
   final pluginsRoot = '$baseDir/plugins';
   final markers = discoverInstalledMarkers(pluginsRoot);
 
-  final eligibleMarkers = markers
+  final eligibleIds = markers
       .where((m) => !m.disabled && satisfiedPluginIds.contains(m.id))
-      .toList();
-
-  final eligiblePaths = eligibleMarkers
-      .map((m) => '$pluginsRoot/${m.id}')
+      .map((m) => m.id)
       .toSet();
 
   final listFile = File('$baseDir/plugins.list');
@@ -50,20 +52,19 @@ RegenResult regeneratePluginsList({
         .split('\n')
         .where((l) => l.isNotEmpty)
         .toList();
-    for (final path in old) {
-      if (!eligiblePaths.contains(path)) {
-        dropped.add(path);
+    for (final id in old) {
+      if (!eligibleIds.contains(id)) {
+        dropped.add(id);
         LogService.warn(
-          'plugins.list: dropped orphan path on regen — '
-          'no marker found at $path',
+          'plugins.list: dropped orphan id on regen — '
+          'no marker found for `$id`',
         );
       }
     }
   }
 
-  final newPaths = eligibleMarkers.map((m) => '$pluginsRoot/${m.id}').toList()
-    ..sort();
-  listFile.writeAsStringSync('${newPaths.join("\n")}\n');
+  final newIds = eligibleIds.toList()..sort();
+  listFile.writeAsStringSync('${newIds.join("\n")}\n');
 
-  return RegenResult(written: newPaths, dropped: dropped);
+  return RegenResult(written: newIds, dropped: dropped);
 }

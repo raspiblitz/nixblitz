@@ -14,7 +14,7 @@ void main() {
   });
 
   group('regeneratePluginsList', () {
-    test('writes one path per enabled marker', () {
+    test('writes one id per enabled marker', () {
       final pluginsRoot = Directory('${tmp.path}/plugins')..createSync();
       _writeMarker(pluginsRoot.path, 'a', false);
       _writeMarker(pluginsRoot.path, 'b', false);
@@ -24,10 +24,7 @@ void main() {
       );
       expect(result.dropped, isEmpty);
       final list = File('${tmp.path}/plugins.list').readAsStringSync();
-      expect(list.split('\n').where((l) => l.isNotEmpty).toSet(), {
-        '${pluginsRoot.path}/a',
-        '${pluginsRoot.path}/b',
-      });
+      expect(list.split('\n').where((l) => l.isNotEmpty).toSet(), {'a', 'b'});
     });
 
     test('skips disabled plugins', () {
@@ -35,9 +32,11 @@ void main() {
       _writeMarker(pluginsRoot.path, 'a', false);
       _writeMarker(pluginsRoot.path, 'b', true); // disabled
       regeneratePluginsList(baseDir: tmp.path, satisfiedPluginIds: {'a', 'b'});
-      final list = File('${tmp.path}/plugins.list').readAsStringSync();
-      expect(list, contains('${pluginsRoot.path}/a'));
-      expect(list, isNot(contains('${pluginsRoot.path}/b')));
+      final ids = File(
+        '${tmp.path}/plugins.list',
+      ).readAsStringSync().split('\n').where((l) => l.isNotEmpty).toSet();
+      expect(ids, contains('a'));
+      expect(ids, isNot(contains('b')));
     });
 
     test('skips plugins with unsatisfied deps', () {
@@ -48,23 +47,23 @@ void main() {
         baseDir: tmp.path,
         satisfiedPluginIds: {'a'}, // b is missing
       );
-      final list = File('${tmp.path}/plugins.list').readAsStringSync();
-      expect(list, contains('${pluginsRoot.path}/a'));
-      expect(list, isNot(contains('${pluginsRoot.path}/b')));
+      final ids = File(
+        '${tmp.path}/plugins.list',
+      ).readAsStringSync().split('\n').where((l) => l.isNotEmpty).toSet();
+      expect(ids, contains('a'));
+      expect(ids, isNot(contains('b')));
     });
 
-    test('detects + drops orphan paths in old plugins.list', () {
+    test('detects + drops orphan ids in old plugins.list', () {
       final pluginsRoot = Directory('${tmp.path}/plugins')..createSync();
       _writeMarker(pluginsRoot.path, 'a', false);
-      // Pre-existing plugins.list with an orphan path:
-      File('${tmp.path}/plugins.list').writeAsStringSync(
-        '${pluginsRoot.path}/a\n${pluginsRoot.path}/orphan\n',
-      );
+      // Pre-existing plugins.list with an orphan id:
+      File('${tmp.path}/plugins.list').writeAsStringSync('a\norphan\n');
       final result = regeneratePluginsList(
         baseDir: tmp.path,
         satisfiedPluginIds: {'a'},
       );
-      expect(result.dropped, contains('${pluginsRoot.path}/orphan'));
+      expect(result.dropped, contains('orphan'));
       final list = File('${tmp.path}/plugins.list').readAsStringSync();
       expect(list, isNot(contains('orphan')));
     });
