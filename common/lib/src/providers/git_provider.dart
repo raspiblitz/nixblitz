@@ -45,9 +45,8 @@ final pendingChangesProvider = FutureProvider<List<String>>((ref) async {
 /// through `AsyncLoading`.
 ///
 /// Re-evaluation happens only via explicit `ref.invalidate(...)`
-/// at the three commit / revert sites that mutate HEAD:
-/// `apply_view._leave`, the update-view post-rebuild path,
-/// and `plugin_config_provider.update`.
+/// at the commit / revert sites that mutate HEAD:
+/// `apply_view._leave` and the update-view post-rebuild path.
 final committedConfigProvider = FutureProvider<NixblitzConfig?>((ref) async {
   final git = ref.watch(gitServiceProvider);
   try {
@@ -92,10 +91,10 @@ final committedConfigProvider = FutureProvider<NixblitzConfig?>((ref) async {
 /// caption.
 ///
 /// Re-evaluates whenever [committedConfigProvider] is invalidated,
-/// since "HEAD changed" is the same trigger set: the apply view,
-/// update view post-rebuild, and `plugin_config_provider.update`
-/// already invalidate that provider, so this one rides along
-/// without needing its own invalidation calls.
+/// since "HEAD changed" is the same trigger set: the apply view
+/// and update view post-rebuild already invalidate that provider,
+/// so this one rides along without needing its own invalidation
+/// calls.
 final lastApplyTimeProvider = FutureProvider<DateTime?>((ref) async {
   ref.watch(committedConfigProvider);
   final git = ref.watch(gitServiceProvider);

@@ -4,7 +4,6 @@ import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
-import '../widgets/plugin_field_editor.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import 'configure/field_editor.dart';
@@ -34,7 +33,7 @@ import 'configure/field_editor.dart';
 /// Cancellation is out of scope for Phase 4.
 class PluginConfigView extends StatefulComponent {
   /// On-disk plugin id (matches `<pluginsDir>/<id>/`). Used to look
-  /// up the manifest and per-plugin config notifier.
+  /// up the manifest from the plugin registry.
   final String pluginId;
 
   final VoidCallback onDismiss;
@@ -49,27 +48,19 @@ class PluginConfigView extends StatefulComponent {
   State<PluginConfigView> createState() => _PluginConfigViewState();
 }
 
-/// Tagged-union row in the unified field+action list.
+/// Tagged-union row in the unified field+action list. Schema fields
+/// and actions render side-by-side; the union lets them share the
+/// same selection index without losing per-row type info.
 sealed class _Row {
   const _Row();
 }
 
 /// A schema field declared via [PluginManifest.configSchema]. Values
 /// live in the main `app_configs[pluginId]` map and are written
-/// through `configProvider`. Phase 4+ plugin shape.
+/// through `configProvider`.
 class _SchemaFieldRow extends _Row {
   final AppConfigField spec;
   const _SchemaFieldRow(this.spec);
-}
-
-/// A legacy field declared via [PluginManifest.config]. Values live
-/// in the per-plugin `<pluginsDir>/<id>/config.json` (managed by
-/// [PluginConfigNotifier]). Phase 1 plugin shape — kept for
-/// electrs/lnbits/tailscale.
-class _FieldRow extends _Row {
-  final String key;
-  final ConfigField spec;
-  const _FieldRow(this.key, this.spec);
 }
 
 class _ActionRow extends _Row {
@@ -80,7 +71,6 @@ class _ActionRow extends _Row {
 
 class _PluginConfigViewState extends State<PluginConfigView> {
   int _selectedIndex = 0;
-  String? _overlayFieldKey;
   String? _editingSchemaFieldName;
   String? _confirmingActionId;
   String? _runningActionId;
@@ -98,33 +88,22 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   @override
   Component build(BuildContext context) {
     final pluginId = component.pluginId;
-    final notifier = context.read(pluginConfigProvider(pluginId).notifier);
 
-    final PluginManifest manifest;
-    try {
-      manifest = notifier.manifest();
-    } catch (e, st) {
-      LogService.error('failed to read plugin manifest', e, st);
-      return _errorScreen(context, 'Failed to load manifest: $e');
+    final plugins = context.watch(installedPluginsProvider);
+    final manifest = plugins.firstWhereOrNull((p) => p.id == pluginId);
+    if (manifest == null) {
+      // Plugin was uninstalled / rescaffolded mid-view, or the id
+      // is wrong. Operator gets a clear error + Esc back.
+      return _errorScreen(context, 'Plugin "$pluginId" is not installed');
     }
 
-    // Per-plugin legacy config (Phase-1 manifest.config). Always
-    // watched even if the plugin has only configSchema fields, so
-    // hot-reloads of the manifest cleanly switch shapes.
-    final configAsync = context.watch(pluginConfigProvider(pluginId));
-
-    // Main config — Phase 4 configSchema fields read/write through
-    // the main config.json's app_configs[pluginId]. Watched so a
-    // legacy-only plugin still rebuilds when sibling state churns
-    // (cheap; this is the same provider configure_view watches).
+    // Main config — configSchema fields read/write through the main
+    // config.json's app_configs[pluginId]. Watched so the row values
+    // refresh on external edits / reverts.
     final mainConfigAsync = context.watch(configProvider);
     final mainConfig = mainConfigAsync.value;
 
-    return configAsync.when(
-      loading: () => const Center(child: Text('Loading plugin config…')),
-      error: (e, _) => _errorScreen(context, 'Error: $e'),
-      data: (cfg) => _body(context, manifest, cfg, notifier, mainConfig),
-    );
+    return _body(context, manifest, mainConfig);
   }
 
   Component _errorScreen(BuildContext context, String msg) {
@@ -160,26 +139,18 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   Component _body(
     BuildContext context,
     PluginManifest manifest,
-    Map<String, dynamic> cfg,
-    PluginConfigNotifier notifier,
     NixblitzConfig? mainConfig,
   ) {
     final pluginId = component.pluginId;
 
-    // Build the unified field+action list. Render order:
-    //   1. configSchema fields (Phase 4 shape — backed by app_configs)
-    //   2. legacy manifest.config fields (Phase 1 shape — backed by
-    //      <pluginsDir>/<id>/config.json via PluginConfigNotifier)
-    //   3. actions
-    //
-    // In practice no plugin uses both config shapes; both paths
-    // coexist so we don't need a discriminated dispatch.
+    // Build the unified field+action list.
+    //   1. configSchema fields (backed by app_configs[pluginId])
+    //   2. actions
     //
     // Indexes here match _selectedIndex.
     final schemaFields = manifest.configSchema?.fields ?? const [];
     final rows = <_Row>[
       for (final f in schemaFields) _SchemaFieldRow(f),
-      for (final e in manifest.config.entries) _FieldRow(e.key, e.value),
       for (final e in manifest.actions.entries) _ActionRow(e.key, e.value),
     ];
 
@@ -232,36 +203,6 @@ class _PluginConfigViewState extends State<PluginConfigView> {
         _confirmingActionId = null;
       } else {
         return _confirmOverlay(action);
-      }
-    }
-    if (_overlayFieldKey != null) {
-      final spec = manifest.config[_overlayFieldKey];
-      if (spec == null) {
-        _overlayFieldKey = null;
-      } else {
-        return PluginTextOverlay(
-          spec: spec,
-          fieldKey: _overlayFieldKey!,
-          initialValue: cfg[_overlayFieldKey],
-          onSubmit: (value) async {
-            try {
-              await notifier.updateField(_overlayFieldKey!, value);
-              setState(() {
-                _overlayFieldKey = null;
-                _errorMessage = null;
-              });
-            } catch (e, st) {
-              LogService.error('plugin field update failed', e, st);
-              setState(() {
-                _overlayFieldKey = null;
-                _errorMessage = e.toString();
-              });
-            }
-          },
-          onCancel: () {
-            setState(() => _overlayFieldKey = null);
-          },
-        );
       }
     }
     // Schema-field overlay (StringField / IntField from configSchema).
@@ -329,7 +270,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           }
           if (event.logicalKey == LogicalKey.enter ||
               event.logicalKey == LogicalKey.space) {
-            _activateRow(context, rows, cfg, notifier, mainConfig);
+            _activateRow(context, rows, mainConfig);
             return true;
           }
           return false;
@@ -345,7 +286,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           children: [
             _header(pluginId, manifest),
             const SizedBox(height: 1),
-            ..._renderRows(rows, cfg, manifest, mainConfig),
+            ..._renderRows(rows, manifest, mainConfig),
             if (_errorMessage != null) ...[
               const SizedBox(height: 1),
               Text(
@@ -369,15 +310,12 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   /// and actions.
   List<Component> _renderRows(
     List<_Row> rows,
-    Map<String, dynamic> cfg,
     PluginManifest manifest,
     NixblitzConfig? mainConfig,
   ) {
     final out = <Component>[];
     var sawActionsHeading = false;
-    final hasFields =
-        manifest.config.isNotEmpty ||
-        (manifest.configSchema?.fields.isNotEmpty ?? false);
+    final hasFields = manifest.configSchema?.fields.isNotEmpty ?? false;
     final pluginAppId = manifest.id;
     final appCfg = mainConfig?.appConfig(pluginAppId) ?? const {};
 
@@ -420,15 +358,6 @@ class _PluginConfigViewState extends State<PluginConfigView> {
               field: spec,
               currentValue: appCfg[spec.name],
               selected: focused,
-            ),
-          );
-        case _FieldRow(:final key, :final spec):
-          out.add(
-            PluginFieldRow(
-              spec: spec,
-              fieldKey: key,
-              value: cfg[key] ?? spec.defaultValue,
-              focused: focused,
             ),
           );
         case _ActionRow(:final key, :final action):
@@ -604,16 +533,12 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   void _activateRow(
     BuildContext context,
     List<_Row> rows,
-    Map<String, dynamic> cfg,
-    PluginConfigNotifier notifier,
     NixblitzConfig? mainConfig,
   ) {
     final row = rows[_selectedIndex];
     switch (row) {
       case _SchemaFieldRow(:final spec):
         _activateSchemaField(context, spec, mainConfig);
-      case _FieldRow(:final key, :final spec):
-        _activateField(key, spec, cfg, notifier);
       case _ActionRow(:final key, :final action):
         if (action.confirm) {
           setState(() {
@@ -626,9 +551,9 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     }
   }
 
-  /// Edit a Phase-4 configSchema field. Bool/Enum cycle in-place
-  /// and write to main config.json's `app_configs[pluginId]`.
-  /// String/Int open the overlay (see `_editingSchemaFieldName`).
+  /// Edit a configSchema field. Bool/Enum cycle in-place and write
+  /// to main config.json's `app_configs[pluginId]`. String/Int open
+  /// the overlay (see `_editingSchemaFieldName`).
   void _activateSchemaField(
     BuildContext context,
     AppConfigField field,
@@ -636,7 +561,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
   ) {
     if (mainConfig == null) {
       // Config still loading — refuse silently (highly unlikely:
-      // the build() guards on configAsync.when above).
+      // build() handles configAsync.value being null upstream).
       return;
     }
     if (fieldRequiresEditor(field)) {
@@ -653,38 +578,6 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     final updated = mainConfig.setAppOption(pluginAppId, field.name, next);
     context.read(configProvider.notifier).updateConfig(updated);
     setState(() => _errorMessage = null);
-  }
-
-  void _activateField(
-    String key,
-    ConfigField spec,
-    Map<String, dynamic> cfg,
-    PluginConfigNotifier notifier,
-  ) {
-    try {
-      final cycled = cyclePrimitiveValue(spec, cfg[key] ?? spec.defaultValue);
-      if (cycled != null) {
-        notifier
-            .updateField(key, cycled)
-            .then((_) {
-              if (mounted) setState(() => _errorMessage = null);
-            })
-            .catchError((e, st) {
-              LogService.error('plugin field cycle failed', e, st);
-              if (mounted) setState(() => _errorMessage = e.toString());
-            });
-        return;
-      }
-    } on UnimplementedError catch (e) {
-      setState(() => _errorMessage = e.message ?? 'unsupported field type');
-      return;
-    }
-    if (fieldRequiresOverlay(spec)) {
-      setState(() {
-        _overlayFieldKey = key;
-        _errorMessage = null;
-      });
-    }
   }
 
   void _launchAction(String id, PluginAction action) {
@@ -753,5 +646,14 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           if (!mounted) return;
           setState(() => _actionExitCode = -1);
         });
+  }
+}
+
+extension _FirstWhereOrNull<T> on Iterable<T> {
+  T? firstWhereOrNull(bool Function(T) test) {
+    for (final e in this) {
+      if (test(e)) return e;
+    }
+    return null;
   }
 }

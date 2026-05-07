@@ -104,9 +104,10 @@ final configWatcherProvider = Provider<void>((ref) {
 /// True when [path] is something the running TUI should re-read
 /// the config for. Captures the main `config.json` and anything
 /// under `plugins/` (manifest, plugin.nix, README, LICENSE,
-/// directory creates / deletes) — minus per-plugin `config.json`,
-/// which churns on every keystroke from the Configure view and
-/// has its own reactivity in `plugin_config_provider.dart`.
+/// directory creates / deletes). Per-plugin `config.json` files
+/// no longer exist — plugin field state lives in the main
+/// `config.json`'s `app_configs[<id>]` map and rides on the
+/// reactivity of `configProvider`.
 ///
 /// Why "anything under plugins/" rather than just plugin.json:
 /// when a CLI tool creates `plugins/<id>/` and immediately writes

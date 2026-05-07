@@ -30,31 +30,7 @@ void main() {
       expect(m.name, 'nixblitz-tailscale');
       expect(m.schemaVersion, 2);
       expect(m.minTuiVersion, 1);
-      expect(m.config, isEmpty);
       expect(m.permissions.isEmpty, isTrue);
-    });
-
-    test('parses config fields', () {
-      final m = PluginManifest.fromJson({
-        'manifest': {
-          'schema_version': 2,
-          'min_tui_version': 1,
-          'name': 'tailscale',
-        },
-        'config': {
-          'auth_key': {
-            'type': 'secret',
-            'label': 'Auth key',
-            'required': false,
-          },
-          'tags': {'type': 'list<string>', 'label': 'ACL tags'},
-          'exit_node': {'type': 'bool', 'label': 'Exit node', 'default': false},
-        },
-      });
-      expect(m.config.keys, containsAll(['auth_key', 'tags', 'exit_node']));
-      expect(m.config['auth_key']!.type, 'secret');
-      expect(m.config['tags']!.type, 'list<string>');
-      expect(m.config['exit_node']!.defaultValue, false);
     });
 
     test('parses unprivileged command actions', () {
@@ -387,9 +363,6 @@ void main() {
           'name': 'p',
           'description': 'desc',
         },
-        'config': {
-          'k': {'type': 'string', 'label': 'K', 'required': true},
-        },
         'permissions': {
           'bitcoin': ['rpc:read'],
         },
@@ -397,7 +370,7 @@ void main() {
       final m = PluginManifest.fromJson(json);
       final roundTripped = PluginManifest.fromJson(m.toJson());
       expect(roundTripped.name, m.name);
-      expect(roundTripped.config['k']!.required, true);
+      expect(roundTripped.description, 'desc');
       expect(roundTripped.permissions.bitcoin, ['rpc:read']);
     });
 
@@ -680,98 +653,6 @@ void main() {
       expect(back.configSchema!.id, 'p');
       expect(back.configSchema!.label, 'P');
       expect(back.configSchema!.fields.length, 1);
-    });
-  });
-
-  group('ConfigField type parsing', () {
-    test('accepts all primitive types', () {
-      for (final t in ['bool', 'int', 'string', 'secret']) {
-        final f = ConfigField.fromJson({'type': t, 'label': 'x'});
-        expect(f.type, t);
-      }
-    });
-
-    test('accepts select with choices', () {
-      final f = ConfigField.fromJson({
-        'type': 'select<red|green|blue>',
-        'label': 'Color',
-      });
-      expect(f.type, 'select<red|green|blue>');
-    });
-
-    test('accepts list with primitive element type', () {
-      final f = ConfigField.fromJson({'type': 'list<string>', 'label': 'Tags'});
-      expect(f.type, 'list<string>');
-    });
-
-    test('rejects unknown primitive', () {
-      expect(
-        () => ConfigField.fromJson({'type': 'date', 'label': 'x'}),
-        throwsA(isA<FormatException>()),
-      );
-    });
-
-    test('rejects list of unsupported inner type', () {
-      expect(
-        () => ConfigField.fromJson({'type': 'list<date>', 'label': 'x'}),
-        throwsA(isA<FormatException>()),
-      );
-    });
-
-    test('rejects select with empty choice', () {
-      expect(
-        () => ConfigField.fromJson({'type': 'select<a||b>', 'label': 'x'}),
-        throwsA(isA<FormatException>()),
-      );
-    });
-  });
-
-  group('ConfigField.validate', () {
-    test('returns null for acceptable primitive values', () {
-      expect(
-        ConfigField.fromJson({'type': 'bool', 'label': 'x'}).validate(true),
-        isNull,
-      );
-      expect(
-        ConfigField.fromJson({'type': 'int', 'label': 'x'}).validate(42),
-        isNull,
-      );
-      expect(
-        ConfigField.fromJson({'type': 'string', 'label': 'x'}).validate('ok'),
-        isNull,
-      );
-    });
-
-    test('returns error for type mismatch', () {
-      expect(
-        ConfigField.fromJson({'type': 'int', 'label': 'x'}).validate('nope'),
-        isNotNull,
-      );
-    });
-
-    test('respects required', () {
-      final f = ConfigField.fromJson({
-        'type': 'string',
-        'label': 'x',
-        'required': true,
-      });
-      expect(f.validate(null), isNotNull);
-      expect(f.validate(''), isNull); // empty string is still a string
-    });
-
-    test('select accepts listed choices only', () {
-      final f = ConfigField.fromJson({'type': 'select<a|b>', 'label': 'x'});
-      expect(f.validate('a'), isNull);
-      expect(f.validate('b'), isNull);
-      expect(f.validate('c'), isNotNull);
-      expect(f.validate(42), isNotNull);
-    });
-
-    test('list validates each element', () {
-      final f = ConfigField.fromJson({'type': 'list<int>', 'label': 'x'});
-      expect(f.validate([1, 2, 3]), isNull);
-      expect(f.validate([1, 'oops', 3]), isNotNull);
-      expect(f.validate('not a list'), isNotNull);
     });
   });
 }
