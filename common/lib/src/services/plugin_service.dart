@@ -413,7 +413,8 @@ class PluginService {
     bool includePinned = true,
   }) async {
     final active = await list();
-    final refreshed = <PluginMarker>[];
+    final advanced = <PluginMarker>[];
+    final unchanged = <PluginMarker>[];
     final failures = <({PluginMarker plugin, Object error})>[];
     final skipped = <PluginMarker>[];
     for (final p in active) {
@@ -422,14 +423,20 @@ class PluginService {
         continue;
       }
       try {
-        refreshed.add(await refresh(p.id, allowInsecure: allowInsecure));
+        final result = await refresh(p.id, allowInsecure: allowInsecure);
+        if (result.rev == p.rev) {
+          unchanged.add(result);
+        } else {
+          advanced.add(result);
+        }
       } catch (e, st) {
         LogService.error('PluginService.refreshAll: ${p.id} failed', e, st);
         failures.add((plugin: p, error: e));
       }
     }
     return PluginRefreshAllResult(
-      refreshed: refreshed,
+      advanced: advanced,
+      unchanged: unchanged,
       failures: failures,
       skipped: skipped,
     );
@@ -702,8 +709,14 @@ class PluginService {
 /// these three lists to render successes / warnings / skipped lines
 /// in the existing log surface.
 class PluginRefreshAllResult {
-  /// Plugins whose refresh advanced their pin successfully.
-  final List<PluginMarker> refreshed;
+  /// Plugins whose refresh advanced the pin to a newer rev.
+  final List<PluginMarker> advanced;
+
+  /// Plugins whose refresh found the pin already at upstream HEAD —
+  /// no files written, working tree clean. Distinguishing these from
+  /// [advanced] lets the CLI suppress the "Run Apply view" hint when
+  /// nothing actually moved (the operator's `git diff` would be empty).
+  final List<PluginMarker> unchanged;
 
   /// Plugins whose refresh threw. The error is whatever
   /// [PluginService.refresh] surfaces — typically [StateError] for
@@ -717,13 +730,15 @@ class PluginRefreshAllResult {
   final List<PluginMarker> skipped;
 
   const PluginRefreshAllResult({
-    required this.refreshed,
+    required this.advanced,
+    required this.unchanged,
     required this.failures,
     required this.skipped,
   });
 
   bool get hasAnyFailure => failures.isNotEmpty;
-  int get totalAttempted => refreshed.length + failures.length;
+  int get totalAttempted =>
+      advanced.length + unchanged.length + failures.length;
 }
 
 /// Parsed plugin URL. Handles the accepted schemes and the

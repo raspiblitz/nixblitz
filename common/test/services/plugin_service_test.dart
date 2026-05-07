@@ -707,7 +707,9 @@ void main() {
         );
 
         final result = await pluginService.refreshAll(allowInsecure: true);
-        expect(result.refreshed.length, 2);
+        // Both plugins are at HEAD (just installed); refresh is a no-op.
+        expect(result.advanced, isEmpty);
+        expect(result.unchanged.length, 2);
         expect(result.failures, isEmpty);
         expect(result.skipped, isEmpty);
       } finally {
@@ -754,7 +756,8 @@ void main() {
           allowInsecure: true,
           includePinned: false,
         );
-        expect(result.refreshed.length, 1);
+        expect(result.advanced, isEmpty); // unchanged HEAD
+        expect(result.unchanged.length, 1);
         expect(result.skipped.length, 1);
         expect(result.skipped.first.id, first.id);
       } finally {
@@ -786,7 +789,8 @@ void main() {
         Directory(srcRepo.path).renameSync(movedRepo.path);
 
         final result = await pluginService.refreshAll(allowInsecure: true);
-        expect(result.refreshed.length, 1);
+        expect(result.advanced, isEmpty); // unchanged HEAD on success
+        expect(result.unchanged.length, 1);
         expect(result.failures.length, 1);
         expect(result.failures.first.plugin.id, bad.id);
 

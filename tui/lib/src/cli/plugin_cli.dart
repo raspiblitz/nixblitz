@@ -210,13 +210,16 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
       stdout.writeln('(no plugins to refresh)');
       return 0;
     }
-    for (final p in result.refreshed) {
+    for (final p in result.advanced) {
       stdout.writeln('refreshed ${p.id}  pin=${_shortRev(p.rev)}');
+    }
+    for (final p in result.unchanged) {
+      stdout.writeln('${p.id} already at pin=${_shortRev(p.rev)} (no changes)');
     }
     for (final f in result.failures) {
       stderr.writeln('FAILED ${f.plugin.id}: ${f.error}');
     }
-    if (result.refreshed.isNotEmpty) {
+    if (result.advanced.isNotEmpty) {
       stdout.writeln();
       stdout.writeln(
         'Run the Apply view (`a` in the TUI) to commit and rebuild.',
@@ -233,15 +236,26 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
     return 2;
   }
   final id = rest.first;
+  // Capture the pin BEFORE refresh so we can detect a no-op (rev held)
+  // and suppress the misleading "Run the Apply view" hint when nothing
+  // actually moved.
+  final priorRev = readMarker('${svc.pluginsDir}/$id')?.rev;
   try {
     final marker = await svc.refresh(id, allowInsecure: insecure);
-    stdout.writeln('refreshed ${marker.id}');
-    stdout.writeln('  pin:    ${_shortRev(marker.rev)}');
-    stdout.writeln('  branch: ${marker.branch}');
-    stdout.writeln();
-    stdout.writeln(
-      'Run the Apply view (`a` in the TUI) to commit and rebuild.',
-    );
+    final advanced = priorRev != null && marker.rev != priorRev;
+    if (advanced) {
+      stdout.writeln('refreshed ${marker.id}');
+      stdout.writeln('  pin:    ${_shortRev(marker.rev)}');
+      stdout.writeln('  branch: ${marker.branch}');
+      stdout.writeln();
+      stdout.writeln(
+        'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+      );
+    } else {
+      stdout.writeln(
+        '${marker.id} already at pin=${_shortRev(marker.rev)} (no changes)',
+      );
+    }
     return 0;
   } on PluginSignatureMismatch catch (e) {
     _printSignatureMismatch(e);
