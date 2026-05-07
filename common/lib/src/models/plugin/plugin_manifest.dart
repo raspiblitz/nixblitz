@@ -202,13 +202,27 @@ class PluginManifest {
         ? PluginTileSpec.fromJson(dashboardRaw)
         : null;
 
+    final rawId = json['id'];
+    String? id;
+    if (rawId != null) {
+      if (rawId is! String || rawId.isEmpty) {
+        throw const PluginManifestError(
+          'manifest.id must be a non-empty string when present',
+        );
+      }
+      id = rawId;
+    }
+
     final csRaw = json['config_schema'];
     AppManifest? configSchema;
     if (csRaw is Map<String, dynamic>) {
       // Inject id from outer manifest if absent in config_schema.
-      // The plugin's id IS the AppManifest's id in this context.
+      // Prefer the plugin's stable top-level `id` (e.g. "blitz-api")
+      // over the display `name` (e.g. "Blitz API"); the AppManifest
+      // id is what dep-check / install flow keys on, and it must
+      // match the plugin's directory name under ~/nixblitz/plugins/.
       final csJson = Map<String, dynamic>.from(csRaw)
-        ..putIfAbsent('id', () => name);
+        ..putIfAbsent('id', () => id ?? name);
       configSchema = AppManifest.fromJson(csJson);
     }
 
@@ -220,17 +234,6 @@ class PluginManifest {
         'with `run_as_root: true` actions need to migrate to `unit:` '
         'systemd dispatch — see sudo posture in the project docs.',
       );
-    }
-
-    final rawId = json['id'];
-    String? id;
-    if (rawId != null) {
-      if (rawId is! String || rawId.isEmpty) {
-        throw const PluginManifestError(
-          'manifest.id must be a non-empty string when present',
-        );
-      }
-      id = rawId;
     }
 
     final rawUrl = json['url'];

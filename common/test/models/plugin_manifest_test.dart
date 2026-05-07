@@ -603,6 +603,50 @@ void main() {
       );
     });
 
+    test('config_schema id falls back to plugin id, not display name', () {
+      // Regression: before Task 1.5 introduced top-level `id`, the
+      // config_schema id fallback used the display `name`. With id ≠ name
+      // (e.g. id "blitz-api" vs name "Blitz API"), the AppManifest id
+      // would be the display name — wrong, since dep-check / install flow
+      // key on `id`. The fallback must prefer `id`.
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': 2,
+          'min_tui_version': 2,
+          'name': 'Blitz API',
+        },
+        'id': 'blitz-api',
+        'config_schema': {
+          'label': 'Blitz API',
+          'description': 'FastAPI backend',
+          'capabilities': <String>[],
+          'fields': <Map<String, dynamic>>[],
+        },
+      });
+      expect(m.configSchema, isNotNull);
+      expect(m.configSchema!.id, 'blitz-api');
+    });
+
+    test('config_schema id falls back to name when no top-level id', () {
+      // Existing v2 tailscale-style manifests had no top-level `id`;
+      // their config_schema continues to use `name` as fallback so
+      // back-compat is preserved.
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': 2,
+          'min_tui_version': 1,
+          'name': 'tailscale',
+        },
+        'config_schema': {
+          'label': 'Tailscale',
+          'description': '',
+          'capabilities': <String>[],
+          'fields': <Map<String, dynamic>>[],
+        },
+      });
+      expect(m.configSchema!.id, 'tailscale');
+    });
+
     test('config_schema round-trips via toJson', () {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
