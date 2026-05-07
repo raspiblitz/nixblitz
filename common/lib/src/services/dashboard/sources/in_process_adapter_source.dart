@@ -4,9 +4,12 @@ import 'package:common/src/services/dashboard/tile_event.dart';
 import 'package:common/src/services/dashboard/tile_event_source.dart';
 import 'package:meta/meta.dart';
 
-/// Transitional base — sources implemented entirely in-process (no
-/// subprocess). Used in Phase 1 by [BlitzApiBridgeSource]. Deleted in
-/// Phase 4 when blitz-api becomes a plugin-shipped subprocess.
+/// Base class for tile event sources implemented entirely in-process
+/// (no subprocess). Phase 1 used this for the in-tree
+/// `BlitzApiBridgeSource`; Phase 4 retired that path (blitz-api is
+/// now a plugin shipping a Python subprocess streamer). The class
+/// stays as a useful base for test fakes — see e.g. the
+/// `_FakeSource` in `dashboard_provider_test.dart`.
 abstract class InProcessAdapterSource implements TileEventSource {
   @override
   final String id;
