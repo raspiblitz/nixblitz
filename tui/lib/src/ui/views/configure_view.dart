@@ -176,17 +176,19 @@ class ConfigureView extends StatelessComponent {
         // Plugin form takes over the whole view when the user has
         // drilled into one — bypasses the tab grid key handling.
         if (editingPluginDir != null) {
-          final entry = config.plugins
-              .where(
-                (p) => p.dirName == editingPluginDir && p.uninstalledAt == null,
-              )
+          // TODO(Task 9c): rebuild the configure-view plugin form
+          // properly on markers. Until then, look up the manifest
+          // for the requested plugin id from installedPluginsProvider.
+          final manifests = context.watch(installedPluginsProvider);
+          final manifest = manifests
+              .where((m) => m.id == editingPluginDir)
               .firstOrNull;
-          if (entry == null) {
+          if (manifest == null) {
             // Stale selection (plugin removed in a race). Drop it.
             context.read(_editingPluginDirNameProvider.notifier).state = null;
           } else {
             return PluginConfigView(
-              entry: entry,
+              pluginId: manifest.id,
               onDismiss: () =>
                   context.read(_editingPluginDirNameProvider.notifier).state =
                       null,
@@ -231,12 +233,11 @@ class ConfigureView extends StatelessComponent {
         // Synchronous Provider (NOT FutureProvider) — direct read, no
         // AsyncValue unwrap, no flicker frame on configProvider ticks.
         final pendingKeys = context.watch(pendingChangeKeysProvider);
-        final pluginService = context.read(pluginServiceProvider);
         final options = _buildOptions(
+          context,
           config,
           currentEntry,
           selectedOption,
-          pluginService,
           pendingKeys: pendingKeys,
         );
 
@@ -390,12 +391,12 @@ class ConfigureView extends StatelessComponent {
 
     // Plugins tab: drill into selected plugin's config form.
     if (currentEntry is _PluginsEntry) {
-      final active = config.plugins
-          .where((p) => p.uninstalledAt == null)
-          .toList();
-      if (selectedOption < active.length) {
+      // TODO(Task 9c): drive the plugin tab off markers + a sort
+      // matched against the manifest list rendered below.
+      final manifests = context.read(installedPluginsProvider);
+      if (selectedOption < manifests.length) {
         context.read(_editingPluginDirNameProvider.notifier).state =
-            active[selectedOption].dirName;
+            manifests[selectedOption].id;
       }
       return;
     }
@@ -473,10 +474,10 @@ class ConfigureView extends StatelessComponent {
   // ---------------------------------------------------------------------------
 
   List<Component> _buildOptions(
+    BuildContext ctx,
     NixblitzConfig config,
     _MenuEntry entry,
-    int selectedIndex,
-    PluginService pluginService, {
+    int selectedIndex, {
     Set<String> pendingKeys = const <String>{},
   }) {
     bool isPending(String key) => pendingKeys.contains(key);
@@ -489,11 +490,7 @@ class ConfigureView extends StatelessComponent {
         selectedIndex,
         isPending,
       ),
-      _PluginsEntry() => _buildPluginsOptions(
-        config,
-        selectedIndex,
-        pluginService,
-      ),
+      _PluginsEntry() => _buildPluginsOptions(ctx, selectedIndex),
     };
   }
 
@@ -560,17 +557,14 @@ class ConfigureView extends StatelessComponent {
     ];
   }
 
-  // ---------- Plugins (behaviour unchanged) ----------
+  // ---------- Plugins (marker-driven; UX polish in Task 9c) ----------
 
   List<Component> _buildPluginsOptions(
-    NixblitzConfig config,
+    BuildContext context,
     int selectedIndex,
-    PluginService pluginService,
   ) {
-    final active = config.plugins
-        .where((p) => p.uninstalledAt == null)
-        .toList();
-    if (active.isEmpty) {
+    final manifests = context.watch(installedPluginsProvider);
+    if (manifests.isEmpty) {
       return const [
         Text(
           '(no plugins installed — use `nixblitz plugin add <url>`)',
@@ -579,99 +573,20 @@ class ConfigureView extends StatelessComponent {
       ];
     }
 
-    // Resolve display names + auto-update flags upfront so we
-    // can compute aligned column widths in one pass.
-    final rows = active.map((p) {
-      // Prefer the human-readable manifest name; fall back to
-      // the dirName if the manifest can't be read (e.g. a
-      // half-installed plugin from a failed refresh).
-      String name = p.dirName;
-      try {
-        name = pluginService.readManifest(p.dirName).name;
-      } catch (e) {
-        LogService.warn('configure: manifest read failed for ${p.dirName}: $e');
-      }
-      final rev = p.pinnedRev.length >= 7
-          ? p.pinnedRev.substring(0, 7)
-          : p.pinnedRev;
-      final updated = p.lastUpdatedAt.toIso8601String().substring(0, 10);
-      return (
-        name: name,
-        branch: p.branch,
-        rev: rev,
-        updated: updated,
-        autoUpdate: p.autoUpdate ? 'yes' : 'no',
-      );
-    }).toList();
-
-    const headers = (
-      name: 'Plugin',
-      branch: 'Branch',
-      rev: 'Rev',
-      updated: 'Updated',
-      autoUpdate: 'Auto-update',
-    );
-
-    int colWidth(String header, String Function(dynamic r) pick) {
-      var max = header.length;
-      for (final r in rows) {
-        final v = pick(r);
-        if (v.length > max) max = v.length;
-      }
-      return max;
-    }
-
-    final nameW = colWidth(headers.name, (r) => r.name);
-    final branchW = colWidth(headers.branch, (r) => r.branch);
-    final revW = colWidth(headers.rev, (r) => r.rev);
-    final updatedW = colWidth(headers.updated, (r) => r.updated);
-    const dim = Color.fromRGB(120, 120, 140);
+    // TODO(Task 9c): bring back the rich aligned-column table by
+    // joining each manifest with its on-disk PluginMarker (for
+    // branch / rev / autoUpdate). For now show just id + display
+    // name so the navigation works.
     const focusedColor = Color.fromRGB(247, 147, 26);
     const normal = Color.fromRGB(200, 200, 200);
-
-    String formatLine(
-      String prefix,
-      String name,
-      String branch,
-      String rev,
-      String updated,
-      String autoUpdate,
-    ) =>
-        '$prefix${name.padRight(nameW)}  '
-        '${branch.padRight(branchW)}  '
-        '${rev.padRight(revW)}  '
-        '${updated.padRight(updatedW)}  '
-        '$autoUpdate';
-
-    final headerLine = Text(
-      formatLine(
-        '  ',
-        headers.name,
-        headers.branch,
-        headers.rev,
-        headers.updated,
-        headers.autoUpdate,
-      ),
-      style: const TextStyle(color: dim),
-    );
-
-    final dataLines = List<Component>.generate(active.length, (i) {
-      final r = rows[i];
+    return List<Component>.generate(manifests.length, (i) {
+      final m = manifests[i];
       final focused = selectedIndex == i;
       return Text(
-        formatLine(
-          focused ? '> ' : '  ',
-          r.name,
-          r.branch,
-          r.rev,
-          r.updated,
-          r.autoUpdate,
-        ),
+        '${focused ? "> " : "  "}${m.id}  —  ${m.name}',
         style: TextStyle(color: focused ? focusedColor : normal),
       );
     });
-
-    return [headerLine, ...dataLines];
   }
 }
 

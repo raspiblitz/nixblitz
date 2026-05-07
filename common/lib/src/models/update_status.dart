@@ -163,25 +163,25 @@ class InputAhead {
 }
 
 /// Like [InputAhead] but for an installed plugin. The lightweight
-/// check probes each `auto_update=true && pinnedRev != null` plugin's
-/// upstream HEAD against the rev recorded in `config.json` and emits
-/// one of these per plugin that has moved.
+/// check probes each `autoUpdate=true` plugin's upstream HEAD
+/// against the rev recorded on its [PluginMarker] and emits one of
+/// these per plugin that has moved.
 ///
-/// Pinned plugins (`auto_update == false`) are intentionally skipped
+/// Pinned plugins (`autoUpdate == false`) are intentionally skipped
 /// — the operator opted out of automatic refreshes for them.
 class PluginAhead {
   const PluginAhead({
-    required this.dirName,
+    required this.pluginId,
     required this.currentRev,
     required this.upstreamRev,
     required this.url,
   });
 
-  /// Matches `PluginEntry.dirName` — the on-disk directory under
+  /// Matches `PluginMarker.id` — the on-disk directory under
   /// `~/nixblitz/plugins/`, also the join key the plugins menu uses.
-  final String dirName;
+  final String pluginId;
 
-  /// Full SHA we have locked in `config.json`.
+  /// Full SHA we have locked in the plugin's marker file.
   final String currentRev;
 
   /// Full SHA the upstream branch is at now.
@@ -192,14 +192,17 @@ class PluginAhead {
   final String url;
 
   factory PluginAhead.fromJson(Map<String, dynamic> j) => PluginAhead(
-    dirName: j['dir_name'] as String,
+    // Accept the legacy `dir_name` key as well as the current
+    // `plugin_id` so a status file written by an older TUI keeps
+    // round-tripping cleanly.
+    pluginId: (j['plugin_id'] as String?) ?? (j['dir_name'] as String? ?? ''),
     currentRev: j['current_rev'] as String,
     upstreamRev: j['upstream_rev'] as String,
     url: j['url'] as String? ?? '',
   );
 
   Map<String, dynamic> toJson() => {
-    'dir_name': dirName,
+    'plugin_id': pluginId,
     'current_rev': currentRev,
     'upstream_rev': upstreamRev,
     'url': url,

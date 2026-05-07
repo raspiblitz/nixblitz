@@ -5,16 +5,29 @@ void main() {
   group('PluginAhead', () {
     test('round-trips through JSON', () {
       final original = PluginAhead(
-        dirName: 'mempool',
+        pluginId: 'mempool',
         currentRev: 'a' * 40,
         upstreamRev: 'b' * 40,
         url: 'https://github.com/example/mempool',
       );
       final reparsed = PluginAhead.fromJson(original.toJson());
-      expect(reparsed.dirName, original.dirName);
+      expect(reparsed.pluginId, original.pluginId);
       expect(reparsed.currentRev, original.currentRev);
       expect(reparsed.upstreamRev, original.upstreamRev);
       expect(reparsed.url, original.url);
+    });
+
+    test('accepts legacy `dir_name` JSON key', () {
+      // Old status files written before the marker migration carry a
+      // `dir_name` rather than `plugin_id`; tolerate that on read so
+      // a daemon timer that wrote yesterday's status still parses.
+      final reparsed = PluginAhead.fromJson({
+        'dir_name': 'electrs',
+        'current_rev': 'a' * 40,
+        'upstream_rev': 'b' * 40,
+        'url': 'https://example/electrs',
+      });
+      expect(reparsed.pluginId, 'electrs');
     });
   });
 
@@ -26,7 +39,7 @@ void main() {
         'inputs_ahead': [],
         'plugins_ahead': [
           {
-            'dir_name': 'electrs',
+            'plugin_id': 'electrs',
             'current_rev': 'a' * 40,
             'upstream_rev': 'b' * 40,
             'url': 'https://example/electrs',
@@ -35,7 +48,7 @@ void main() {
       };
       final lc = LightCheck.fromJson(json);
       expect(lc.pluginsAhead.length, 1);
-      expect(lc.pluginsAhead.single.dirName, 'electrs');
+      expect(lc.pluginsAhead.single.pluginId, 'electrs');
     });
 
     test('treats missing plugins_ahead as empty (backward compat)', () {
@@ -54,7 +67,7 @@ void main() {
         ok: true,
         pluginsAhead: [
           PluginAhead(
-            dirName: 'mempool',
+            pluginId: 'mempool',
             currentRev: 'a' * 40,
             upstreamRev: 'b' * 40,
             url: 'https://example',

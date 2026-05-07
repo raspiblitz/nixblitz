@@ -64,7 +64,7 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
   // — after parse, before any state lands on disk. `--yes`
   // bypasses by passing null.
   try {
-    final entry = await svc.install(
+    final marker = await svc.install(
       url,
       branch: branch,
       allowInsecure: insecure,
@@ -77,10 +77,11 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
               insecure: insecure,
             ),
     );
-    stdout.writeln('installed ${entry.id}');
-    stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
-    stdout.writeln('  dir:    plugins/${entry.dirName}');
-    stdout.writeln('  branch: ${entry.branch}');
+    stdout.writeln('installed ${marker.id}');
+    stdout.writeln('  pin:    ${_shortRev(marker.rev)}');
+    stdout.writeln('  dir:    plugins/${marker.id}');
+    stdout.writeln('  branch: ${marker.branch}');
+    stdout.writeln('  url:    ${marker.url}');
     stdout.writeln();
     stdout.writeln(
       'Run the Apply view (`a` in the TUI) to commit and rebuild.',
@@ -194,30 +195,32 @@ Future<int> _runRemove(PluginService svc, ArgResults args) async {
   }
   final id = rest.first;
   await svc.remove(id);
-  stdout.writeln('removed $id (tombstoned)');
+  stdout.writeln('removed $id');
   stdout.writeln('Run the Apply view (`a` in the TUI) to commit and rebuild.');
   return 0;
 }
 
 Future<int> _runList(PluginService svc, ArgResults args) async {
+  // The `--all` flag previously surfaced tombstones; with markers
+  // there are no tombstones — `--all` now means "include disabled".
   final all = args['all'] as bool;
-  final plugins = await svc.list(includeTombstones: all);
+  final plugins = await svc.list(includeDisabled: all);
   if (plugins.isEmpty) {
     stdout.writeln(all ? '(no plugins)' : '(no plugins installed)');
     return 0;
   }
   // Compact table. Not pretty-aligned; plugin lists stay short.
   stdout.writeln(
-    'ID  |  BRANCH  |  PIN      |  ENABLED  |  AUTO-UPDATE  |  INSTALLED',
+    'ID  |  BRANCH  |  PIN      |  DISABLED  |  AUTO-UPDATE  |  INSTALLED',
   );
   for (final p in plugins) {
-    final tombMark = p.isTombstone ? '  [removed]' : '';
+    final disMark = p.disabled ? '  [disabled]' : '';
     final autoMark = p.autoUpdate ? 'true' : 'false [pinned]';
     stdout.writeln(
-      '${p.id}  |  ${p.branch}  |  ${_shortRev(p.pinnedRev)}  |  '
-      '${p.enabled}  |  $autoMark  |  '
+      '${p.id}  |  ${p.branch}  |  ${_shortRev(p.rev)}  |  '
+      '${p.disabled}  |  $autoMark  |  '
       '${p.installedAt.toIso8601String().split("T").first}'
-      '$tombMark',
+      '$disMark',
     );
   }
   return 0;
@@ -239,7 +242,7 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
       return 0;
     }
     for (final p in result.refreshed) {
-      stdout.writeln('refreshed ${p.id}  pin=${_shortRev(p.pinnedRev)}');
+      stdout.writeln('refreshed ${p.id}  pin=${_shortRev(p.rev)}');
     }
     for (final f in result.failures) {
       stderr.writeln('FAILED ${f.plugin.id}: ${f.error}');
@@ -262,10 +265,10 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
   }
   final id = rest.first;
   try {
-    final entry = await svc.refresh(id, allowInsecure: insecure);
-    stdout.writeln('refreshed ${entry.id}');
-    stdout.writeln('  pin:    ${_shortRev(entry.pinnedRev)}');
-    stdout.writeln('  branch: ${entry.branch}');
+    final marker = await svc.refresh(id, allowInsecure: insecure);
+    stdout.writeln('refreshed ${marker.id}');
+    stdout.writeln('  pin:    ${_shortRev(marker.rev)}');
+    stdout.writeln('  branch: ${marker.branch}');
     stdout.writeln();
     stdout.writeln(
       'Run the Apply view (`a` in the TUI) to commit and rebuild.',
@@ -308,16 +311,16 @@ Future<int> _runPin(
     return 2;
   }
   final id = rest.first;
-  final entry = pin ? await svc.pin(id) : await svc.unpin(id);
+  final marker = pin ? await svc.pin(id) : await svc.unpin(id);
   if (pin) {
     stdout.writeln(
-      'pinned ${entry.id}\n'
+      'pinned ${marker.id}\n'
       '  auto_update is now false; "Update entire system" will skip this '
-      'plugin until you `unpin` or run `plugin refresh ${entry.id}` directly.',
+      'plugin until you `unpin` or run `plugin refresh ${marker.id}` directly.',
     );
   } else {
     stdout.writeln(
-      'unpinned ${entry.id}\n'
+      'unpinned ${marker.id}\n'
       '  auto_update is now true; the next "Update entire system" will '
       'advance its pin alongside the rest.',
     );

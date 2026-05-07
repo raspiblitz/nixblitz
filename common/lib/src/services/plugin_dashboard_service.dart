@@ -3,28 +3,29 @@ import 'dart:convert';
 
 import 'package:riverpod/riverpod.dart';
 
-import 'package:common/src/models/plugin/plugin_entry.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
-import 'package:common/src/providers/config_provider.dart';
+import 'package:common/src/providers/installed_plugins_provider.dart';
 import 'package:common/src/providers/plugin_action_provider.dart';
 import 'package:common/src/providers/plugin_provider.dart';
 import 'package:common/src/services/log_service.dart';
+import 'package:common/src/services/plugin/plugin_marker.dart';
 import 'package:common/src/services/plugin_action_runner.dart';
 import 'package:common/src/services/plugin_service.dart';
 
 /// Polls each installed plugin's `dashboard` command at its declared
 /// interval, parses the JSON output into a [PluginTileSnapshot],
-/// and broadcasts the latest snapshot map keyed by `dirName`.
+/// and broadcasts the latest snapshot map keyed by plugin `id`.
 ///
 /// Lifecycle: `_PluginPoller` per plugin owns one `Timer.periodic`
-/// + the latest snapshot. The service watches `configProvider` for
-/// changes to `plugins[]` and reconciles the poller set: spin up
-/// pollers for active plugins with `dashboard` blocks, tear down
-/// pollers for plugins that get tombstoned or removed.
+/// + the latest snapshot. The service watches the installed-plugin
+/// marker set and reconciles the poller set: spin up pollers for
+/// non-disabled plugins with `dashboard` blocks, tear down pollers
+/// for plugins that get disabled or removed.
 class PluginDashboardService {
   final Ref _ref;
   final PluginService _pluginService;
   final PluginActionRunner _runner;
+  final String _pluginsDir;
 
   final Map<String, _PluginPoller> _pollers = {};
   final StreamController<Map<String, PluginTileSnapshot?>> _ctrl =
@@ -35,10 +36,14 @@ class PluginDashboardService {
   PluginDashboardService(Ref ref)
     : _ref = ref,
       _pluginService = ref.read(pluginServiceProvider),
-      _runner = ref.read(pluginActionRunnerProvider) {
+      _runner = ref.read(pluginActionRunnerProvider),
+      _pluginsDir = ref.read(pluginServiceProvider).pluginsDir {
+    // Reconcile when the installed-plugin set changes (an install,
+    // remove, or refresh), and once eagerly on construction so
+    // pollers spin up immediately.
     _ref.listen(
-      configProvider,
-      (_, next) => _reconcile(next.value?.plugins ?? const []),
+      installedPluginsProvider,
+      (_, _) => _reconcile(),
       fireImmediately: true,
     );
   }
@@ -73,25 +78,26 @@ class PluginDashboardService {
     _ctrl.add(_currentSeed());
   }
 
-  /// Reconcile pollers against the current plugins[] list. Active
-  /// plugins with a `dashboard` block get a poller; tombstoned or
-  /// missing plugins lose theirs.
-  void _reconcile(List<PluginEntry> plugins) {
+  /// Reconcile pollers against the current marker set. Non-disabled
+  /// plugins with a `dashboard` block get a poller; disabled or
+  /// removed plugins lose theirs.
+  void _reconcile() {
     if (_disposed) return;
 
+    final markers = discoverInstalledMarkers(_pluginsDir);
+
     final desired = <String, PluginTileSpec>{};
-    for (final p in plugins) {
-      if (p.uninstalledAt != null) continue;
-      if (!p.enabled) continue;
+    for (final m in markers) {
+      if (m.disabled) continue;
       try {
-        final manifest = _pluginService.readManifest(p.dirName);
+        final manifest = _pluginService.readManifest(m.id);
         final spec = manifest.dashboard;
         if (spec == null) continue;
-        desired[p.dirName] = spec;
+        desired[m.id] = spec;
       } catch (e, st) {
         LogService.warn(
           'PluginDashboardService: failed to read manifest for '
-          '${p.dirName}: $e',
+          '${m.id}: $e',
         );
         LogService.error('manifest read', e, st);
       }
@@ -108,13 +114,13 @@ class PluginDashboardService {
     // Spin up new pollers; restart any whose spec changed (e.g.
     // user edited config that changes interval — rare but covered).
     for (final entry in desired.entries) {
-      final dirName = entry.key;
+      final id = entry.key;
       final spec = entry.value;
-      final existing = _pollers[dirName];
+      final existing = _pollers[id];
       if (existing != null && existing.spec == spec) continue;
       existing?.dispose();
-      _pollers[dirName] = _PluginPoller(
-        dirName: dirName,
+      _pollers[id] = _PluginPoller(
+        pluginId: id,
         spec: spec,
         runner: _runner,
         onSnapshot: (_) => _emit(),
@@ -127,7 +133,7 @@ class PluginDashboardService {
 
 /// Per-plugin poll loop + latest snapshot.
 class _PluginPoller {
-  final String dirName;
+  final String pluginId;
   final PluginTileSpec spec;
   final PluginActionRunner runner;
   final void Function(PluginTileSnapshot?) onSnapshot;
@@ -137,7 +143,7 @@ class _PluginPoller {
   bool _disposed = false;
 
   _PluginPoller({
-    required this.dirName,
+    required this.pluginId,
     required this.spec,
     required this.runner,
     required this.onSnapshot,
@@ -169,7 +175,7 @@ class _PluginPoller {
       if (_disposed) return;
       _latest = _interpret(result);
     } catch (e, st) {
-      LogService.error('plugin tile poll threw for $dirName', e, st);
+      LogService.error('plugin tile poll threw for $pluginId', e, st);
       if (_disposed) return;
       _latest = PluginTileSnapshot.failure(
         spec: spec,

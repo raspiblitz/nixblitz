@@ -4,11 +4,9 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
-import 'package:common/src/models/nixblitz_config.dart';
-import 'package:common/src/models/plugin/plugin_entry.dart';
 import 'package:common/src/models/update_status.dart';
-import 'package:common/src/services/config_service.dart';
 import 'package:common/src/services/log_service.dart';
+import 'package:common/src/services/plugin/plugin_marker.dart';
 
 /// Periodic update-availability checker, invoked by systemd timers
 /// via the `nixblitz check {light|heavy}` subcommands.
@@ -32,9 +30,10 @@ class UpdateCheckService {
     required this.flakePath,
     required this.statusPath,
     http.Client? httpClient,
-    Future<NixblitzConfig?> Function()? configReader,
+    List<PluginMarker> Function()? markersReader,
   }) : _http = httpClient ?? http.Client(),
-       _configReader = configReader ?? (() => _defaultConfigReader(flakePath));
+       _markersReader =
+           markersReader ?? (() => _defaultMarkersReader(flakePath));
 
   /// Directory holding `flake.nix` + `flake.lock` (the user's
   /// `~/nixblitz/`).
@@ -46,24 +45,18 @@ class UpdateCheckService {
 
   final http.Client _http;
 
-  /// Loads the current [NixblitzConfig] (or null if it can't be read).
-  /// Injected by tests so the plugin walk can run without a real
-  /// `config.json` on disk. Production default reads
-  /// `${flakePath}/config.json` via [ConfigService].
-  final Future<NixblitzConfig?> Function() _configReader;
+  /// Loads the set of installed plugin markers. Injected by tests
+  /// so the plugin walk can run without seeded marker fixtures on
+  /// disk. Production default reads `<flakePath>/plugins/` via
+  /// [discoverInstalledMarkers].
+  final List<PluginMarker> Function() _markersReader;
 
-  static Future<NixblitzConfig?> _defaultConfigReader(String flakePath) async {
-    final configService = ConfigService(baseDir: flakePath);
-    if (!configService.configExists()) return null;
+  static List<PluginMarker> _defaultMarkersReader(String flakePath) {
     try {
-      return await configService.readConfig();
+      return discoverInstalledMarkers('$flakePath/plugins');
     } catch (e, st) {
-      LogService.error(
-        'UpdateCheckService: config.json read/parse failed',
-        e,
-        st,
-      );
-      return null;
+      LogService.error('UpdateCheckService: marker discovery failed', e, st);
+      return const [];
     }
   }
 
@@ -133,45 +126,39 @@ class UpdateCheckService {
       return 1;
     }
 
-    // Plugin walk. Each active, non-pinned, installed plugin gets its
-    // upstream HEAD probed the same way root flake inputs do. Failures
-    // here are isolated per-plugin so one bad URL doesn't sink the
-    // whole run, and config-load failure just means "no plugin entries
-    // surfaced this run" — the inputs result still ships.
+    // Plugin walk. Each non-disabled, auto-update plugin marker
+    // gets its upstream HEAD probed the same way root flake inputs
+    // do. Failures here are isolated per-plugin so one bad URL
+    // doesn't sink the whole run, and marker-load failure just
+    // means "no plugin entries surfaced this run" — the inputs
+    // result still ships.
     final List<PluginAhead> pluginsAhead = [];
     try {
-      final config = await _configReader();
-      if (config != null) {
-        for (final p in config.plugins) {
-          if (!p.enabled) continue;
-          if (p.uninstalledAt != null) continue;
-          if (!p.autoUpdate) continue;
-          final li = lockedInputForPlugin(p);
-          if (li == null) continue; // unsupported transport — skip silently
-          try {
-            final upstream = await _queryUpstreamRev(li);
-            if (upstream == null) {
-              errors.add('plugin ${p.dirName}: upstream not queryable');
-              continue;
-            }
-            if (upstream != p.pinnedRev) {
-              pluginsAhead.add(
-                PluginAhead(
-                  dirName: p.dirName,
-                  currentRev: p.pinnedRev,
-                  upstreamRev: upstream,
-                  url: p.url,
-                ),
-              );
-            }
-          } catch (e, st) {
-            LogService.error(
-              'UpdateCheckService: plugin ${p.dirName} threw',
-              e,
-              st,
-            );
-            errors.add('plugin ${p.dirName}: $e');
+      final markers = _markersReader();
+      for (final p in markers) {
+        if (p.disabled) continue;
+        if (!p.autoUpdate) continue;
+        final li = lockedInputForPlugin(p);
+        if (li == null) continue; // unsupported transport — skip silently
+        try {
+          final upstream = await _queryUpstreamRev(li);
+          if (upstream == null) {
+            errors.add('plugin ${p.id}: upstream not queryable');
+            continue;
           }
+          if (upstream != p.rev) {
+            pluginsAhead.add(
+              PluginAhead(
+                pluginId: p.id,
+                currentRev: p.rev,
+                upstreamRev: upstream,
+                url: p.url,
+              ),
+            );
+          }
+        } catch (e, st) {
+          LogService.error('UpdateCheckService: plugin ${p.id} threw', e, st);
+          errors.add('plugin ${p.id}: $e');
         }
       }
     } catch (e, st) {
@@ -483,7 +470,7 @@ class UpdateCheckService {
     return out;
   }
 
-  /// Translates a plugin entry's url/branch/pinnedRev into the same
+  /// Translates a plugin marker's url/branch/rev into the same
   /// shape [_queryUpstreamRev] expects. Returns `null` when the plugin
   /// uses a transport we can't probe (file://, https:// without a
   /// recognised forge host, etc.) — caller skips those silently.
@@ -494,10 +481,10 @@ class UpdateCheckService {
   /// call; if a plugin uses https://forge.example/owner/repo and we
   /// want to probe it, the operator should switch the URL to the
   /// `forgejo:` form first.
-  static LockedInput? lockedInputForPlugin(PluginEntry entry) {
-    final raw = entry.url;
-    final ref = entry.branch;
-    final lockedRev = entry.pinnedRev;
+  static LockedInput? lockedInputForPlugin(PluginMarker marker) {
+    final raw = marker.url;
+    final ref = marker.branch;
+    final lockedRev = marker.rev;
 
     if (raw.startsWith('github:')) {
       final body = raw.substring('github:'.length);
@@ -510,7 +497,7 @@ class UpdateCheckService {
       final repo = parts[1];
       if (owner.isEmpty || repo.isEmpty) return null;
       return LockedInput(
-        name: entry.dirName,
+        name: marker.id,
         type: 'github',
         owner: owner,
         repo: repo,
@@ -533,7 +520,7 @@ class UpdateCheckService {
       final repo = parts[2];
       if (host.isEmpty || owner.isEmpty || repo.isEmpty) return null;
       return LockedInput(
-        name: entry.dirName,
+        name: marker.id,
         type: 'git',
         owner: owner,
         repo: repo,

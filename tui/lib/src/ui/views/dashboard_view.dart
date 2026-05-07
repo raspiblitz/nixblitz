@@ -25,30 +25,19 @@ class _DashboardViewState extends State<DashboardView> {
     super.dispose();
   }
 
-  /// Build one [PluginTile] per active plugin whose manifest declares
-  /// a `dashboard` block. Sorted alphabetically by manifest title for
-  /// stable layout regardless of install order. Plugins whose
-  /// manifests fail to parse are silently skipped (logged); the
-  /// dashboard staying functional matters more than surfacing
-  /// per-plugin manifest errors here.
-  List<Component> _pluginTiles(BuildContext context, NixblitzConfig config) {
-    final pluginService = context.read(pluginServiceProvider);
-    final entries = <({String dirName, String title, String accent})>[];
-    for (final p in config.plugins) {
-      if (p.uninstalledAt != null || !p.enabled) continue;
-      try {
-        final manifest = pluginService.readManifest(p.dirName);
-        final spec = manifest.dashboard;
-        if (spec == null) continue;
-        entries.add((
-          dirName: p.dirName,
-          title: spec.title,
-          accent: spec.accentColorHex,
-        ));
-      } catch (e, st) {
-        LogService.warn('dashboard: skipping plugin ${p.dirName}: $e');
-        LogService.error('manifest read', e, st);
-      }
+  /// Build one [PluginTile] per installed plugin whose manifest
+  /// declares a `dashboard` block. Sorted alphabetically by
+  /// manifest title for stable layout regardless of install order.
+  /// Plugins whose manifests fail to parse are silently skipped
+  /// (logged); the dashboard staying functional matters more than
+  /// surfacing per-plugin manifest errors here.
+  List<Component> _pluginTiles(BuildContext context) {
+    final manifests = context.watch(installedPluginsProvider);
+    final entries = <({String id, String title, String accent})>[];
+    for (final m in manifests) {
+      final spec = m.dashboard;
+      if (spec == null) continue;
+      entries.add((id: m.id, title: spec.title, accent: spec.accentColorHex));
     }
     entries.sort(
       (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
@@ -56,7 +45,7 @@ class _DashboardViewState extends State<DashboardView> {
     return [
       for (final e in entries)
         PluginTile(
-          dirName: e.dirName,
+          dirName: e.id,
           fallbackTitle: e.title,
           accentColorHex: e.accent,
         ),
@@ -276,7 +265,7 @@ class _DashboardViewState extends State<DashboardView> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final cols = columnsFor(constraints.maxWidth);
-                    final pluginTiles = _pluginTiles(context, config);
+                    final pluginTiles = _pluginTiles(context);
                     final tiles = <Component>[...bundledTiles, ...pluginTiles];
                     return Focusable(
                       focused: true,

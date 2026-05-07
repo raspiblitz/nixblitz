@@ -32,12 +32,15 @@ import '../widgets/spinner.dart';
 /// process keeps running in the background; we just hide the log.
 /// Cancellation is out of scope for Phase 4.
 class PluginConfigView extends StatefulComponent {
-  final PluginEntry entry;
+  /// On-disk plugin id (matches `<pluginsDir>/<id>/`). Used to look
+  /// up the manifest and per-plugin config notifier.
+  final String pluginId;
+
   final VoidCallback onDismiss;
 
   const PluginConfigView({
     super.key,
-    required this.entry,
+    required this.pluginId,
     required this.onDismiss,
   });
 
@@ -80,8 +83,8 @@ class _PluginConfigViewState extends State<PluginConfigView> {
 
   @override
   Component build(BuildContext context) {
-    final entry = component.entry;
-    final notifier = context.read(pluginConfigProvider(entry.dirName).notifier);
+    final pluginId = component.pluginId;
+    final notifier = context.read(pluginConfigProvider(pluginId).notifier);
 
     final PluginManifest manifest;
     try {
@@ -91,7 +94,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
       return _errorScreen(context, 'Failed to load manifest: $e');
     }
 
-    final configAsync = context.watch(pluginConfigProvider(entry.dirName));
+    final configAsync = context.watch(pluginConfigProvider(pluginId));
 
     return configAsync.when(
       loading: () => const Center(child: Text('Loading plugin config…')),
@@ -136,7 +139,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     Map<String, dynamic> cfg,
     PluginConfigNotifier notifier,
   ) {
-    final entry = component.entry;
+    final pluginId = component.pluginId;
 
     // Build the unified field+action list. Order: all fields first,
     // then all actions. Indexes here match _selectedIndex.
@@ -161,7 +164,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _header(entry, manifest),
+              _header(pluginId, manifest),
               const SizedBox(height: 1),
               const Text(
                 '(no configurable fields or actions)',
@@ -265,7 +268,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _header(entry, manifest),
+            _header(pluginId, manifest),
             const SizedBox(height: 1),
             ..._renderRows(rows, cfg, manifest),
             if (_errorMessage != null) ...[
@@ -486,7 +489,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
     );
   }
 
-  Component _header(PluginEntry entry, PluginManifest manifest) {
+  Component _header(String pluginId, PluginManifest manifest) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -503,7 +506,7 @@ class _PluginConfigViewState extends State<PluginConfigView> {
             style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
           ),
         Text(
-          entry.id,
+          pluginId,
           style: const TextStyle(color: Color.fromRGB(110, 110, 130)),
         ),
       ],

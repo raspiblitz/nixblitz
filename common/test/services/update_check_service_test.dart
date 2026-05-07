@@ -52,8 +52,6 @@ void main() {
     }
 
     test('drops entries whose lock has caught up to upstream', () {
-      // Cached snapshot: nixblitz lock=A, upstream=B.
-      // Live lock now also at B → lock moved → drop.
       writeLock(
         lockJson({'nixblitz': 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'}),
       );
@@ -75,11 +73,6 @@ void main() {
     });
 
     test('drops entries whose lock advanced past the cached upstream', () {
-      // Cached: lock=A, upstream=B. Live lock=C (newer commit pushed
-      // between the lightweight check and this dashboard render).
-      // Lock has moved — snapshot is stale — drop. The earlier filter
-      // version compared `liveRev != upstreamRev` and missed this case;
-      // pinning the regression so it can't come back.
       writeLock(
         lockJson({'nixblitz': 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'}),
       );
@@ -101,7 +94,6 @@ void main() {
     });
 
     test('keeps entries whose lock is unchanged since the cache', () {
-      // Cached: nixblitz lock=A, upstream=B. Live lock still at A.
       writeLock(
         lockJson({'nixblitz': 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'}),
       );
@@ -126,9 +118,7 @@ void main() {
     test('mixed: filters one, keeps another', () {
       writeLock(
         lockJson({
-          // nixblitz lock has moved — drop.
           'nixblitz': 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-          // nixpkgs lock unchanged since the snapshot — keep.
           'nixpkgs': 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
         }),
       );
@@ -157,10 +147,6 @@ void main() {
     });
 
     test('keeps entries when the input vanished from the lock', () {
-      // Edge case: cached snapshot mentions an input that no longer
-      // exists in the live lock (renamed / removed). Trust the cache
-      // — operator should see *something* on the dashboard rather
-      // than silently nothing.
       writeLock(lockJson({'nixpkgs': 'AAAAAA'}));
 
       final cached = [
@@ -180,7 +166,6 @@ void main() {
     });
 
     test('returns input unchanged when flake.lock is missing', () {
-      // No lock file written.
       final cached = [
         const InputAhead(
           name: 'nixblitz',
@@ -219,11 +204,7 @@ void main() {
 
   group('lockedInputForPlugin', () {
     test('parses github: scheme', () {
-      final p = _pluginEntry(
-        url: 'github:example/foo',
-        branch: 'main',
-        pinnedRev: 'a' * 40,
-      );
+      final p = _marker(url: 'github:example/foo', rev: 'a' * 40);
       final li = UpdateCheckService.lockedInputForPlugin(p);
       expect(li, isNotNull);
       expect(li!.type, 'github');
@@ -234,11 +215,7 @@ void main() {
     });
 
     test('parses forgejo: scheme', () {
-      final p = _pluginEntry(
-        url: 'forgejo:forge.example/owner/repo',
-        branch: 'main',
-        pinnedRev: 'b' * 40,
-      );
+      final p = _marker(url: 'forgejo:forge.example/owner/repo', rev: 'b' * 40);
       final li = UpdateCheckService.lockedInputForPlugin(p);
       expect(li!.type, 'git');
       expect(li.host, 'forge.example');
@@ -247,11 +224,7 @@ void main() {
     });
 
     test('returns null for unsupported transport (file://)', () {
-      final p = _pluginEntry(
-        url: 'file:///tmp/local-plugin',
-        branch: 'main',
-        pinnedRev: 'c' * 40,
-      );
+      final p = _marker(url: 'file:///tmp/local-plugin', rev: 'c' * 40);
       expect(UpdateCheckService.lockedInputForPlugin(p), isNull);
     });
   });
@@ -295,11 +268,6 @@ void main() {
       });
     }
 
-    /// Build a NixblitzConfig with an arbitrary plugin list. The other
-    /// fields are defaults — runLightweight only inspects `.plugins`.
-    NixblitzConfig configWithPlugins(List<PluginEntry> plugins) =>
-        NixblitzConfig.defaults().copyWith(plugins: plugins);
-
     test('runLightweight walks active auto-update plugins', () async {
       final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
@@ -309,13 +277,9 @@ void main() {
             'sha': 'b' * 40,
           },
         }),
-        configReader: () async => configWithPlugins([
-          _pluginEntry(
-            url: 'github:example/foo',
-            branch: 'main',
-            pinnedRev: 'a' * 40,
-          ),
-        ]),
+        markersReader: () => [
+          _marker(id: 'fixture', url: 'github:example/foo', rev: 'a' * 40),
+        ],
       );
       final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
@@ -324,7 +288,7 @@ void main() {
       expect(status.lightweight!.pluginsAhead, hasLength(1));
       expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'b' * 40);
       expect(status.lightweight!.pluginsAhead.single.currentRev, 'a' * 40);
-      expect(status.lightweight!.pluginsAhead.single.dirName, 'fixture');
+      expect(status.lightweight!.pluginsAhead.single.pluginId, 'fixture');
     });
 
     test('runLightweight skips pinned (autoUpdate=false) plugins', () async {
@@ -336,40 +300,9 @@ void main() {
           httpCalls++;
           return http.Response('should not be called', 500);
         }),
-        configReader: () async => configWithPlugins([
-          _pluginEntry(
-            url: 'github:example/foo',
-            branch: 'main',
-            pinnedRev: 'a' * 40,
-            autoUpdate: false,
-          ),
-        ]),
-      );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.pluginsAhead, isEmpty);
-      expect(httpCalls, 0);
-    });
-
-    test('runLightweight skips uninstalled (tombstone) plugins', () async {
-      var httpCalls = 0;
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
-        httpClient: MockClient((req) async {
-          httpCalls++;
-          return http.Response('should not be called', 500);
-        }),
-        configReader: () async => configWithPlugins([
-          _pluginEntry(
-            url: 'github:example/foo',
-            branch: 'main',
-            pinnedRev: 'a' * 40,
-            uninstalledAt: DateTime.utc(2026, 1, 2),
-            enabled: false,
-          ),
-        ]),
+        markersReader: () => [
+          _marker(url: 'github:example/foo', rev: 'a' * 40, autoUpdate: false),
+        ],
       );
       final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
@@ -387,14 +320,9 @@ void main() {
           httpCalls++;
           return http.Response('should not be called', 500);
         }),
-        configReader: () async => configWithPlugins([
-          _pluginEntry(
-            url: 'github:example/foo',
-            branch: 'main',
-            pinnedRev: 'a' * 40,
-            enabled: false,
-          ),
-        ]),
+        markersReader: () => [
+          _marker(url: 'github:example/foo', rev: 'a' * 40, disabled: true),
+        ],
       );
       final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
@@ -416,36 +344,23 @@ void main() {
           },
           // bad/foo intentionally absent — stub returns 500.
         }),
-        configReader: () async => configWithPlugins([
-          _pluginEntry(
-            url: 'github:bad/foo',
-            branch: 'main',
-            pinnedRev: 'a' * 40,
-            dirName: 'bad-plugin',
-          ),
-          _pluginEntry(
-            url: 'github:example/good',
-            branch: 'main',
-            pinnedRev: 'c' * 40,
-            dirName: 'good-plugin',
-          ),
-        ]),
+        markersReader: () => [
+          _marker(id: 'bad-plugin', url: 'github:bad/foo', rev: 'a' * 40),
+          _marker(id: 'good-plugin', url: 'github:example/good', rev: 'c' * 40),
+        ],
       );
       final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
       final status = updateCheckService.readStatus();
       expect(status.lightweight!.ok, isTrue);
-      // Good plugin still surfaced.
       expect(status.lightweight!.pluginsAhead, hasLength(1));
-      expect(status.lightweight!.pluginsAhead.single.dirName, 'good-plugin');
+      expect(status.lightweight!.pluginsAhead.single.pluginId, 'good-plugin');
       expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'd' * 40);
-      // Bad plugin's dirName mentioned in the error string.
       expect(status.lightweight!.error, isNotNull);
       expect(status.lightweight!.error, contains('bad-plugin'));
     });
 
     test('runLightweight skips plugins with unsupported transport', () async {
-      // file:// URL → lockedInputForPlugin returns null → skipped silently.
       var httpCalls = 0;
       final updateCheckService = UpdateCheckService(
         flakePath: flakePath,
@@ -454,13 +369,7 @@ void main() {
           httpCalls++;
           return http.Response('should not be called', 500);
         }),
-        configReader: () async => configWithPlugins([
-          _pluginEntry(
-            url: 'file:///tmp/local',
-            branch: 'main',
-            pinnedRev: 'a' * 40,
-          ),
-        ]),
+        markersReader: () => [_marker(url: 'file:///tmp/local', rev: 'a' * 40)],
       );
       final exit = await updateCheckService.runLightweight();
       expect(exit, 0);
@@ -472,7 +381,6 @@ void main() {
     test(
       'runLightweight emits no PluginAhead when upstream matches pin',
       () async {
-        // pinned and upstream are the same SHA → not "ahead".
         final updateCheckService = UpdateCheckService(
           flakePath: flakePath,
           statusPath: statusPath,
@@ -481,13 +389,9 @@ void main() {
               'sha': 'a' * 40,
             },
           }),
-          configReader: () async => configWithPlugins([
-            _pluginEntry(
-              url: 'github:example/foo',
-              branch: 'main',
-              pinnedRev: 'a' * 40,
-            ),
-          ]),
+          markersReader: () => [
+            _marker(url: 'github:example/foo', rev: 'a' * 40),
+          ],
         );
         final exit = await updateCheckService.runLightweight();
         expect(exit, 0);
@@ -498,23 +402,20 @@ void main() {
   });
 }
 
-PluginEntry _pluginEntry({
+PluginMarker _marker({
+  String id = 'fixture',
   required String url,
-  required String branch,
-  required String pinnedRev,
-  String dirName = 'fixture',
-  bool enabled = true,
+  required String rev,
+  String branch = 'main',
+  bool disabled = false,
   bool autoUpdate = true,
-  DateTime? uninstalledAt,
-}) => PluginEntry(
-  id: url,
+}) => PluginMarker(
+  id: id,
   url: url,
-  branch: branch,
-  pinnedRev: pinnedRev,
-  dirName: dirName,
+  version: '0.1.0',
+  rev: rev,
   installedAt: DateTime.utc(2026, 1, 1),
-  lastUpdatedAt: DateTime.utc(2026, 1, 1),
-  enabled: enabled,
+  disabled: disabled,
+  branch: branch,
   autoUpdate: autoUpdate,
-  uninstalledAt: uninstalledAt,
 );

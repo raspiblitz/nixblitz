@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_install_preview.dart';
 import 'package:common/src/services/config_service.dart';
+import 'package:common/src/services/plugin/plugin_marker.dart';
 import 'package:common/src/services/plugin_service.dart';
 
 import '../test_helpers/git_isolation.dart';
@@ -13,9 +14,14 @@ import '../test_helpers/git_isolation.dart';
 /// Seed a fresh git repo at [path] with a minimal plugin layout:
 /// plugin.nix, plugin.json, and a README. Returns the path so the
 /// caller can clone via `file://`.
+///
+/// The manifest's `id` is what determines the on-disk plugin
+/// directory under `<baseDir>/plugins/`. Tests passing different
+/// names through `id` exercise the new id-collision behaviour.
 Future<String> _seedPluginRepo(
   String path, {
-  String manifestName = 'nixblitz-tailscale',
+  String id = 'tailscale',
+  String name = 'nixblitz-tailscale',
   bool includePluginNix = true,
   bool includeManifest = true,
   Map<String, dynamic>? manifestOverride,
@@ -33,23 +39,17 @@ Future<String> _seedPluginRepo(
     final manifest =
         manifestOverride ??
         {
-          'manifest': {
-            'schema_version': 2,
-            'min_tui_version': 1,
-            'name': manifestName,
-            'description': 'test plugin',
-          },
+          'manifest': {'schema_version': 2, 'min_tui_version': 2, 'name': name},
+          'id': id,
         };
     File(
       '$path/plugin.json',
     ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(manifest));
   }
 
-  File('$path/README.md').writeAsStringSync('# $manifestName\n');
+  File('$path/README.md').writeAsStringSync('# $name\n');
 
   // git init + commit so `git clone --depth 1 --branch main` works.
-  // testGit() applies the hermetic env + `-c` overrides; see
-  // ../test_helpers/git_isolation.dart.
   Future<void> run(List<String> args) async {
     final r = await testGit(args, workingDirectory: path);
     if (r.exitCode != 0) {
@@ -88,37 +88,71 @@ void main() {
       srcRepo.deleteSync(recursive: true);
     });
 
-    test('install from file:// creates plugin dir + config entry', () async {
-      final entry = await pluginService.install(
+    test('install creates plugin dir + marker + plugins.list', () async {
+      final marker = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
 
-      expect(entry.pinnedRev, matches(RegExp(r'^[0-9a-f]{40}$')));
-      expect(entry.branch, 'main');
-      expect(entry.enabled, isTrue);
-      expect(entry.autoUpdate, isTrue);
+      expect(marker.id, 'tailscale');
+      expect(marker.rev, matches(RegExp(r'^[0-9a-f]{40}$')));
+      expect(marker.branch, 'main');
+      expect(marker.disabled, isFalse);
+      expect(marker.autoUpdate, isTrue);
 
-      final pluginDir = Directory('${home.path}/plugins/${entry.dirName}');
+      final pluginDir = Directory('${home.path}/plugins/${marker.id}');
       expect(pluginDir.existsSync(), isTrue);
       expect(File('${pluginDir.path}/plugin.nix').existsSync(), isTrue);
       expect(File('${pluginDir.path}/plugin.json').existsSync(), isTrue);
-      expect(File('${pluginDir.path}/config.json').existsSync(), isTrue);
-      // .plugin-metadata.json is intentionally NOT written —
-      // main config's plugins[] is the authoritative record and
-      // duplicating timestamps just churns the diff.
       expect(
-        File('${pluginDir.path}/.plugin-metadata.json').existsSync(),
-        isFalse,
+        File('${pluginDir.path}/.nixblitz-installed.json').existsSync(),
+        isTrue,
       );
+      // No per-plugin config.json — config now lives in main
+      // config.json's app_configs map.
+      expect(File('${pluginDir.path}/config.json').existsSync(), isFalse);
 
-      final config = await ConfigService(baseDir: home.path).readConfig();
-      expect(config.plugins.length, 1);
-      expect(config.plugins.first.id, entry.id);
-      expect(config.plugins.first.pinnedRev, entry.pinnedRev);
+      // plugins.list is regenerated on install.
+      final pluginsList = File('${home.path}/plugins.list');
+      expect(pluginsList.existsSync(), isTrue);
+      expect(
+        pluginsList.readAsStringSync().trim(),
+        '${home.path}/plugins/tailscale',
+      );
     });
 
-    test('install refuses duplicate of same URL', () async {
+    test('install rejects id collision from a different URL', () async {
+      await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+
+      // Build a second source repo with the same manifest `id` but
+      // a different URL.
+      final second = Directory.systemTemp.createTempSync(
+        'nixblitz_plugin_collide_',
+      );
+      try {
+        await _seedPluginRepo(second.path, id: 'tailscale');
+        await expectLater(
+          () => pluginService.install(
+            'file://${second.path}',
+            allowInsecure: true,
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('id collision'), contains('tailscale')),
+            ),
+          ),
+        );
+      } finally {
+        second.deleteSync(recursive: true);
+      }
+    });
+
+    test('install refuses duplicate of same URL when active', () async {
       await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
@@ -132,9 +166,29 @@ void main() {
       );
     });
 
+    test('reinstall over a disabled marker wipes + recreates', () async {
+      final first = await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      await pluginService.disable(first.id);
+
+      // Drop a sentinel file so we can verify the dir was wiped.
+      final sentinel = File('${home.path}/plugins/${first.id}/leftover.txt');
+      sentinel.writeAsStringSync('stale');
+
+      final second = await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      expect(second.id, first.id);
+      expect(second.disabled, isFalse);
+      expect(sentinel.existsSync(), isFalse);
+    });
+
     test('install confirm callback receives manifest preview', () async {
       PluginInstallPreview? captured;
-      final entry = await pluginService.install(
+      final marker = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
         confirm: (preview) async {
@@ -143,7 +197,6 @@ void main() {
         },
       );
 
-      // Callback fired with manifest fields populated.
       expect(captured, isNotNull);
       expect(captured!.name, 'nixblitz-tailscale');
       expect(captured!.url, contains(srcRepo.path));
@@ -151,8 +204,7 @@ void main() {
       expect(captured!.pinnedRev, matches(RegExp(r'^[0-9a-f]{40}$')));
       expect(captured!.schemaVersion, 2);
 
-      // Install proceeded normally on `true`.
-      expect(entry.pinnedRev, captured!.pinnedRev);
+      expect(marker.rev, captured!.pinnedRev);
     });
 
     test('install confirm returning false aborts cleanly', () async {
@@ -170,20 +222,15 @@ void main() {
       if (pluginsDir.existsSync()) {
         expect(pluginsDir.listSync(), isEmpty);
       }
-      final config = await ConfigService(baseDir: home.path).readConfig();
-      expect(config.plugins, isEmpty);
     });
 
     test('install with null confirm skips the prompt entirely', () async {
-      // Counter to verify no callback is constructed/called when
-      // `confirm` is omitted (the --yes / non-interactive case).
       var calls = 0;
-      final entry = await pluginService.install(
+      final marker = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
-        // confirm: null, by omission
       );
-      expect(entry.id, isNotEmpty);
+      expect(marker.id, isNotEmpty);
       expect(calls, 0);
     });
 
@@ -200,9 +247,6 @@ void main() {
       if (pluginsDir.existsSync()) {
         expect(pluginsDir.listSync(), isEmpty);
       }
-
-      final config = await ConfigService(baseDir: home.path).readConfig();
-      expect(config.plugins, isEmpty);
 
       bad.deleteSync(recursive: true);
     });
@@ -232,9 +276,6 @@ void main() {
     });
 
     test('clone failure on a subdir inside a repo suggests --subdir', () async {
-      // Build an outer repo containing a plugin subdir. Pointing
-      // directly at the subdir fails because it has no .git/; the
-      // fix is to point at the parent with --subdir.
       final outer = Directory.systemTemp.createTempSync('nixblitz_outer_');
       try {
         await _seedPluginRepo(outer.path);
@@ -244,9 +285,10 @@ void main() {
           jsonEncode({
             'manifest': {
               'schema_version': 2,
-              'min_tui_version': 1,
+              'min_tui_version': 2,
               'name': 'ts',
             },
+            'id': 'ts',
           }),
         );
 
@@ -279,7 +321,6 @@ void main() {
           'nixblitz_multi_list_',
         );
         try {
-          // Two valid plugins + one non-plugin subdir (should be skipped).
           for (final name in ['tailscale', 'btcpay']) {
             Directory('${multi.path}/$name').createSync(recursive: true);
             File('${multi.path}/$name/plugin.nix').writeAsStringSync('{}\n');
@@ -287,9 +328,10 @@ void main() {
               jsonEncode({
                 'manifest': {
                   'schema_version': 2,
-                  'min_tui_version': 1,
+                  'min_tui_version': 2,
                   'name': name,
                 },
+                'id': name,
               }),
             );
           }
@@ -331,9 +373,6 @@ void main() {
     );
 
     test('install with --subdir from a multi-plugin repo', () async {
-      // Build a multi-plugin repo: root has no manifest, but
-      // `tailscale/` does. `install(... subdir: 'tailscale')` must
-      // look for the manifest inside the subdir.
       final multi = Directory.systemTemp.createTempSync('nixblitz_multi_');
       try {
         Directory('${multi.path}/tailscale').createSync(recursive: true);
@@ -344,9 +383,10 @@ void main() {
           jsonEncode({
             'manifest': {
               'schema_version': 2,
-              'min_tui_version': 1,
+              'min_tui_version': 2,
               'name': 'tailscale',
             },
+            'id': 'tailscale',
           }),
         );
         File('${multi.path}/README.md').writeAsStringSync('# multi\n');
@@ -359,15 +399,15 @@ void main() {
           expect(r.exitCode, 0, reason: r.stderr.toString());
         }
 
-        final entry = await pluginService.install(
+        final marker = await pluginService.install(
           'file://${multi.path}',
           allowInsecure: true,
           subdir: 'tailscale',
         );
-        expect(entry.id, contains('dir=tailscale'));
-        expect(entry.dirName, endsWith('-tailscale'));
+        expect(marker.url, contains('dir=tailscale'));
+        expect(marker.id, 'tailscale');
 
-        final pluginDir = Directory('${home.path}/plugins/${entry.dirName}');
+        final pluginDir = Directory('${home.path}/plugins/${marker.id}');
         expect(File('${pluginDir.path}/plugin.nix').existsSync(), isTrue);
       } finally {
         multi.deleteSync(recursive: true);
@@ -375,9 +415,6 @@ void main() {
     });
 
     test('refuses to install a repo containing a symlink', () async {
-      // Plant a symlink in the source repo pointing at /etc/passwd
-      // and commit it. A naive copy would dereference, landing
-      // /etc/passwd's content in the tracked config.
       final malicious = Directory.systemTemp.createTempSync(
         'nixblitz_plugin_evil_',
       );
@@ -400,9 +437,6 @@ void main() {
           reason: 'git commit failed: ${commitRes.stderr}',
         );
 
-        // expectLater because the closure is async — expect + cleanup
-        // would race on `malicious.deleteSync` completing before the
-        // install's git clone actually runs.
         await expectLater(
           () => pluginService.install(
             'file://${malicious.path}',
@@ -417,7 +451,6 @@ void main() {
           ),
         );
 
-        // Nothing should have landed.
         final pluginsDir = Directory('${home.path}/plugins');
         if (pluginsDir.existsSync()) {
           expect(pluginsDir.listSync(), isEmpty);
@@ -427,99 +460,103 @@ void main() {
       }
     });
 
-    test('remove wipes dir and tombstones config entry', () async {
-      final entry = await pluginService.install(
+    test('remove wipes dir + marker; plugins.list dropped', () async {
+      final marker = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
-      final pluginDir = Directory('${home.path}/plugins/${entry.dirName}');
+      final pluginDir = Directory('${home.path}/plugins/${marker.id}');
       expect(pluginDir.existsSync(), isTrue);
 
-      await pluginService.remove(entry.id);
+      await pluginService.remove(marker.id);
 
       expect(pluginDir.existsSync(), isFalse);
-      final config = await ConfigService(baseDir: home.path).readConfig();
-      expect(config.plugins.length, 1);
-      expect(config.plugins.first.uninstalledAt, isNotNull);
-      expect(config.plugins.first.enabled, isFalse);
+      expect(
+        File('${home.path}/plugins.list').readAsStringSync().trim(),
+        isEmpty,
+      );
     });
 
-    test('reinstall revives tombstoned entry in place', () async {
+    test('remove on missing plugin throws StateError', () async {
+      expect(
+        () => pluginService.remove('not-installed'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test(
+      'disable flips marker.disabled and drops the plugin from plugins.list',
+      () async {
+        final marker = await pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        final disabled = await pluginService.disable(marker.id);
+        expect(disabled.disabled, isTrue);
+
+        // Marker stays on disk.
+        final read = readMarker('${home.path}/plugins/${marker.id}');
+        expect(read?.disabled, isTrue);
+
+        // plugins.list excludes the disabled plugin.
+        expect(
+          File('${home.path}/plugins.list').readAsStringSync().trim(),
+          isEmpty,
+        );
+      },
+    );
+
+    test('enable flips marker.disabled back to false', () async {
+      final marker = await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      await pluginService.disable(marker.id);
+      final enabled = await pluginService.enable(marker.id);
+      expect(enabled.disabled, isFalse);
+
+      // plugins.list includes it again.
+      expect(
+        File('${home.path}/plugins.list').readAsStringSync().trim(),
+        '${home.path}/plugins/${marker.id}',
+      );
+    });
+
+    test('refresh re-fetches files and updates marker rev', () async {
       final first = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
-      await pluginService.remove(first.id);
 
-      final second = await pluginService.install(
-        'file://${srcRepo.path}',
+      // Advance the upstream repo: change plugin.nix, commit.
+      File('${srcRepo.path}/plugin.nix').writeAsStringSync(
+        '# refreshed plugin.nix v2\n{ services.tailscale.enable = true; }\n',
+      );
+      for (final args in [
+        ['add', '-A'],
+        ['commit', '-m', 'update plugin'],
+      ]) {
+        final r = await testGit(args, workingDirectory: srcRepo.path);
+        expect(r.exitCode, 0, reason: r.stderr.toString());
+      }
+
+      final refreshed = await pluginService.refresh(
+        first.id,
         allowInsecure: true,
       );
 
-      expect(second.id, first.id);
-      expect(second.dirName, first.dirName);
-      expect(second.uninstalledAt, isNull);
-      expect(second.enabled, isTrue);
+      expect(refreshed.rev, isNot(first.rev));
+      expect(refreshed.id, first.id);
 
-      final config = await ConfigService(baseDir: home.path).readConfig();
-      expect(config.plugins.length, 1);
-      expect(config.plugins.first.uninstalledAt, isNull);
+      final pluginNix = File(
+        '${home.path}/plugins/${refreshed.id}/plugin.nix',
+      ).readAsStringSync();
+      expect(pluginNix, contains('# refreshed plugin.nix v2'));
+
+      // Marker is rewritten with the new rev.
+      final reread = readMarker('${home.path}/plugins/${refreshed.id}')!;
+      expect(reread.rev, refreshed.rev);
     });
-
-    test(
-      'refresh re-fetches files but preserves per-plugin config.json',
-      () async {
-        final first = await pluginService.install(
-          'file://${srcRepo.path}',
-          allowInsecure: true,
-        );
-
-        // User edits their plugin config. Refresh must not clobber it.
-        final cfgPath = '${home.path}/plugins/${first.dirName}/config.json';
-        File(
-          cfgPath,
-        ).writeAsStringSync(jsonEncode({'custom_key': 'value', 'other': 42}));
-
-        // Advance the upstream repo: change plugin.nix, commit.
-        File('${srcRepo.path}/plugin.nix').writeAsStringSync(
-          '# refreshed plugin.nix v2\n{ services.tailscale.enable = true; }\n',
-        );
-        for (final args in [
-          ['add', '-A'],
-          ['commit', '-m', 'update plugin'],
-        ]) {
-          final r = await testGit(args, workingDirectory: srcRepo.path);
-          expect(r.exitCode, 0, reason: r.stderr.toString());
-        }
-
-        final refreshed = await pluginService.refresh(
-          first.id,
-          allowInsecure: true,
-        );
-
-        // Pin advanced.
-        expect(refreshed.pinnedRev, isNot(first.pinnedRev));
-        expect(refreshed.dirName, first.dirName);
-
-        // Files updated.
-        final pluginNix = File(
-          '${home.path}/plugins/${refreshed.dirName}/plugin.nix',
-        ).readAsStringSync();
-        expect(pluginNix, contains('# refreshed plugin.nix v2'));
-
-        // Per-plugin config preserved.
-        final cfg = jsonDecode(File(cfgPath).readAsStringSync()) as Map;
-        expect(cfg['custom_key'], 'value');
-        expect(cfg['other'], 42);
-
-        // Main config entry updated in place.
-        final afterConfig = await ConfigService(
-          baseDir: home.path,
-        ).readConfig();
-        expect(afterConfig.plugins.length, 1);
-        expect(afterConfig.plugins.first.pinnedRev, refreshed.pinnedRev);
-      },
-    );
 
     test('refresh is a no-op when upstream pin matches existing', () async {
       final first = await pluginService.install(
@@ -527,30 +564,22 @@ void main() {
         allowInsecure: true,
       );
 
-      // No upstream change between install and refresh — the new
-      // pin will equal the existing one, refresh should bail before
-      // touching anything.
       final refreshed = await pluginService.refresh(
         first.id,
         allowInsecure: true,
       );
 
-      expect(refreshed.pinnedRev, first.pinnedRev);
+      expect(refreshed.rev, first.rev);
       expect(
-        refreshed.lastUpdatedAt,
-        first.lastUpdatedAt,
-        reason: 'last_updated_at should not bump on no-op refresh',
+        refreshed.installedAt,
+        first.installedAt,
+        reason: 'installedAt should not bump on no-op refresh',
       );
-
-      // Main config wasn't touched either.
-      final after = await ConfigService(baseDir: home.path).readConfig();
-      expect(after.plugins.first.lastUpdatedAt, first.lastUpdatedAt);
     });
 
     test('refresh throws when plugin is not installed', () async {
       expect(
-        () =>
-            pluginService.refresh('file:///nope/not-here', allowInsecure: true),
+        () => pluginService.refresh('not-installed', allowInsecure: true),
         throwsA(isA<StateError>()),
       );
     });
@@ -559,9 +588,7 @@ void main() {
       // Hermetic seed repos commit unsigned, so the captured
       // signature surfaces as status `N` with empty fingerprint —
       // exactly the data the consent prompt needs to render
-      // "(unsigned)". The point isn't to verify a real key; it's
-      // that the plumbing from `git log --format=%G…` reaches the
-      // CLI callback intact.
+      // "(unsigned)".
       PluginInstallPreview? captured;
       await pluginService.install(
         'file://${srcRepo.path}',
@@ -581,49 +608,32 @@ void main() {
     test(
       'install on unsigned commit leaves signatureFingerprint null',
       () async {
-        // Belt-and-suspenders for the install side of Approach A:
-        // when no signature is present at install time, we explicitly
-        // pin null. That null is the trigger for the "silent upgrade"
-        // path on a future signed refresh — without this guarantee,
-        // the upgrade case could be confused with a key change.
-        final entry = await pluginService.install(
+        final marker = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
-        expect(entry.signatureFingerprint, isNull);
+        expect(marker.signatureFingerprint, isNull);
 
-        final cfg = await ConfigService(baseDir: home.path).readConfig();
-        expect(cfg.plugins.first.signatureFingerprint, isNull);
+        final reread = readMarker('${home.path}/plugins/${marker.id}')!;
+        expect(reread.signatureFingerprint, isNull);
       },
     );
 
     test(
       'refresh throws PluginSignatureMismatch when pinned fp differs',
       () async {
-        // Approach A's hard-fail case: install captured a fingerprint,
-        // a later refresh sees a different one (or none) → the caller
-        // must explicitly re-consent. The hermetic env can't produce a
-        // real signature, so we spoof the *pinned* side by writing a
-        // fake fingerprint into the entry, then push a new (still
-        // unsigned) upstream commit — the pinned `fake-fp` vs new
-        // `(unsigned, null)` diff is enough to trip the check.
-        final entry = await pluginService.install(
+        final marker = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
 
-        // Forge a pinned fingerprint on the entry so the next refresh
-        // takes the mismatch branch instead of the silent-upgrade one.
-        final cs = ConfigService(baseDir: home.path);
-        final cfg = await cs.readConfig();
-        final tampered = cfg.copyWith(
-          plugins: [
-            cfg.plugins.first.copyWith(
-              signatureFingerprint: 'SHA256:fake-pinned-key',
-            ),
-          ],
+        // Forge a pinned fingerprint on the marker so the next
+        // refresh takes the mismatch branch instead of the
+        // silent-upgrade one.
+        writeMarker(
+          '${home.path}/plugins/${marker.id}',
+          marker.copyWith(signatureFingerprint: 'SHA256:fake-pinned-key'),
         );
-        await cs.writeConfig(tampered);
 
         // Advance the upstream pin so refresh has *something* to do
         // (a no-op refresh returns early before the signature check).
@@ -639,45 +649,31 @@ void main() {
         }
 
         await expectLater(
-          () => pluginService.refresh(entry.id, allowInsecure: true),
+          () => pluginService.refresh(marker.id, allowInsecure: true),
           throwsA(
             isA<PluginSignatureMismatch>()
-                .having((e) => e.pluginId, 'pluginId', entry.id)
+                .having((e) => e.pluginId, 'pluginId', marker.id)
                 .having((e) => e.expected, 'expected', 'SHA256:fake-pinned-key')
                 .having((e) => e.actual, 'actual', isNull),
           ),
         );
 
-        // Mismatch is hard-fail: nothing on disk should have moved,
-        // pinnedRev included. The user has to `plugin remove` +
-        // `plugin add` to re-consent.
-        final after = await cs.readConfig();
-        expect(after.plugins.first.pinnedRev, entry.pinnedRev);
-        expect(
-          after.plugins.first.signatureFingerprint,
-          'SHA256:fake-pinned-key',
-        );
+        // Mismatch is hard-fail: marker stays untouched.
+        final after = readMarker('${home.path}/plugins/${marker.id}')!;
+        expect(after.rev, marker.rev);
+        expect(after.signatureFingerprint, 'SHA256:fake-pinned-key');
       },
     );
 
     test(
       'refresh with no pinned fp adopts whatever the new commit has',
       () async {
-        // The "silent upgrade" path: an entry that was installed
-        // without a signature should accept new metadata on refresh
-        // without forcing the operator through re-consent. With the
-        // hermetic harness, "whatever the new commit has" is also
-        // null, so this test pins down the null→null no-throw shape;
-        // the null→fingerprint variant requires real signing keys
-        // outside the test scope.
-        final entry = await pluginService.install(
+        final marker = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
         );
-        expect(entry.signatureFingerprint, isNull);
+        expect(marker.signatureFingerprint, isNull);
 
-        // Advance upstream so refresh actually runs the signature
-        // check (no-op refresh returns before the comparison).
         File(
           '${srcRepo.path}/plugin.nix',
         ).writeAsStringSync('# v2\n{ services.tailscale.enable = true; }\n');
@@ -690,21 +686,20 @@ void main() {
         }
 
         final refreshed = await pluginService.refresh(
-          entry.id,
+          marker.id,
           allowInsecure: true,
         );
         expect(refreshed.signatureFingerprint, isNull);
-        expect(refreshed.pinnedRev, isNot(entry.pinnedRev));
+        expect(refreshed.rev, isNot(marker.rev));
       },
     );
 
     test('refreshAll walks every active plugin', () async {
-      // Second repo so we have two distinct plugins to refresh.
       final secondRepo = Directory.systemTemp.createTempSync(
         'nixblitz_refresh_second_',
       );
       try {
-        await _seedPluginRepo(secondRepo.path, manifestName: 'second');
+        await _seedPluginRepo(secondRepo.path, id: 'second', name: 'second');
         await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
@@ -723,21 +718,21 @@ void main() {
       }
     });
 
-    test('pin flips auto_update to false; unpin flips it back', () async {
-      final entry = await pluginService.install(
+    test('pin flips autoUpdate to false; unpin flips it back', () async {
+      final marker = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
-      expect(entry.autoUpdate, isTrue);
+      expect(marker.autoUpdate, isTrue);
 
-      final pinned = await pluginService.pin(entry.id);
+      final pinned = await pluginService.pin(marker.id);
       expect(pinned.autoUpdate, isFalse);
 
       // Persisted on disk.
-      final cfg = await ConfigService(baseDir: home.path).readConfig();
-      expect(cfg.plugins.first.autoUpdate, isFalse);
+      final reread = readMarker('${home.path}/plugins/${marker.id}')!;
+      expect(reread.autoUpdate, isFalse);
 
-      final unpinned = await pluginService.unpin(entry.id);
+      final unpinned = await pluginService.unpin(marker.id);
       expect(unpinned.autoUpdate, isTrue);
     });
 
@@ -746,7 +741,7 @@ void main() {
         'nixblitz_refresh_pinned_',
       );
       try {
-        await _seedPluginRepo(secondRepo.path, manifestName: 'second');
+        await _seedPluginRepo(secondRepo.path, id: 'second', name: 'second');
         final first = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
@@ -756,7 +751,6 @@ void main() {
           allowInsecure: true,
         );
 
-        // Pin the first one so includePinned=false should skip it.
         await pluginService.pin(first.id);
 
         final result = await pluginService.refreshAll(
@@ -772,9 +766,6 @@ void main() {
     });
 
     test('refreshAll keeps going when one plugin fails', () async {
-      // Install one good plugin, then poison it: rename the source
-      // dir so the next refresh's git clone fails. A second healthy
-      // plugin should still refresh + be reported in `refreshed`.
       final secondRepo = Directory.systemTemp.createTempSync(
         'nixblitz_refresh_partial_',
       );
@@ -782,7 +773,7 @@ void main() {
         'nixblitz_refresh_moved_',
       );
       try {
-        await _seedPluginRepo(secondRepo.path, manifestName: 'good');
+        await _seedPluginRepo(secondRepo.path, id: 'good', name: 'good');
         final bad = await pluginService.install(
           'file://${srcRepo.path}',
           allowInsecure: true,
@@ -812,20 +803,74 @@ void main() {
       }
     });
 
-    test('list hides tombstones unless requested', () async {
-      final entry = await pluginService.install(
+    test('list hides disabled by default; surfaces them on flag', () async {
+      final marker = await pluginService.install(
         'file://${srcRepo.path}',
         allowInsecure: true,
       );
-      await pluginService.remove(entry.id);
+      await pluginService.disable(marker.id);
 
       final active = await pluginService.list();
-      final all = await pluginService.list(includeTombstones: true);
+      final all = await pluginService.list(includeDisabled: true);
 
       expect(active, isEmpty);
       expect(all.length, 1);
-      expect(all.first.isTombstone, isTrue);
+      expect(all.first.disabled, isTrue);
     });
+
+    test(
+      'install seeds app_configs.<id> from manifest config_schema defaults',
+      () async {
+        final withSchema = Directory.systemTemp.createTempSync(
+          'nixblitz_plugin_schema_',
+        );
+        try {
+          await _seedPluginRepo(
+            withSchema.path,
+            id: 'with-schema',
+            name: 'with-schema',
+            manifestOverride: {
+              'manifest': {
+                'schema_version': 2,
+                'min_tui_version': 2,
+                'name': 'with-schema',
+              },
+              'id': 'with-schema',
+              'config_schema': {
+                'id': 'with-schema',
+                'label': 'With Schema',
+                'fields': [
+                  {
+                    'type': 'bool',
+                    'name': 'enabled',
+                    'label': 'Enabled',
+                    'default': true,
+                  },
+                  {
+                    'type': 'string',
+                    'name': 'alias',
+                    'label': 'Alias',
+                    'default': 'hello',
+                  },
+                ],
+              },
+            },
+          );
+
+          await pluginService.install(
+            'file://${withSchema.path}',
+            allowInsecure: true,
+          );
+
+          final cfg = await ConfigService(baseDir: home.path).readConfig();
+          final block = cfg.appConfig('with-schema');
+          expect(block['enabled'], true);
+          expect(block['alias'], 'hello');
+        } finally {
+          withSchema.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 
   group('PluginUrl.parse', () {
@@ -978,9 +1023,6 @@ void main() {
     });
 
     test('round-trips canonical URL with embedded ?dir=', () {
-      // `?dir=<subdir>` is how _withSubdir serializes non-github
-      // canonical URLs. Reparsing should recover the same subdir
-      // without being explicitly passed the flag.
       final original = PluginUrl.parse(
         '/home/user/plugins',
         allowInsecure: true,

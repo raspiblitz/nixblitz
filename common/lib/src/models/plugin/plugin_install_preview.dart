@@ -31,8 +31,8 @@ class PluginInstallPreview {
   final String description;
 
   /// Canonical source URL (the same string that ends up as
-  /// [PluginEntry.id] / [PluginEntry.url]). Surfaced so the operator
-  /// can re-verify they're installing from where they intended.
+  /// [PluginMarker.url]). Surfaced so the operator can re-verify
+  /// they're installing from where they intended.
   final String url;
 
   /// Branch / ref that the clone tracked.
@@ -87,7 +87,7 @@ class PluginSignatureMismatch implements Exception {
   /// Plugin URL whose pin we tried to verify.
   final String pluginId;
 
-  /// Fingerprint stored on the [PluginEntry] at install / last
+  /// Fingerprint stored on the [PluginMarker] at install / last
   /// successful refresh.
   final String expected;
 

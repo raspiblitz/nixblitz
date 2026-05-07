@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:common/src/models/config_migrations.dart';
-import 'package:common/src/models/plugin/plugin_entry.dart';
 
 class SystemConfig {
   final String hostname;
@@ -122,7 +121,6 @@ class NixblitzConfig {
   /// type-safe access.
   final Map<String, Map<String, dynamic>> appConfigs;
 
-  final List<PluginEntry> plugins;
   final Map<String, dynamic> _extra;
 
   const NixblitzConfig({
@@ -132,7 +130,6 @@ class NixblitzConfig {
     this.setupStepCompleted,
     required this.system,
     this.appConfigs = const {},
-    this.plugins = const [],
     Map<String, dynamic> extra = const {},
   }) : _extra = extra;
 
@@ -369,11 +366,6 @@ class NixblitzConfig {
           ? SystemConfig.fromJson(migrated['system'] as Map<String, dynamic>)
           : SystemConfig.defaults(),
       appConfigs: apps,
-      plugins:
-          (migrated['plugins'] as List<dynamic>?)
-              ?.map((e) => PluginEntry.fromJson(e as Map<String, dynamic>))
-              .toList(growable: false) ??
-          const [],
       extra: extra,
     );
   }
@@ -385,7 +377,6 @@ class NixblitzConfig {
     'setup_step_completed': setupStepCompleted,
     'system': system.toJson(),
     'app_configs': appConfigs,
-    'plugins': plugins.map((p) => p.toJson()).toList(),
     ..._extra,
   };
 
@@ -405,7 +396,6 @@ class NixblitzConfig {
     String? Function()? setupStepCompleted,
     SystemConfig? system,
     Map<String, Map<String, dynamic>>? appConfigs,
-    List<PluginEntry>? plugins,
     Map<String, dynamic>? extra,
   }) => NixblitzConfig(
     schemaVersion: schemaVersion ?? this.schemaVersion,
@@ -417,7 +407,6 @@ class NixblitzConfig {
         : setupStepCompleted(),
     system: system ?? this.system,
     appConfigs: appConfigs ?? this.appConfigs,
-    plugins: plugins ?? this.plugins,
     extra: extra ?? _extra,
   );
 

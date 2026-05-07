@@ -1,24 +1,24 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:common/src/models/nixblitz_config.dart';
-import 'package:common/src/models/plugin/plugin_entry.dart';
 import 'package:common/src/models/plugin/plugin_install_preview.dart';
 import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/services/config_service.dart';
 import 'package:common/src/services/git_service.dart';
 import 'package:common/src/services/log_service.dart';
+import 'package:common/src/services/plugin/plugin_list_regen.dart';
+import 'package:common/src/services/plugin/plugin_marker.dart';
 
-/// Manages installed plugins under `~/nixblitz/plugins/<dirName>/`
-/// and the matching `plugins[]` entries in `~/nixblitz/config.json`.
+/// Manages installed plugins under `~/nixblitz/plugins/<id>/`.
 ///
-/// Phase 1 surface: URL parsing, clone-to-tmpdir, manifest
-/// validation, install (with collision-resolved dirName, D5), soft
-/// delete (D4), list. No update / pin / unpin yet (Phase 5).
+/// Path-A unified plugin design: each install writes a per-plugin
+/// marker file at `<pluginsDir>/<id>/.nixblitz-installed.json` and
+/// triggers a regenerate of `<baseDir>/plugins.list` so
+/// `installed.nix` picks up the new module on next eval.
 ///
-/// Side effects land in the working tree — no git commits here.
-/// The user's next Apply captures every change via `git add -A`.
+/// Side effects land in the working tree — no git commits here. The
+/// user's next Apply captures every change via `git add -A`.
 class PluginService {
   final String baseDir;
   final ConfigService configService;
@@ -32,21 +32,25 @@ class PluginService {
 
   String get pluginsDir => '$baseDir/plugins';
 
-  /// Install a plugin from [rawUrl] (D5 schemes). Clones to a
-  /// tmpdir, validates the manifest, then (optionally) hands a
-  /// [PluginInstallPreview] to [confirm] before copying plugin files
-  /// into `plugins/<dirName>/` and appending a [PluginEntry] to the
-  /// main config. Reviving a tombstoned entry (D4) is idempotent.
+  /// Install a plugin from [rawUrl]. Clones to a tmpdir, validates
+  /// the manifest, then (optionally) hands a [PluginInstallPreview]
+  /// to [confirm] before copying the plugin tree into
+  /// `plugins/<id>/`, writing the [PluginMarker], and regenerating
+  /// `plugins.list`.
   ///
   /// [allowInsecure] must be true for `file://`, `http://`, or
-  /// `ssh://` URLs (D9).
+  /// `ssh://` URLs.
   ///
   /// [confirm] runs after the manifest has been parsed but before
   /// any state lands on disk. Returning `false` aborts cleanly with
   /// [PluginInstallCancelled]. `null` (the default) skips the prompt
   /// — the caller has either already collected consent (`--yes`) or
   /// is invoking install from a non-interactive context.
-  Future<PluginEntry> install(
+  ///
+  /// ID collisions reject hard: if `<pluginsDir>/<id>/` already
+  /// exists with a marker pinning a different URL, this throws
+  /// [StateError] rather than auto-suffixing.
+  Future<PluginMarker> install(
     String rawUrl, {
     String branch = 'main',
     bool allowInsecure = false,
@@ -59,19 +63,15 @@ class PluginService {
       subdir: subdir,
     );
 
-    final config = configService.configExists()
-        ? await configService.readConfig()
-        : NixblitzConfig.defaults();
-
-    final activeExisting = config.plugins.firstWhereOrNull(
-      (p) => p.id == parsed.canonical && p.uninstalledAt == null,
-    );
-    if (activeExisting != null) {
-      throw StateError('Plugin already installed: ${parsed.canonical}');
-    }
-
     final tmpDir = await Directory.systemTemp.createTemp('nixblitz-plugin-');
-    Directory? targetDir;
+
+    // Tracks the post-manifest plugin dir so we can roll back a
+    // half-created install on failure. Stays null until we've
+    // resolved the manifest's id and committed to a target dir,
+    // which means errors thrown earlier (parse, clone, manifest
+    // missing) won't mistakenly wipe an unrelated existing plugin.
+    Directory? committedPluginDir;
+
     try {
       await _gitClone(parsed.cloneUrl, branch, tmpDir.path);
       final pinnedRev = await _gitRevParseHead(tmpDir.path);
@@ -79,9 +79,7 @@ class PluginService {
       // Safety: the source repo must not contain symlinks. A
       // malicious plugin could ship plugin.nix as a symlink to e.g.
       // /etc/shadow; `File.copySync` follows links, which would
-      // land sensitive content in the tracked config repo. Phase 1
-      // plugins have no legitimate need for symlinks, so reject
-      // outright with a clear error.
+      // land sensitive content in the tracked config repo.
       _rejectSymlinks(tmpDir.path);
 
       final pluginSourceDir = parsed.subdir == null
@@ -119,18 +117,31 @@ class PluginService {
       final manifest = _readManifest(pluginSourceDir);
       _requirePluginNix(pluginSourceDir);
 
+      final id = manifest.id;
+      final pluginDir = Directory('$pluginsDir/$id');
+      // ID collision: a different URL already owns this id, or the
+      // same URL is already actively installed.
+      if (pluginDir.existsSync()) {
+        final existing = readMarker(pluginDir.path);
+        if (existing != null && existing.url != parsed.canonical) {
+          throw StateError(
+            'Plugin id collision: `$id` is already installed from '
+            '${existing.url}. Cannot install ${parsed.canonical} '
+            'under the same id.',
+          );
+        }
+        if (existing != null && !existing.disabled) {
+          throw StateError('Plugin already installed: $id');
+        }
+      }
+
       // Capture commit signature (Approach A) BEFORE the consent
       // callback so the preview can render fingerprint + status.
-      // Note: GitService is constructed without `environment` so
-      // it inherits the operator's gpg / SSH config — the hermetic
-      // test env explicitly disables signing, but production code
-      // wants the real keyring visible.
       final signature = await GitService(repoDir: tmpDir.path).verifyCommit();
 
-      // Consent gate (D14). Hand the manifest metadata + signature
-      // to the caller's prompt; if it returns false, abort cleanly
-      // so nothing lands on disk. The tmpdir is cleaned up by the
-      // outer `finally` regardless.
+      // Consent gate. Hand the manifest metadata + signature to the
+      // caller's prompt; if it returns false, abort cleanly so
+      // nothing lands on disk.
       if (confirm != null) {
         final preview = PluginInstallPreview(
           name: manifest.name,
@@ -151,89 +162,86 @@ class PluginService {
         }
       }
 
-      // Revival of a tombstoned entry (D4) reuses the original
-      // dirName; only fresh installs collision-resolve against the
-      // existing set.
-      final tombstone = config.plugins.firstWhereOrNull(
-        (p) => p.id == parsed.canonical && p.uninstalledAt != null,
-      );
-      final dirName =
-          tombstone?.dirName ??
-          _resolveDirName(config.plugins, parsed.deriveDirName());
-
-      final pluginsDirObj = Directory(pluginsDir);
-      if (!pluginsDirObj.existsSync()) {
-        pluginsDirObj.createSync(recursive: true);
+      // Move staging into place. If a disabled marker existed, wipe
+      // first — reinstall over a disabled plugin is a fresh install.
+      if (!Directory(pluginsDir).existsSync()) {
+        Directory(pluginsDir).createSync(recursive: true);
       }
-      targetDir = Directory('$pluginsDir/$dirName');
-      if (targetDir.existsSync()) {
-        // Should not happen after _resolveDirName; defend anyway.
-        throw StateError('target dir exists: ${targetDir.path}');
+      if (pluginDir.existsSync()) {
+        pluginDir.deleteSync(recursive: true);
       }
-      targetDir.createSync();
+      pluginDir.createSync();
+      committedPluginDir = pluginDir;
 
-      for (final name in const [
-        'plugin.nix',
-        'plugin.json',
-        'README.md',
-        'LICENSE',
-      ]) {
-        final src = File('$pluginSourceDir/$name');
-        if (src.existsSync()) {
-          src.copySync('${targetDir.path}/$name');
+      // Copy the plugin's published files. Anything else in the
+      // upstream repo (.git/, top-level docs, tests/) is dropped —
+      // we only ship what installed.nix needs to import + the docs
+      // an operator might want to read post-install.
+      _copyPluginFiles(pluginSourceDir, pluginDir.path);
+
+      // Initialize app_configs.<id> from the manifest's config_schema
+      // defaults if the operator doesn't already have an entry.
+      // Idempotent on reinstall — preserves the operator's edits.
+      if (manifest.configSchema != null) {
+        final config = configService.configExists()
+            ? await configService.readConfig()
+            : NixblitzConfig.defaults();
+        if (!config.appConfigs.containsKey(id)) {
+          final defaults = <String, dynamic>{};
+          for (final field in manifest.configSchema!.fields) {
+            defaults[field.name] = _defaultValueOf(field);
+          }
+          await configService.writeConfig(config.setAppConfig(id, defaults));
         }
       }
 
-      File('${targetDir.path}/config.json').writeAsStringSync('{}\n');
-
-      final now = DateTime.now().toUtc();
-      final entry = PluginEntry(
-        id: parsed.canonical,
+      // Write the marker.
+      final marker = PluginMarker(
+        id: id,
         url: parsed.canonical,
+        version: manifest.version ?? '',
+        rev: pinnedRev,
+        installedAt: DateTime.now().toUtc(),
+        disabled: false,
         branch: branch,
-        pinnedRev: pinnedRev,
-        dirName: dirName,
-        installedAt: now,
-        lastUpdatedAt: now,
+        autoUpdate: true,
         signatureFingerprint: signature.fingerprint.isEmpty
             ? null
             : signature.fingerprint,
       );
+      writeMarker(pluginDir.path, marker);
 
-      // Mark the new plugin files as intent-to-add (git add -N) so
-      // the Apply view's `git diff` renders them as new-file
-      // additions instead of hiding them as untracked. The files
-      // remain unstaged in content; Apply's later `git add -A` still
-      // stages them properly. Best-effort — a git-less baseDir
-      // (shouldn't happen in practice) doesn't block install.
-      await _gitIntentToAdd(targetDir.path);
+      // Mark the new plugin files as intent-to-add so the Apply
+      // view's `git diff` renders them as new-file additions
+      // instead of hiding them as untracked. Best-effort.
+      await _gitIntentToAdd(pluginDir.path);
 
-      final updatedPlugins = List<PluginEntry>.from(config.plugins);
-      final tombstoneIdx = updatedPlugins.indexWhere(
-        (p) => p.id == parsed.canonical,
-      );
-      if (tombstoneIdx >= 0) {
-        updatedPlugins[tombstoneIdx] = entry;
-      } else {
-        updatedPlugins.add(entry);
-      }
-      await configService.writeConfig(config.copyWith(plugins: updatedPlugins));
+      // Regenerate plugins.list from the marker set. We pass every
+      // non-disabled marker id as `satisfied` because PluginService
+      // doesn't have a synchronous view of the dep-check result at
+      // install time — the Riverpod provider that reads markers
+      // applies dep filtering at runtime for the streamer registry,
+      // and each plugin's `lib.mkIf cfg.enable` gate keeps inactive
+      // plugins inert at Nix-eval time.
+      _regen();
 
       LogService.info(
-        'PluginService: installed ${parsed.canonical} '
-        '($pinnedRev, dir=$dirName, schema=${manifest.schemaVersion})',
+        'PluginService: installed $id '
+        '($pinnedRev, schema=${manifest.schemaVersion})',
       );
-      return entry;
+      return marker;
     } catch (e, st) {
-      // Roll back a half-created target dir so the user's next
-      // Apply review isn't littered with partial state.
-      if (targetDir != null && targetDir.existsSync()) {
+      // Roll back a half-created plugin dir so the user's next
+      // Apply review isn't littered with partial state. Only fires
+      // when we got past _readManifest — earlier errors have no
+      // committedPluginDir.
+      if (committedPluginDir != null && committedPluginDir.existsSync()) {
         try {
-          targetDir.deleteSync(recursive: true);
+          committedPluginDir.deleteSync(recursive: true);
         } catch (_) {}
       }
-      // User-cancellation is an expected outcome, not an error —
-      // the prompt explicitly invites "no". Log at info, no stack.
+      // User-cancellation is an expected outcome — log at info, no
+      // stack.
       if (e is PluginInstallCancelled) rethrow;
       LogService.error('PluginService.install failed for $rawUrl', e, st);
       rethrow;
@@ -244,69 +252,53 @@ class PluginService {
     }
   }
 
-  /// Soft-delete: wipe the plugin directory and mark the row as
-  /// tombstoned (D4). Reinstall later with [install] revives it.
+  /// Hard delete: wipes the marker, the plugin directory, and
+  /// triggers a `plugins.list` regen. No tombstone.
   Future<void> remove(String id) async {
-    final config = await configService.readConfig();
-    final idx = config.plugins.indexWhere(
-      (p) => p.id == id && p.uninstalledAt == null,
-    );
-    if (idx < 0) {
+    final pluginDir = Directory('$pluginsDir/$id');
+    if (!pluginDir.existsSync()) {
       throw StateError('Plugin not installed: $id');
     }
-    final entry = config.plugins[idx];
+    pluginDir.deleteSync(recursive: true);
+    _regen();
+    LogService.info('PluginService: removed $id');
+  }
 
-    final dir = Directory('$pluginsDir/${entry.dirName}');
-    if (dir.existsSync()) {
-      dir.deleteSync(recursive: true);
-    }
+  /// Soft toggle — flips `disabled: true` on the marker, leaves the
+  /// dir in place, regenerates plugins.list (drops the path).
+  Future<PluginMarker> disable(String id) async => _setDisabled(id, true);
 
-    final updated = List<PluginEntry>.from(config.plugins);
-    updated[idx] = entry.copyWith(
-      enabled: false,
-      uninstalledAt: DateTime.now().toUtc(),
-    );
-    await configService.writeConfig(config.copyWith(plugins: updated));
-    LogService.info('PluginService: removed $id (tombstoned)');
+  /// Inverse of [disable].
+  Future<PluginMarker> enable(String id) async => _setDisabled(id, false);
+
+  Future<PluginMarker> _setDisabled(String id, bool disabled) async {
+    final pluginDir = Directory('$pluginsDir/$id');
+    final m = readMarker(pluginDir.path);
+    if (m == null) throw StateError('Plugin not installed: $id');
+    final updated = m.copyWith(disabled: disabled);
+    writeMarker(pluginDir.path, updated);
+    _regen();
+    return updated;
   }
 
   /// Re-fetch a plugin from its stored URL, updating the pinned
-  /// rev + file contents while preserving the user's per-plugin
-  /// `config.json`. Used as a less-destructive alternative to the
-  /// `plugin remove && plugin add` dance the user has to do today
-  /// whenever the upstream plugin source moves.
+  /// rev + file contents. Used as a less-destructive alternative to
+  /// the `plugin remove && plugin add` dance whenever the upstream
+  /// plugin source moves.
   ///
-  /// The plugin's `dirName`, `branch`, and main-config entry index
-  /// all stay the same; only `pinnedRev` and `lastUpdatedAt` are
-  /// updated. Leaves the working tree dirty — next Apply commits
-  /// the refreshed files alongside any other staged changes.
-  Future<PluginEntry> refresh(String id, {bool allowInsecure = false}) async {
-    final config = await configService.readConfig();
-    final idx = config.plugins.indexWhere(
-      (p) => p.id == id && p.uninstalledAt == null,
-    );
-    if (idx < 0) {
-      throw StateError('Plugin not installed: $id');
-    }
-    final existing = config.plugins[idx];
+  /// The plugin's `id` and `branch` stay the same; only `rev`,
+  /// `version`, and `signatureFingerprint` are updated. Leaves the
+  /// working tree dirty — next Apply commits the refreshed files
+  /// alongside any other staged changes.
+  ///
+  /// Approach-A signature mismatch (pinned fingerprint differs from
+  /// the new commit's fingerprint, or the new commit is unsigned
+  /// where the old was signed) throws [PluginSignatureMismatch].
+  Future<PluginMarker> refresh(String id, {bool allowInsecure = false}) async {
+    final pluginDir = Directory('$pluginsDir/$id');
+    final existing = readMarker(pluginDir.path);
+    if (existing == null) throw StateError('Plugin not installed: $id');
     final parsed = PluginUrl.parse(existing.url, allowInsecure: allowInsecure);
-
-    final targetDir = Directory('$pluginsDir/${existing.dirName}');
-    if (!targetDir.existsSync()) {
-      throw StateError(
-        'Plugin dir missing at ${targetDir.path}; main config says '
-        'it\'s installed but the files are gone. Try `plugin remove` '
-        'followed by `plugin add` to recover.',
-      );
-    }
-
-    // Preserve the user's config.json bytes verbatim. Even if a
-    // manifest update removes a field, the stale value stays in the
-    // file; the running plugin.nix just ignores what it doesn't read.
-    final existingCfgFile = File('${targetDir.path}/config.json');
-    final preservedCfg = existingCfgFile.existsSync()
-        ? existingCfgFile.readAsStringSync()
-        : '{}\n';
 
     final tmpDir = await Directory.systemTemp.createTemp(
       'nixblitz-plugin-refresh-',
@@ -315,13 +307,10 @@ class PluginService {
       await _gitClone(parsed.cloneUrl, existing.branch, tmpDir.path);
       final pinnedRev = await _gitRevParseHead(tmpDir.path);
 
-      // Early return when the upstream pin matches what we have.
-      // `last_updated_at` semantically means "files changed", not
-      // "we polled" — touching it on every no-op refresh would
-      // dirty config.json with timestamp churn even when nothing
-      // actually moved upstream. The plugin tree on disk also
-      // stays untouched.
-      if (pinnedRev == existing.pinnedRev) {
+      // Idempotent no-op when pin matches. Touching the marker on
+      // every poll would dirty the working tree even when nothing
+      // moved upstream.
+      if (pinnedRev == existing.rev) {
         LogService.info(
           'PluginService: refresh ${existing.id} no-op '
           '(pin already at $pinnedRev)',
@@ -346,7 +335,7 @@ class PluginService {
 
       // Approach A signature check. Three cases:
       // - existing pin null + new fp: silent upgrade — adopt the
-      //   new fp into the entry.
+      //   new fp into the marker.
       // - existing pin set + new fp matches: silent re-affirm.
       // - existing pin set + new fp differs (or new is empty):
       //   throw PluginSignatureMismatch. Caller decides how to
@@ -368,48 +357,30 @@ class PluginService {
         );
       }
 
-      // Wipe + repopulate. Simple and matches the install shape;
-      // any file the new plugin version no longer ships is gone
-      // cleanly.
-      targetDir.deleteSync(recursive: true);
-      targetDir.createSync(recursive: true);
+      // Wipe + repopulate. Marker is rewritten with the new rev;
+      // there's no per-plugin config.json to preserve since plugin
+      // config now lives in the main config.json's app_configs map.
+      pluginDir.deleteSync(recursive: true);
+      pluginDir.createSync(recursive: true);
+      _copyPluginFiles(pluginSourceDir, pluginDir.path);
 
-      for (final name in const [
-        'plugin.nix',
-        'plugin.json',
-        'README.md',
-        'LICENSE',
-      ]) {
-        final src = File('$pluginSourceDir/$name');
-        if (src.existsSync()) {
-          src.copySync('${targetDir.path}/$name');
-        }
-      }
-
-      // Restore user config, overwriting the empty copy the manifest
-      // flow might want to seed.
-      existingCfgFile.writeAsStringSync(preservedCfg);
-
-      final now = DateTime.now().toUtc();
-      final refreshed = existing.copyWith(
-        pinnedRev: pinnedRev,
-        lastUpdatedAt: now,
+      final updated = existing.copyWith(
+        version: manifest.version ?? existing.version,
+        rev: pinnedRev,
         signatureFingerprint: newFp,
         clearSignatureFingerprint: newFp == null,
       );
+      writeMarker(pluginDir.path, updated);
 
-      await _gitIntentToAdd(targetDir.path);
-
-      final updated = List<PluginEntry>.from(config.plugins);
-      updated[idx] = refreshed;
-      await configService.writeConfig(config.copyWith(plugins: updated));
+      await _gitIntentToAdd(pluginDir.path);
+      _regen();
 
       LogService.info(
         'PluginService: refreshed ${existing.id} '
-        '(pin: ${existing.pinnedRev} → $pinnedRev, '
+        '(pin: ${existing.rev} → $pinnedRev, '
         'schema=${manifest.schemaVersion})',
       );
-      return refreshed;
+      return updated;
     } finally {
       try {
         await tmpDir.delete(recursive: true);
@@ -417,12 +388,12 @@ class PluginService {
     }
   }
 
-  /// Refresh every active (non-tombstoned) plugin in order.
+  /// Refresh every installed plugin in order.
   ///
   /// - When [includePinned] is `false`, plugins with
-  ///   `auto_update == false` are skipped. Used by the Update-view
+  ///   `autoUpdate == false` are skipped. Used by the Update-view
   ///   integration so per-plugin pins behave like opt-out from
-  ///   system-wide refresh (D11).
+  ///   system-wide refresh.
   /// - Per-plugin refresh failures are **non-fatal**: errors are
   ///   logged + collected; the loop continues with the remaining
   ///   plugins. Returns a [PluginRefreshAllResult] capturing the
@@ -433,9 +404,9 @@ class PluginService {
     bool includePinned = true,
   }) async {
     final active = await list();
-    final refreshed = <PluginEntry>[];
-    final failures = <({PluginEntry plugin, Object error})>[];
-    final skipped = <PluginEntry>[];
+    final refreshed = <PluginMarker>[];
+    final failures = <({PluginMarker plugin, Object error})>[];
+    final skipped = <PluginMarker>[];
     for (final p in active) {
       if (!includePinned && !p.autoUpdate) {
         skipped.add(p);
@@ -455,56 +426,115 @@ class PluginService {
     );
   }
 
-  /// Mark [id] as `auto_update = false`. The next bulk refresh
-  /// (Update-view "Update entire system") skips it. Direct
-  /// `plugin refresh <id>` ignores the flag and still works.
-  Future<PluginEntry> pin(String id) async => _setAutoUpdate(id, false);
+  /// Mark [id] as `autoUpdate = false`. The next bulk refresh skips
+  /// it. Direct `plugin refresh <id>` ignores the flag and still
+  /// works.
+  Future<PluginMarker> pin(String id) async => _setAutoUpdate(id, false);
 
   /// Inverse of [pin]: re-enable bulk auto-refresh for [id].
-  Future<PluginEntry> unpin(String id) async => _setAutoUpdate(id, true);
+  Future<PluginMarker> unpin(String id) async => _setAutoUpdate(id, true);
 
-  Future<PluginEntry> _setAutoUpdate(String id, bool value) async {
-    final config = await configService.readConfig();
-    final idx = config.plugins.indexWhere(
-      (p) => p.id == id && p.uninstalledAt == null,
-    );
-    if (idx < 0) {
-      throw StateError('Plugin not installed: $id');
-    }
-    final updatedEntry = config.plugins[idx].copyWith(autoUpdate: value);
-    final updatedPlugins = List<PluginEntry>.from(config.plugins);
-    updatedPlugins[idx] = updatedEntry;
-    await configService.writeConfig(config.copyWith(plugins: updatedPlugins));
-    return updatedEntry;
+  Future<PluginMarker> _setAutoUpdate(String id, bool value) async {
+    final pluginDir = Directory('$pluginsDir/$id');
+    final m = readMarker(pluginDir.path);
+    if (m == null) throw StateError('Plugin not installed: $id');
+    final updated = m.copyWith(autoUpdate: value);
+    writeMarker(pluginDir.path, updated);
+    return updated;
   }
 
-  /// Active plugins by default; pass [includeTombstones] for the full
-  /// audit trail.
-  Future<List<PluginEntry>> list({bool includeTombstones = false}) async {
-    if (!configService.configExists()) return const [];
-    final config = await configService.readConfig();
-    if (includeTombstones) return config.plugins;
-    return config.plugins.where((p) => p.uninstalledAt == null).toList();
+  /// Active markers, sorted by id for stable output. Pass
+  /// [includeDisabled] for the disabled set too.
+  Future<List<PluginMarker>> list({bool includeDisabled = false}) async {
+    final markers = discoverInstalledMarkers(pluginsDir);
+    final filtered = includeDisabled
+        ? markers
+        : markers.where((m) => !m.disabled).toList();
+    filtered.sort((a, b) => a.id.compareTo(b.id));
+    return filtered;
   }
 
   /// Load an installed plugin's manifest from disk. Used by the
   /// Configure view to know which form fields to render. Throws
   /// [StateError] if the plugin dir / plugin.json is missing and
   /// [FormatException] / [PluginTooNewException] on parse failures.
-  PluginManifest readManifest(String dirName) {
-    final f = File('$pluginsDir/$dirName/plugin.json');
+  PluginManifest readManifest(String id) {
+    final f = File('$pluginsDir/$id/plugin.json');
     if (!f.existsSync()) {
       throw StateError(
-        'plugin.json not found for plugin `$dirName`. '
-        'Is it installed?',
+        'plugin.json not found for plugin `$id`. Is it installed?',
       );
     }
-    return PluginManifest.fromJson(
-      jsonDecode(f.readAsStringSync()) as Map<String, dynamic>,
-    );
+    return PluginManifest.fromJsonString(f.readAsStringSync());
   }
 
   // ── private ──────────────────────────────────────────────────
+
+  /// Regenerate plugins.list from the current marker set. Passes
+  /// every non-disabled marker id as `satisfied` — see
+  /// `regeneratePluginsList` in `plugin_list_regen.dart`. The Nix
+  /// module path includes every marker; runtime gating (dep check)
+  /// happens in the Riverpod provider for the streamer registry,
+  /// and at Nix-eval time via each plugin's `lib.mkIf cfg.enable`
+  /// gate inside its plugin.nix.
+  void _regen() {
+    final markers = discoverInstalledMarkers(pluginsDir);
+    final eligibleIds = markers
+        .where((m) => !m.disabled)
+        .map((m) => m.id)
+        .toSet();
+    regeneratePluginsList(baseDir: baseDir, satisfiedPluginIds: eligibleIds);
+  }
+
+  /// Copy the canonical plugin file set from [src] into [dst].
+  /// `plugin.json` and `plugin.nix` are required (caller has
+  /// already verified them); `README.md` and `LICENSE` are copied
+  /// when present; the optional `streamers/` directory is copied
+  /// recursively when present.
+  void _copyPluginFiles(String src, String dst) {
+    for (final name in const [
+      'plugin.json',
+      'plugin.nix',
+      'README.md',
+      'LICENSE',
+    ]) {
+      final f = File('$src/$name');
+      if (f.existsSync()) f.copySync('$dst/$name');
+    }
+    final streamers = Directory('$src/streamers');
+    if (streamers.existsSync()) {
+      _copyDir(streamers, Directory('$dst/streamers'));
+    }
+  }
+
+  void _copyDir(Directory src, Directory dst) {
+    if (!dst.existsSync()) dst.createSync(recursive: true);
+    for (final entity in src.listSync(followLinks: false)) {
+      final name = entity.path.split(Platform.pathSeparator).last;
+      if (entity is File) {
+        entity.copySync('${dst.path}/$name');
+      } else if (entity is Directory) {
+        _copyDir(entity, Directory('${dst.path}/$name'));
+      }
+      // Links rejected upstream by _rejectSymlinks; ignore
+      // defensively here so a future refactor doesn't accidentally
+      // open a hole.
+    }
+  }
+
+  /// Pull a config_schema field's default value out without
+  /// caring about its concrete subtype. AppConfigField is sealed
+  /// with five subclasses, each declaring its own `defaultValue`
+  /// of a different type (bool / String / int / list…); this helper
+  /// uses dynamic dispatch through `(field as dynamic).defaultValue`
+  /// so the install path doesn't need a per-type switch.
+  Object? _defaultValueOf(dynamic field) {
+    try {
+      return field.defaultValue;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> _gitClone(String url, String branch, String target) async {
     final r = await Process.run(
@@ -648,28 +678,13 @@ class PluginService {
     if (!f.existsSync()) {
       throw StateError('plugin.json not found at $dir');
     }
-    return PluginManifest.fromJson(
-      jsonDecode(f.readAsStringSync()) as Map<String, dynamic>,
-    );
+    return PluginManifest.fromJsonString(f.readAsStringSync());
   }
 
   void _requirePluginNix(String dir) {
     if (!File('$dir/plugin.nix').existsSync()) {
       throw StateError('plugin.nix not found at $dir');
     }
-  }
-
-  /// Ensure dirName uniqueness across active + tombstoned entries
-  /// (tombstones still occupy their slot conceptually — reinstall
-  /// reuses it).
-  String _resolveDirName(List<PluginEntry> existing, String base) {
-    final claimed = existing.map((p) => p.dirName).toSet();
-    if (!claimed.contains(base)) return base;
-    var i = 2;
-    while (claimed.contains('$base-$i')) {
-      i++;
-    }
-    return '$base-$i';
   }
 }
 
@@ -679,17 +694,18 @@ class PluginService {
 /// in the existing log surface.
 class PluginRefreshAllResult {
   /// Plugins whose refresh advanced their pin successfully.
-  final List<PluginEntry> refreshed;
+  final List<PluginMarker> refreshed;
 
   /// Plugins whose refresh threw. The error is whatever
   /// [PluginService.refresh] surfaces — typically [StateError] for
-  /// network failures or malformed upstream output.
-  final List<({PluginEntry plugin, Object error})> failures;
+  /// network failures or malformed upstream output, or
+  /// [PluginSignatureMismatch] when the publisher key changed.
+  final List<({PluginMarker plugin, Object error})> failures;
 
   /// Plugins skipped because [PluginService.refreshAll] was called
   /// with `includePinned: false` and the plugin had
-  /// `auto_update == false`.
-  final List<PluginEntry> skipped;
+  /// `autoUpdate == false`.
+  final List<PluginMarker> skipped;
 
   const PluginRefreshAllResult({
     required this.refreshed,
@@ -701,10 +717,10 @@ class PluginRefreshAllResult {
   int get totalAttempted => refreshed.length + failures.length;
 }
 
-/// Parsed plugin URL. Handles the D9 accepted schemes and the D8
+/// Parsed plugin URL. Handles the accepted schemes and the
 /// subdirectory convention.
 class PluginUrl {
-  /// Normalized URL used as the D5 canonical ID.
+  /// Normalized URL used as the canonical ID.
   final String canonical;
 
   /// Real URL to pass to `git clone`.
@@ -732,7 +748,7 @@ class PluginUrl {
   }) {
     // Canonical URLs for non-github schemes encode the subdir as
     // `?dir=<subdir>` (produced by [_withSubdir]). When we re-parse
-    // a stored PluginEntry.id (e.g. during `plugin refresh`), split
+    // a stored marker.url (e.g. during `plugin refresh`), split
     // that query-string suffix off before handing to the scheme
     // parsers — then fold it back in via [_withSubdir] on the way
     // out. Keeps the round-trip deterministic.
@@ -885,9 +901,11 @@ class PluginUrl {
     );
   }
 
-  /// Directory name for this plugin under `~/nixblitz/plugins/`.
-  /// Not guaranteed unique — [PluginService] resolves collisions by
-  /// appending a numeric suffix.
+  /// Heuristic directory-name derivation kept around for callers
+  /// (e.g. older test fixtures) that want a friendly slug for a
+  /// URL. The unified design uses the manifest's `id` as the
+  /// on-disk directory name, so PluginService itself no longer
+  /// needs this helper at install time.
   String deriveDirName() {
     final base = _deriveRepoBaseName();
     if (subdir == null || subdir!.isEmpty) return base;
@@ -928,13 +946,4 @@ class PluginUrl {
 
   static String _sanitize(String name) =>
       name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
-}
-
-extension _FirstWhereOrNull<E> on Iterable<E> {
-  E? firstWhereOrNull(bool Function(E) test) {
-    for (final e in this) {
-      if (test(e)) return e;
-    }
-    return null;
-  }
 }

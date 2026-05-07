@@ -255,17 +255,6 @@ void main() {
       expect(c2.setupStepCompleted, isNull);
     });
 
-    test('plugins list round-trips empty', () {
-      final c = NixblitzConfig(
-        schemaVersion: 18,
-        system: SystemConfig.defaults(),
-      );
-      final json = c.toJson();
-      expect((json['plugins'] as List).isEmpty, isTrue);
-      final r = NixblitzConfig.fromJson(json);
-      expect(r.plugins, isEmpty);
-    });
-
     test('disk_device round-trips through JSON', () {
       final config = NixblitzConfig(
         schemaVersion: 18,
