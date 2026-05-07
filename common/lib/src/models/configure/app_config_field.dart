@@ -34,6 +34,7 @@ sealed class AppConfigField {
     return switch (type) {
       'bool' => BoolField._fromJson(json),
       'string' => StringField._fromJson(json),
+      'secret' => SecretField._fromJson(json),
       'int' => IntField._fromJson(json),
       'enum' => EnumField._fromJson(json),
       _ => throw AppManifestError('unknown field type: $type'),
@@ -92,6 +93,45 @@ class StringField extends AppConfigField {
   Map<String, dynamic> toJson() => {
     'name': name,
     'type': 'string',
+    'label': label,
+    'default': defaultValue,
+    if (description != null) 'description': description,
+    if (placeholder != null) 'placeholder': placeholder,
+  };
+}
+
+/// String-shaped field that stores a credential — auth keys, tokens,
+/// passwords, etc. Differs from [StringField] only in the form-rendering
+/// UX: the editor masks input as the operator types, and
+/// [FieldDisplayRow] renders a placeholder (`•••` or `(set)`) instead
+/// of the value to avoid shoulder-surfing / accidental screenshot leaks.
+///
+/// Storage in `app_configs.<id>.<name>` is plain string — no encryption
+/// at rest. The expectation is that operators on shared screens or
+/// recording sessions don't want the value visible mid-config-edit.
+@immutable
+class SecretField extends AppConfigField {
+  final String defaultValue;
+  final String? placeholder;
+  const SecretField({
+    required super.name,
+    required super.label,
+    super.description,
+    required this.defaultValue,
+    this.placeholder,
+  });
+  factory SecretField._fromJson(Map<String, dynamic> j) => SecretField(
+    name: j['name'] as String,
+    label: j['label'] as String,
+    description: j['description'] as String?,
+    defaultValue: (j['default'] as String?) ?? '',
+    placeholder: j['placeholder'] as String?,
+  );
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': 'secret',
     'label': label,
     'default': defaultValue,
     if (description != null) 'description': description,

@@ -128,6 +128,25 @@ void main() {
       final value = config.appOption<String>('lnd', 'alias');
       expect(formatFieldValue(field, value), '');
     });
+
+    test('SecretField masks non-empty value as bullets', () {
+      const field = SecretField(
+        name: 'auth_key',
+        label: 'Auth key',
+        defaultValue: '',
+      );
+      expect(formatFieldValue(field, 'tskey-auth-very-secret'), '•••');
+    });
+
+    test('SecretField renders empty value as "(unset)"', () {
+      const field = SecretField(
+        name: 'auth_key',
+        label: 'Auth key',
+        defaultValue: '',
+      );
+      expect(formatFieldValue(field, null), '(unset)');
+      expect(formatFieldValue(field, ''), '(unset)');
+    });
   });
 
   // ── 3. Pending-change tracking ──────────────────────────────────────────

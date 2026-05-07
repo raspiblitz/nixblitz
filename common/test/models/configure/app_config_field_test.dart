@@ -27,6 +27,35 @@ void main() {
       expect((f as StringField).placeholder, 'my-node');
     });
 
+    test('secret field', () {
+      final f = AppConfigField.fromJson({
+        'name': 'auth_key',
+        'type': 'secret',
+        'label': 'Auth key',
+        'default': '',
+        'placeholder': 'tskey-auth-...',
+      });
+      expect(f, isA<SecretField>());
+      expect((f as SecretField).name, 'auth_key');
+      expect(f.label, 'Auth key');
+      expect(f.defaultValue, '');
+      expect(f.placeholder, 'tskey-auth-...');
+    });
+
+    test('secret field round-trips via toJson', () {
+      final src = {
+        'name': 'token',
+        'type': 'secret',
+        'label': 'API token',
+        'default': '',
+      };
+      final f = AppConfigField.fromJson(src);
+      final back = AppConfigField.fromJson(f.toJson());
+      expect(back, isA<SecretField>());
+      expect((back as SecretField).name, 'token');
+      expect(back.label, 'API token');
+    });
+
     test('int field with min/max', () {
       final f = AppConfigField.fromJson({
         'name': 'prune_size_gb',

@@ -8,10 +8,17 @@ import '../../widgets/option_editor.dart';
 
 /// Format a field's current value for display. Falls back to the field's
 /// [AppConfigField.defaultValue] when [value] is null. Public for testability.
+///
+/// [SecretField] always renders as `(unset)` or `•••` to avoid
+/// shoulder-surfing leaks — the actual value is never shown in the
+/// read-only row, only in the edit overlay (where the operator already
+/// has eyes on the input).
 String formatFieldValue(AppConfigField field, dynamic value) {
   return switch (field) {
     BoolField() => (value as bool? ?? field.defaultValue) ? 'on' : 'off',
     StringField() => (value as String? ?? field.defaultValue),
+    SecretField() =>
+      ((value as String? ?? field.defaultValue).isEmpty) ? '(unset)' : '•••',
     IntField() => '${value as int? ?? field.defaultValue}',
     EnumField() => (value as String? ?? field.defaultValue),
   };
@@ -56,6 +63,17 @@ class FieldDisplayRow extends StatelessComponent {
       StringField f => TextOptionEditor(
         label: f.label,
         value: currentValue as String? ?? f.defaultValue,
+        focused: selected,
+        pending: pending,
+      ),
+      SecretField f => TextOptionEditor(
+        label: f.label,
+        // Masked display — see formatFieldValue for the same masking
+        // logic. Never shows the underlying credential at rest; the
+        // edit overlay handles input visibility.
+        value: ((currentValue as String? ?? f.defaultValue).isEmpty)
+            ? '(unset)'
+            : '•••',
         focused: selected,
         pending: pending,
       ),
@@ -162,6 +180,89 @@ class _StringFieldEditorState extends State<StringFieldEditor> {
   }
 }
 
+/// Inline credential-input overlay for [SecretField] values.
+///
+/// Behaves like [StringFieldEditor] (Esc cancels, Enter submits the
+/// trimmed buffer, backspace deletes, printable ASCII appends) but
+/// renders the input MASKED — the rendered value shows one `•` per
+/// buffer character followed by the cursor `_`. Operators get the
+/// confirmation that "yes, my keystroke registered" without the actual
+/// secret hitting the screen / a recording / a screenshot.
+class SecretFieldEditor extends StatefulComponent {
+  final SecretField field;
+  final String initialValue;
+  final void Function(String value) onSubmit;
+  final VoidCallback onCancel;
+
+  const SecretFieldEditor({
+    super.key,
+    required this.field,
+    required this.initialValue,
+    required this.onSubmit,
+    required this.onCancel,
+  });
+
+  @override
+  State<SecretFieldEditor> createState() => _SecretFieldEditorState();
+}
+
+class _SecretFieldEditorState extends State<SecretFieldEditor> {
+  late String _buffer;
+
+  @override
+  void initState() {
+    super.initState();
+    _buffer = component.initialValue;
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final comp = component;
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape) {
+            comp.onCancel();
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.enter) {
+            comp.onSubmit(_buffer);
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.backspace) {
+            if (_buffer.isNotEmpty) {
+              setState(
+                () => _buffer = _buffer.substring(0, _buffer.length - 1),
+              );
+            }
+            return true;
+          }
+          final ch = event.character;
+          if (ch != null && ch.length == 1) {
+            final code = ch.codeUnitAt(0);
+            if (code >= 0x20 && code <= 0x7E) {
+              setState(() => _buffer += ch);
+            }
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('SecretFieldEditor key handler failed', e, st);
+          return true;
+        }
+      },
+      child: TextOptionEditor(
+        label: comp.field.label,
+        // Mask: one bullet per character + cursor. Length confirms
+        // input registered without leaking the value.
+        value: '${'•' * _buffer.length}_',
+        focused: true,
+      ),
+    );
+  }
+}
+
 /// Inline numeric-input overlay for [IntField] values.
 ///
 /// Accepts digits only. Parses the buffer as int on Enter; falls back to
@@ -261,6 +362,7 @@ bool fieldRequiresEditor(AppConfigField field) {
   return switch (field) {
     BoolField() => false,
     StringField() => true,
+    SecretField() => true,
     IntField() => true,
     // EnumField uses SelectOptionEditor cycling in-place (like configure_view's
     // SelectOptionEditor rows do today). Task 7 may change this to a SelectPopup
@@ -279,6 +381,9 @@ dynamic cycleFieldValue(AppConfigField field, dynamic current) {
     EnumField f => _cycleEnum(f, current as String?),
     StringField() => throw ArgumentError(
       'StringField requires an overlay editor — call buildFieldEditor instead',
+    ),
+    SecretField() => throw ArgumentError(
+      'SecretField requires an overlay editor — call buildFieldEditor instead',
     ),
     IntField() => throw ArgumentError(
       'IntField requires an overlay editor — call buildFieldEditor instead',
@@ -315,6 +420,12 @@ Component buildFieldEditor({
       'EnumField is cycled in-place; use cycleFieldValue',
     ),
     StringField f => StringFieldEditor(
+      field: f,
+      initialValue: currentValue as String? ?? f.defaultValue,
+      onSubmit: (v) => onSubmit(v),
+      onCancel: onCancel,
+    ),
+    SecretField f => SecretFieldEditor(
       field: f,
       initialValue: currentValue as String? ?? f.defaultValue,
       onSubmit: (v) => onSubmit(v),
