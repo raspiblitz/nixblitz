@@ -618,6 +618,15 @@ class ConfigureView extends StatelessComponent {
       for (final m in manifests) m.id: readMarker('$pluginsRoot/${m.id}'),
     };
 
+    // Resolved config — used to surface the operator's per-plugin
+    // `app_configs[id].enabled` toggle in the STATUS column. Distinct
+    // from `marker.disabled` (which controls plugins.list inclusion):
+    // a plugin can be in plugins.list (NixOS evaluates its module)
+    // but have `enabled: false`, in which case the module shouldn't
+    // start its service.
+    final configAsync = context.watch(configProvider);
+    final config = configAsync.value;
+
     // Compute column widths from the actual data.
     final idWidth = manifests.map((m) => m.id.length).fold<int>(6, _max);
     final branchWidth = markers.values
@@ -647,17 +656,14 @@ class ConfigureView extends StatelessComponent {
                 ? marker.rev.substring(0, 8)
                 : marker.rev.padRight(8));
 
-      final status = StringBuffer();
-      if (marker == null) {
-        status.write('marker missing');
-      } else if (marker.disabled) {
-        status.write('disabled');
-      } else {
-        status.write('enabled');
-      }
-      if (marker != null && !marker.autoUpdate) {
-        status.write(' · pinned');
-      }
+      // STATUS surfaces three independent operator-visible bits:
+      //   - marker present? (system-level: plugin is registered)
+      //   - marker.disabled? (operator excluded it from plugins.list)
+      //   - app_configs[id].enabled? (the plugin's own start/stop gate)
+      //
+      // See [pluginStatusLabel] for the resolution rules.
+      final cfgEnabled = config?.isAppEnabled(m.id) ?? false;
+      final status = pluginStatusLabel(marker: marker, cfgEnabled: cfgEnabled);
 
       rows.add(
         Text(
@@ -674,6 +680,41 @@ class ConfigureView extends StatelessComponent {
   }
 
   static int _max(int a, int b) => a > b ? a : b;
+}
+
+// ---------------------------------------------------------------------------
+// pluginStatusLabel — pure helper for the plugins-tab STATUS column
+// ---------------------------------------------------------------------------
+
+/// Compute the STATUS column label for the plugins tab. Pure helper so
+/// it's testable without rendering the view.
+///
+/// Rules (in order):
+///
+///   - marker == null                     → "marker missing"
+///   - marker.disabled                    → "disabled"
+///   - !marker.disabled, !cfgEnabled      → "off"
+///   - !marker.disabled,  cfgEnabled      → "active"
+///
+/// "pinned" (marker.autoUpdate == false) is orthogonal: when present,
+/// appended as " · pinned" suffix. Pin is suppressed for the
+/// "marker missing" case where there's no marker to pin.
+String pluginStatusLabel({
+  required PluginMarker? marker,
+  required bool cfgEnabled,
+}) {
+  final buf = StringBuffer();
+  if (marker == null) {
+    buf.write('marker missing');
+  } else if (marker.disabled) {
+    buf.write('disabled');
+  } else {
+    buf.write(cfgEnabled ? 'active' : 'off');
+  }
+  if (marker != null && !marker.autoUpdate) {
+    buf.write(' · pinned');
+  }
+  return buf.toString();
 }
 
 // ---------------------------------------------------------------------------

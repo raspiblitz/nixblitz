@@ -1,6 +1,7 @@
 import 'package:common/common.dart';
 import 'package:test/test.dart';
 import 'package:tui/src/ui/views/configure/field_editor.dart';
+import 'package:tui/src/ui/views/configure_view.dart';
 
 /// Smoke tests for the manifest-driven configure_view.
 ///
@@ -43,17 +44,17 @@ void main() {
       expect(ids, sorted);
     });
 
-    test('all five bundled apps are present', () {
+    test('all four bundled apps are present', () {
+      // blitz_api was a built-in in earlier phases; it's now a plugin
+      // (~/dev/blitz/nixblitz-plugin-blitz-api) and ships its own
+      // config_schema.
       final ids = registry.allApps.map((m) => m.id).toSet();
-      expect(
-        ids,
-        containsAll(['bitcoind', 'lnd', 'cln', 'blitz_api', 'blitz_web']),
-      );
+      expect(ids, containsAll(['bitcoind', 'lnd', 'cln', 'blitz_web']));
     });
 
-    test('menu entries are: System + 5 apps + Plugins = 7 total', () {
-      // System (1) + 5 apps + Plugins (1) = 7
-      expect(registry.allApps.length, 5);
+    test('menu entries are: System + 4 apps + Plugins = 6 total', () {
+      // System (1) + 4 apps + Plugins (1) = 6
+      expect(registry.allApps.length, 4);
     });
 
     test('each bundled app has at least one field', () {
@@ -260,5 +261,188 @@ void main() {
       expect(field, isA<IntField>());
       expect(fieldRequiresEditor(field), isTrue);
     });
+  });
+
+  // ── 5. pluginStatusLabel — distinguishes marker.disabled vs app_configs ──
+
+  group('pluginStatusLabel', () {
+    PluginMarker mkMarker({bool disabled = false, bool autoUpdate = true}) =>
+        PluginMarker(
+          id: 'demo',
+          url: 'git+https://example.test/demo',
+          version: '0.1.0',
+          rev: 'deadbeefdeadbeef',
+          installedAt: DateTime.utc(2026, 5, 6),
+          disabled: disabled,
+          autoUpdate: autoUpdate,
+        );
+
+    test('marker null → "marker missing"', () {
+      expect(
+        pluginStatusLabel(marker: null, cfgEnabled: false),
+        'marker missing',
+      );
+      // cfgEnabled is irrelevant when marker is missing.
+      expect(
+        pluginStatusLabel(marker: null, cfgEnabled: true),
+        'marker missing',
+      );
+    });
+
+    test('marker.disabled → "disabled" regardless of cfgEnabled', () {
+      expect(
+        pluginStatusLabel(marker: mkMarker(disabled: true), cfgEnabled: false),
+        'disabled',
+      );
+      expect(
+        pluginStatusLabel(marker: mkMarker(disabled: true), cfgEnabled: true),
+        'disabled',
+      );
+    });
+
+    test('marker not disabled, cfgEnabled false → "off" '
+        '(distinguishes app_configs.enabled from marker.disabled)', () {
+      expect(pluginStatusLabel(marker: mkMarker(), cfgEnabled: false), 'off');
+    });
+
+    test('marker not disabled, cfgEnabled true → "active"', () {
+      expect(pluginStatusLabel(marker: mkMarker(), cfgEnabled: true), 'active');
+    });
+
+    test('autoUpdate=false adds " · pinned" suffix', () {
+      expect(
+        pluginStatusLabel(
+          marker: mkMarker(autoUpdate: false),
+          cfgEnabled: true,
+        ),
+        'active · pinned',
+      );
+      expect(
+        pluginStatusLabel(
+          marker: mkMarker(autoUpdate: false),
+          cfgEnabled: false,
+        ),
+        'off · pinned',
+      );
+      expect(
+        pluginStatusLabel(
+          marker: mkMarker(disabled: true, autoUpdate: false),
+          cfgEnabled: true,
+        ),
+        'disabled · pinned',
+      );
+    });
+
+    test('NixblitzConfig.isAppEnabled drives the cfgEnabled bit', () {
+      // Smoke that the call site's data flow is correct: the value
+      // isAppEnabled returns is exactly what callers should pass.
+      final config = NixblitzConfig.defaults().setAppOption(
+        'plugin-id',
+        'enabled',
+        false,
+      );
+      expect(config.isAppEnabled('plugin-id'), isFalse);
+      expect(
+        pluginStatusLabel(
+          marker: mkMarker(),
+          cfgEnabled: config.isAppEnabled('plugin-id'),
+        ),
+        'off',
+      );
+    });
+  });
+
+  // ── 6. configSchema field rendering data path ──────────────────────────
+
+  group('plugin configSchema field rendering data path', () {
+    // The plugin_config_view's _renderRows reads currentValue from
+    // mainConfig.appConfig(pluginId)[field.name]. These tests verify
+    // the data shape — that a plugin's configSchema fields resolve
+    // against app_configs[pluginId] correctly.
+
+    test('configSchema BoolField renders default when app_configs missing', () {
+      const field = BoolField(
+        name: 'enabled',
+        label: 'Enabled',
+        defaultValue: false,
+      );
+      final config = NixblitzConfig.defaults();
+      // No app_configs entry for this plugin yet.
+      final value = config.appConfig('blitz-api')[field.name];
+      expect(formatFieldValue(field, value), 'off');
+    });
+
+    test('configSchema BoolField renders explicit true', () {
+      const field = BoolField(
+        name: 'enabled',
+        label: 'Enabled',
+        defaultValue: false,
+      );
+      final config = NixblitzConfig.defaults().setAppOption(
+        'blitz-api',
+        'enabled',
+        true,
+      );
+      final value = config.appConfig('blitz-api')[field.name];
+      expect(formatFieldValue(field, value), 'on');
+    });
+
+    test(
+      'toggling configSchema field via setAppOption persists round-trip',
+      () {
+        const field = BoolField(
+          name: 'enabled',
+          label: 'Enabled',
+          defaultValue: false,
+        );
+        final before = NixblitzConfig.defaults();
+        final beforeValue =
+            before.appConfig('blitz-api')[field.name] ?? field.defaultValue;
+        final after = before.setAppOption(
+          'blitz-api',
+          field.name,
+          !beforeValue,
+        );
+        expect(after.appOption<bool>('blitz-api', 'enabled'), isTrue);
+        // Round-trip: diffKeysFrom surfaces the change.
+        expect(after.diffKeysFrom(before), contains('blitz-api.enabled'));
+      },
+    );
+
+    test(
+      'plugin manifest with configSchema parses fields used by the view',
+      () {
+        // Mirror the blitz-api plugin.json shape — config_schema with
+        // a single bool field. The view iterates manifest.configSchema!.fields
+        // to build rows.
+        final manifest = PluginManifest.fromJson({
+          'manifest': {
+            'schema_version': 2,
+            'min_tui_version': 2,
+            'name': 'Blitz API',
+            'description': 'FastAPI backend for the Blitz web frontend',
+          },
+          'id': 'blitz-api',
+          'config_schema': {
+            'label': 'Blitz API',
+            'description': 'FastAPI backend for the Blitz web frontend',
+            'capabilities': <String>[],
+            'fields': [
+              {
+                'name': 'enabled',
+                'type': 'bool',
+                'label': 'Enabled',
+                'default': false,
+              },
+            ],
+          },
+        });
+        expect(manifest.configSchema, isNotNull);
+        expect(manifest.configSchema!.fields.length, 1);
+        final f = manifest.configSchema!.fields.first;
+        expect(f, isA<BoolField>());
+        expect(f.name, 'enabled');
+      },
+    );
   });
 }

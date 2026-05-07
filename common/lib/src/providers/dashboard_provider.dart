@@ -48,9 +48,14 @@ final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
   // since installedPluginsProvider already required a marker), or whose
   // marker is `disabled: true`. Skip plugins whose dep-check returned
   // [DepMissing] — their streamers can't be relied on without the
-  // upstream service.
+  // upstream service. Skip plugins whose own `app_configs[id].enabled`
+  // is false — the operator's per-plugin toggle. Without this gate the
+  // streamer would loop trying to talk to a service that NixOS hasn't
+  // started.
   final plugins = ref.watch(installedPluginsProvider);
   final depStatuses = ref.watch(pluginDepCheckProvider);
+  final configAsync = ref.watch(configProvider);
+  final config = configAsync.value;
   for (final plugin in plugins) {
     final status = depStatuses[plugin.id];
     if (status is DepMissing) {
@@ -61,6 +66,16 @@ final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
     }
     final marker = readMarker('$pluginsRoot/${plugin.id}');
     if (marker == null || marker.disabled) continue;
+    // Operator's per-plugin enabled toggle. If config hasn't loaded
+    // yet (early boot), conservatively skip — the provider will
+    // re-run once config is ready.
+    if (config == null || !config.isAppEnabled(plugin.id)) {
+      LogService.info(
+        'plugin ${plugin.id}: skipping streamer registration — '
+        'app_configs[${plugin.id}].enabled is false',
+      );
+      continue;
+    }
 
     for (final spec in plugin.streamers) {
       reg.register(
