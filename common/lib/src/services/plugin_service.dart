@@ -164,6 +164,15 @@ class PluginService {
 
       // Move staging into place. If a disabled marker existed, wipe
       // first — reinstall over a disabled plugin is a fresh install.
+      //
+      // KNOWN EDGE CASE: this wipes the existing dir BEFORE the new
+      // copy / marker write succeeds, so a mid-install failure
+      // (disk-full mid-copy, network glitch on intent-to-add) leaves
+      // the operator with neither the old disabled plugin nor a
+      // working new one. Phase 1 was safe by construction (always-new
+      // dirName); reusing the slot here introduces a small destructive
+      // window. Acceptable for alpha; revisit by staging to <id>.tmp/
+      // and atomic-rename if a real operator hits it.
       if (!Directory(pluginsDir).existsSync()) {
         Directory(pluginsDir).createSync(recursive: true);
       }

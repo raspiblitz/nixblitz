@@ -36,5 +36,8 @@ final installedPluginsProvider = Provider<List<PluginManifest>>((ref) {
       LogService.warn('plugin ${marker.id}: plugin.json parse error: $e');
     }
   }
+  // Sort by id so the rendered plugin list stays stable across reboots —
+  // Directory.listSync() order is platform-dependent.
+  manifests.sort((a, b) => a.id.compareTo(b.id));
   return List.unmodifiable(manifests);
 });

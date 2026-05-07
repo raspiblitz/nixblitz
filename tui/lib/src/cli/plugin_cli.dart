@@ -120,7 +120,7 @@ Future<bool> _askConsent(
   stdout.writeln('pinned rev:  ${p.pinnedRev}');
   stdout.writeln('schema:      v${p.schemaVersion}');
   // Signature line — Approach A. The fingerprint is what gets
-  // pinned on the PluginEntry; subsequent refreshes that present
+  // pinned on the PluginMarker; subsequent refreshes that present
   // a different fingerprint are escalated to re-consent.
   stdout.writeln('signature:   ${_describeSignature(p.signature)}');
   if (insecure) {
