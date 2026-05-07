@@ -4,6 +4,19 @@ import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/models/plugin/plugin_manifest_error.dart';
 
 void main() {
+  group('PluginManifest.fromJsonString', () {
+    test('parses a JSON string', () {
+      final m = PluginManifest.fromJsonString('''
+        {
+          "manifest": {"schema_version": 2, "min_tui_version": 2, "name": "p"},
+          "id": "p"
+        }
+      ''');
+      expect(m.id, 'p');
+      expect(m.name, 'p');
+    });
+  });
+
   group('PluginManifest.fromJson', () {
     test('parses a minimal valid manifest', () {
       final m = PluginManifest.fromJson({

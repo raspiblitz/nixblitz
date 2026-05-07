@@ -5,26 +5,28 @@ import 'dart:io' show Platform;
 import 'package:riverpod/riverpod.dart';
 
 import 'package:common/src/providers/config_provider.dart';
+import 'package:common/src/providers/installed_plugins_provider.dart';
+import 'package:common/src/providers/plugin_dep_check_provider.dart';
 import 'package:common/src/services/dashboard/bundled/registry.dart';
 import 'package:common/src/services/dashboard/dsl/tile_manifest.dart';
-import 'package:common/src/services/dashboard/sources/blitz_api_bridge_source.dart';
 import 'package:common/src/services/dashboard/sources/streamer_subprocess_source.dart';
 import 'package:common/src/services/dashboard/tile_data_cache.dart';
 import 'package:common/src/services/dashboard/tile_event_source_registry.dart';
 import 'package:common/src/services/dashboard/tile_snapshot.dart';
 import 'package:common/src/services/log_service.dart';
+import 'package:common/src/services/plugin/plugin_dep_check.dart';
+import 'package:common/src/services/plugin/plugin_marker.dart';
 
-/// Holds 0..N TileEventSource instances. Phase 1: always registers
-/// `system-stats` (procfs/sysfs reader, no blitz-api dep). When
-/// `config.isAppEnabled('blitz_api')`, also registers blitz-api-bridge.
-/// Phase 4 will swap the bridge gate for "is the blitz-api plugin
-/// installed."
+/// Holds 0..N TileEventSource instances. Always registers `system-stats`
+/// (procfs/sysfs reader, no plugin dep). Plugin streamers are registered
+/// for each enabled, dep-satisfied installed plugin — one
+/// [StreamerSubprocessSource] per declared `streamers` entry.
 final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
-  final configAsync = ref.watch(configProvider);
-  final config = configAsync.value;
   final reg = TileEventSourceRegistry();
+  final baseDir = ref.watch(baseDirProvider);
+  final pluginsRoot = '$baseDir/plugins';
 
-  // system-stats: always on. Reads procfs/sysfs; no blitz-api dep.
+  // system-stats: always on. Reads procfs/sysfs; no plugin dep.
   // The Phase-1 unit list is hardcoded here; Phase 2/3 will pull it
   // from system.json's streamer_args once NixblitzConfig is generalized.
   reg.register(
@@ -41,8 +43,39 @@ final tileSourceRegistryProvider = Provider<TileEventSourceRegistry>((ref) {
     ),
   );
 
-  if (config != null && config.isAppEnabled('blitz_api')) {
-    reg.register(BlitzApiBridgeSource());
+  // Plugin streamers — only for enabled plugins with satisfied deps.
+  // Skip plugins whose marker is missing (defensive: should not happen
+  // since installedPluginsProvider already required a marker), or whose
+  // marker is `disabled: true`. Skip plugins whose dep-check returned
+  // [DepMissing] — their streamers can't be relied on without the
+  // upstream service.
+  final plugins = ref.watch(installedPluginsProvider);
+  final depStatuses = ref.watch(pluginDepCheckProvider);
+  for (final plugin in plugins) {
+    final status = depStatuses[plugin.id];
+    if (status is DepMissing) {
+      LogService.warn(
+        'plugin ${plugin.id}: skipping streamer registration — deps missing',
+      );
+      continue;
+    }
+    final marker = readMarker('$pluginsRoot/${plugin.id}');
+    if (marker == null || marker.disabled) continue;
+
+    for (final spec in plugin.streamers) {
+      reg.register(
+        StreamerSubprocessSource(
+          id: '${plugin.id}/${spec.name}',
+          providedTileIds: spec.tileIds,
+          command: spec.command,
+          args: spec.args,
+          // Resolve the streamer's argv relative to the plugin's
+          // checkout, so e.g. `streamers/blitz_api_stream.py` works
+          // from a working directory of `<pluginsRoot>/<plugin.id>/`.
+          workingDirectory: '$pluginsRoot/${plugin.id}',
+        ),
+      );
+    }
   }
 
   unawaited(reg.startAll());

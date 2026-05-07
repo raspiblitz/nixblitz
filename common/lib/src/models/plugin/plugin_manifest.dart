@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:common/src/models/configure/app_manifest.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/models/plugin/plugin_dep.dart';
@@ -137,6 +139,9 @@ class PluginManifest {
     this.module,
     this.streamers = const [],
   }) : id = id ?? name;
+
+  factory PluginManifest.fromJsonString(String s) =>
+      PluginManifest.fromJson(jsonDecode(s) as Map<String, dynamic>);
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
     final header = json['manifest'] as Map<String, dynamic>?;
