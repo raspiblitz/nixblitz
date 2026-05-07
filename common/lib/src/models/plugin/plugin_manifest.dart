@@ -98,7 +98,7 @@ class PluginManifest {
   final PluginPermissions permissions;
 
   /// Optional dashboard tile declaration (Phase 3). Plugins without
-  /// a `dashboard` block in `manifest.json` don't get a tile.
+  /// a `dashboard` block in `plugin.json` don't get a tile.
   final PluginTileSpec? dashboard;
 
   /// Optional config schema for manifest-driven UI rendering (Phase 3 Task 5).
@@ -146,7 +146,7 @@ class PluginManifest {
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
     final header = json['manifest'] as Map<String, dynamic>?;
     if (header == null) {
-      throw FormatException('manifest.json is missing the `manifest` block');
+      throw FormatException('plugin.json is missing the `manifest` block');
     }
 
     final minTui = header['min_tui_version'] as int? ?? 1;

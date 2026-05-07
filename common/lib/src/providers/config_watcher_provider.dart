@@ -8,7 +8,7 @@ import 'package:common/src/services/log_service.dart';
 
 /// Watches `~/nixblitz/` for filesystem changes and reloads the
 /// [configProvider] when they touch state the running TUI cares
-/// about: the main `config.json` or any plugin's `manifest.json`.
+/// about: the main `config.json` or any plugin's `plugin.json`.
 ///
 /// Without this, an external mutation — `nixblitz plugin add ...`
 /// from another shell, a hand-edit to `config.json`, a script —
@@ -108,7 +108,7 @@ final configWatcherProvider = Provider<void>((ref) {
 /// which churns on every keystroke from the Configure view and
 /// has its own reactivity in `plugin_config_provider.dart`.
 ///
-/// Why "anything under plugins/" rather than just manifest.json:
+/// Why "anything under plugins/" rather than just plugin.json:
 /// when a CLI tool creates `plugins/<id>/` and immediately writes
 /// a manifest inside, Dart's `Directory.watch(recursive: true)`
 /// can miss the inner file event because the recursive inotify

@@ -11,7 +11,7 @@ import 'package:common/src/services/plugin_service.dart';
 import '../test_helpers/git_isolation.dart';
 
 /// Seed a fresh git repo at [path] with a minimal plugin layout:
-/// plugin.nix, manifest.json, and a README. Returns the path so the
+/// plugin.nix, plugin.json, and a README. Returns the path so the
 /// caller can clone via `file://`.
 Future<String> _seedPluginRepo(
   String path, {
@@ -41,7 +41,7 @@ Future<String> _seedPluginRepo(
           },
         };
     File(
-      '$path/manifest.json',
+      '$path/plugin.json',
     ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(manifest));
   }
 
@@ -102,7 +102,7 @@ void main() {
       final pluginDir = Directory('${home.path}/plugins/${entry.dirName}');
       expect(pluginDir.existsSync(), isTrue);
       expect(File('${pluginDir.path}/plugin.nix').existsSync(), isTrue);
-      expect(File('${pluginDir.path}/manifest.json').existsSync(), isTrue);
+      expect(File('${pluginDir.path}/plugin.json').existsSync(), isTrue);
       expect(File('${pluginDir.path}/config.json').existsSync(), isTrue);
       // .plugin-metadata.json is intentionally NOT written —
       // main config's plugins[] is the authoritative record and
@@ -240,7 +240,7 @@ void main() {
         await _seedPluginRepo(outer.path);
         Directory('${outer.path}/tailscale').createSync();
         File('${outer.path}/tailscale/plugin.nix').writeAsStringSync('{}\n');
-        File('${outer.path}/tailscale/manifest.json').writeAsStringSync(
+        File('${outer.path}/tailscale/plugin.json').writeAsStringSync(
           jsonEncode({
             'manifest': {
               'schema_version': 2,
@@ -283,7 +283,7 @@ void main() {
           for (final name in ['tailscale', 'btcpay']) {
             Directory('${multi.path}/$name').createSync(recursive: true);
             File('${multi.path}/$name/plugin.nix').writeAsStringSync('{}\n');
-            File('${multi.path}/$name/manifest.json').writeAsStringSync(
+            File('${multi.path}/$name/plugin.json').writeAsStringSync(
               jsonEncode({
                 'manifest': {
                   'schema_version': 2,
@@ -340,7 +340,7 @@ void main() {
         File(
           '${multi.path}/tailscale/plugin.nix',
         ).writeAsStringSync('{ services.tailscale.enable = true; }\n');
-        File('${multi.path}/tailscale/manifest.json').writeAsStringSync(
+        File('${multi.path}/tailscale/plugin.json').writeAsStringSync(
           jsonEncode({
             'manifest': {
               'schema_version': 2,

@@ -1,6 +1,6 @@
 import 'package:common/src/models/plugin/plugin_manifest_error.dart';
 
-/// Plugin dependency declarations parsed from `manifest.json`'s
+/// Plugin dependency declarations parsed from `plugin.json`'s
 /// top-level `requires` array (Phase 4).
 ///
 /// A plugin can depend on:

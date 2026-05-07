@@ -91,12 +91,12 @@ class PluginService {
       // If there's no manifest where we expected one, the repo is
       // likely a multi-plugin bundle — scan for candidates and list
       // them so the user can re-run with --subdir.
-      if (!File('$pluginSourceDir/manifest.json').existsSync()) {
+      if (!File('$pluginSourceDir/plugin.json').existsSync()) {
         if (parsed.subdir == null) {
           final candidates = _listPluginSubdirs(tmpDir.path);
           if (candidates.isEmpty) {
             throw StateError(
-              'No plugin found in this repo: no manifest.json at the root '
+              'No plugin found in this repo: no plugin.json at the root '
               'and no immediate subdirectory contains one. '
               'Is this a NixBlitz plugin repo?',
             );
@@ -110,7 +110,7 @@ class PluginService {
           );
         } else {
           throw StateError(
-            'manifest.json not found at subdir `${parsed.subdir}` in the '
+            'plugin.json not found at subdir `${parsed.subdir}` in the '
             'cloned repo.',
           );
         }
@@ -174,7 +174,7 @@ class PluginService {
 
       for (final name in const [
         'plugin.nix',
-        'manifest.json',
+        'plugin.json',
         'README.md',
         'LICENSE',
       ]) {
@@ -335,9 +335,9 @@ class PluginService {
           ? tmpDir.path
           : '${tmpDir.path}/${parsed.subdir}';
 
-      if (!File('$pluginSourceDir/manifest.json').existsSync()) {
+      if (!File('$pluginSourceDir/plugin.json').existsSync()) {
         throw StateError(
-          'manifest.json not found at subdir '
+          'plugin.json not found at subdir '
           '`${parsed.subdir ?? "(root)"}` in the refreshed repo.',
         );
       }
@@ -376,7 +376,7 @@ class PluginService {
 
       for (final name in const [
         'plugin.nix',
-        'manifest.json',
+        'plugin.json',
         'README.md',
         'LICENSE',
       ]) {
@@ -489,13 +489,13 @@ class PluginService {
 
   /// Load an installed plugin's manifest from disk. Used by the
   /// Configure view to know which form fields to render. Throws
-  /// [StateError] if the plugin dir / manifest.json is missing and
+  /// [StateError] if the plugin dir / plugin.json is missing and
   /// [FormatException] / [PluginTooNewException] on parse failures.
   PluginManifest readManifest(String dirName) {
-    final f = File('$pluginsDir/$dirName/manifest.json');
+    final f = File('$pluginsDir/$dirName/plugin.json');
     if (!f.existsSync()) {
       throw StateError(
-        'manifest.json not found for plugin `$dirName`. '
+        'plugin.json not found for plugin `$dirName`. '
         'Is it installed?',
       );
     }
@@ -566,7 +566,7 @@ class PluginService {
   }
 
   /// List immediate subdirectory names of [repoDir] that look like
-  /// NixBlitz plugins (contain both manifest.json and plugin.nix).
+  /// NixBlitz plugins (contain both plugin.json and plugin.nix).
   /// Used to build a helpful "pick one with --subdir" error when a
   /// user points at a multi-plugin repo without specifying which
   /// plugin they want. Sorted for stable output.
@@ -576,7 +576,7 @@ class PluginService {
       if (entity is! Directory) continue;
       final name = entity.path.split(Platform.pathSeparator).last;
       if (name.startsWith('.')) continue;
-      final hasManifest = File('${entity.path}/manifest.json').existsSync();
+      final hasManifest = File('${entity.path}/plugin.json').existsSync();
       final hasPluginNix = File('${entity.path}/plugin.nix').existsSync();
       if (hasManifest && hasPluginNix) {
         result.add(name);
@@ -644,9 +644,9 @@ class PluginService {
   }
 
   PluginManifest _readManifest(String dir) {
-    final f = File('$dir/manifest.json');
+    final f = File('$dir/plugin.json');
     if (!f.existsSync()) {
-      throw StateError('manifest.json not found at $dir');
+      throw StateError('plugin.json not found at $dir');
     }
     return PluginManifest.fromJson(
       jsonDecode(f.readAsStringSync()) as Map<String, dynamic>,
@@ -711,7 +711,7 @@ class PluginUrl {
   final String cloneUrl;
 
   /// Subdirectory inside the cloned repo that holds the plugin
-  /// (manifest.json + plugin.nix). Null means the repo root is the
+  /// (plugin.json + plugin.nix). Null means the repo root is the
   /// plugin root.
   final String? subdir;
 

@@ -21,7 +21,7 @@ void _seedPluginWithTileCommand(
   final dir = Directory('${home.path}/plugins/$dirName');
   dir.createSync(recursive: true);
   File('${dir.path}/plugin.nix').writeAsStringSync('{}\n');
-  File('${dir.path}/manifest.json').writeAsStringSync(
+  File('${dir.path}/plugin.json').writeAsStringSync(
     jsonEncode({
       'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': dirName},
       'dashboard': {
@@ -215,7 +215,7 @@ void main() {
       File(
         '${home.path}/plugins/headless/plugin.nix',
       ).writeAsStringSync('{}\n');
-      File('${home.path}/plugins/headless/manifest.json').writeAsStringSync(
+      File('${home.path}/plugins/headless/plugin.json').writeAsStringSync(
         jsonEncode({
           'manifest': {
             'schema_version': 2,

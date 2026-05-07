@@ -1,7 +1,7 @@
 /// Plugin-declared dashboard tile (Phase 3).
 ///
 /// `PluginTileSpec` is the static declaration that lives in
-/// `manifest.json`'s `dashboard` block. `PluginTileSnapshot` is the
+/// `plugin.json`'s `dashboard` block. `PluginTileSnapshot` is the
 /// runtime data the polling service emits each tick.
 ///
 /// Both stay free of `nocterm` types so this lives in `common/`
@@ -10,7 +10,7 @@
 /// into actual `Color` instances at render time.
 library;
 
-/// Static plugin-tile declaration from manifest.json.
+/// Static plugin-tile declaration from plugin.json.
 class PluginTileSpec {
   /// Tile heading.
   final String title;

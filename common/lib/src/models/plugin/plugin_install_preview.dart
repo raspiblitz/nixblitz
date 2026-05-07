@@ -24,10 +24,10 @@ class PluginInstallPreview {
     required this.signature,
   });
 
-  /// Display name from `manifest.json` (e.g. "Tailscale", "LNBits").
+  /// Display name from `plugin.json` (e.g. "Tailscale", "LNBits").
   final String name;
 
-  /// Long-form description from `manifest.json`. May be empty.
+  /// Long-form description from `plugin.json`. May be empty.
   final String description;
 
   /// Canonical source URL (the same string that ends up as

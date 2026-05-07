@@ -81,7 +81,7 @@ void main() {
     });
 
     test('plugin manifest write triggers reload', () async {
-      // Adding a plugin in another shell drops a manifest.json
+      // Adding a plugin in another shell drops a plugin.json
       // under plugins/<dirName>/ AND mutates main config.json. The
       // main-config write is the primary trigger, but a manifest
       // write alone (e.g. a refresh that updated the manifest
@@ -109,7 +109,7 @@ void main() {
 
       Directory('${home.path}/plugins/foo').createSync(recursive: true);
       File(
-        '${home.path}/plugins/foo/manifest.json',
+        '${home.path}/plugins/foo/plugin.json',
       ).writeAsStringSync('{"manifest":{"schema_version":2}}');
 
       final fired = await _waitFor(() => emissions > 0);
@@ -129,7 +129,7 @@ void main() {
       // already exists from `plugin add`.
       Directory('${home.path}/plugins/foo').createSync(recursive: true);
       File(
-        '${home.path}/plugins/foo/manifest.json',
+        '${home.path}/plugins/foo/plugin.json',
       ).writeAsStringSync('{"manifest":{"schema_version":2}}');
       File('${home.path}/plugins/foo/config.json').writeAsStringSync('{}');
 
@@ -224,7 +224,7 @@ void main() {
       // Burst: simulate the plugin-add write pattern.
       Directory('${home.path}/plugins/foo').createSync(recursive: true);
       File(
-        '${home.path}/plugins/foo/manifest.json',
+        '${home.path}/plugins/foo/plugin.json',
       ).writeAsStringSync('{"manifest":{"schema_version":2}}');
       await configService.writeConfig(
         NixblitzConfig.defaults().copyWith(
@@ -236,7 +236,7 @@ void main() {
         ),
       );
       File(
-        '${home.path}/plugins/foo/manifest.json',
+        '${home.path}/plugins/foo/plugin.json',
       ).writeAsStringSync('{"manifest":{"schema_version":2,"name":"foo"}}');
 
       // Wait long enough for the debounce to fire and settle.
