@@ -17,6 +17,22 @@ class PluginMarker {
   final DateTime installedAt;
   final bool disabled;
 
+  /// Tracked git branch (default `main`). Refresh re-clones from this
+  /// branch and updates [rev] to the new HEAD.
+  final String branch;
+
+  /// Whether `plugin refresh-all` advances this plugin's [rev]. Set
+  /// false by `plugin pin <id>` to hold a specific version against
+  /// system-wide updates.
+  final bool autoUpdate;
+
+  /// Fingerprint of the SSH or OpenPGP key that signed the commit at
+  /// [rev], if any. Captured at install time when the rev carried a
+  /// signature; null when the operator consented to an unsigned
+  /// commit. On refresh, a non-null fingerprint that doesn't match
+  /// the new rev's signature triggers a re-consent prompt.
+  final String? signatureFingerprint;
+
   const PluginMarker({
     required this.id,
     required this.url,
@@ -24,6 +40,9 @@ class PluginMarker {
     required this.rev,
     required this.installedAt,
     required this.disabled,
+    this.branch = 'main',
+    this.autoUpdate = true,
+    this.signatureFingerprint,
   });
 
   Map<String, dynamic> toJson() => {
@@ -33,6 +52,10 @@ class PluginMarker {
     'rev': rev,
     'installed_at': installedAt.toIso8601String(),
     if (disabled) 'disabled': true,
+    if (branch != 'main') 'branch': branch,
+    if (!autoUpdate) 'auto_update': false,
+    if (signatureFingerprint != null)
+      'signature_fingerprint': signatureFingerprint,
   };
 
   factory PluginMarker.fromJson(Map<String, dynamic> j) => PluginMarker(
@@ -42,6 +65,31 @@ class PluginMarker {
     rev: j['rev'] as String,
     installedAt: DateTime.parse(j['installed_at'] as String),
     disabled: (j['disabled'] as bool?) ?? false,
+    branch: (j['branch'] as String?) ?? 'main',
+    autoUpdate: (j['auto_update'] as bool?) ?? true,
+    signatureFingerprint: j['signature_fingerprint'] as String?,
+  );
+
+  PluginMarker copyWith({
+    String? version,
+    String? rev,
+    bool? disabled,
+    String? branch,
+    bool? autoUpdate,
+    String? signatureFingerprint,
+    bool clearSignatureFingerprint = false,
+  }) => PluginMarker(
+    id: id,
+    url: url,
+    version: version ?? this.version,
+    rev: rev ?? this.rev,
+    installedAt: installedAt,
+    disabled: disabled ?? this.disabled,
+    branch: branch ?? this.branch,
+    autoUpdate: autoUpdate ?? this.autoUpdate,
+    signatureFingerprint: clearSignatureFingerprint
+        ? null
+        : (signatureFingerprint ?? this.signatureFingerprint),
   );
 }
 
