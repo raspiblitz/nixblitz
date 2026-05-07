@@ -9,6 +9,7 @@ import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
 import 'configure/field_editor.dart';
 import 'plugin_config_view.dart';
+import 'plugin_install_view.dart';
 
 // ---------------------------------------------------------------------------
 // _MenuEntry — sealed sum type for the Configure tab bar
@@ -74,6 +75,11 @@ final _editingSystemFieldProvider = StateProvider<_SystemTextField?>(
 /// for the plugin with this `dirName`. `null` means the main tabbed
 /// view is showing.
 final _editingPluginDirNameProvider = StateProvider<String?>((ref) => null);
+
+/// When true, the Configure view delegates to [PluginInstallView] —
+/// the consent-driven install wizard. Toggled by `i` on the Plugins
+/// tab and reset when the install view dismisses.
+final _installingPluginProvider = StateProvider<bool>((ref) => false);
 
 // ---------------------------------------------------------------------------
 // ConfigureView
@@ -150,6 +156,16 @@ class ConfigureView extends StatelessComponent {
             },
           );
         },
+      );
+    }
+
+    // ── Plugin install wizard takeover ───────────────────────────────
+    final installingPlugin = context.watch(_installingPluginProvider);
+    if (installingPlugin) {
+      return PluginInstallView(
+        pluginService: context.read(pluginServiceProvider),
+        onDismiss: () =>
+            context.read(_installingPluginProvider.notifier).state = false,
       );
     }
 
@@ -289,6 +305,14 @@ class ConfigureView extends StatelessComponent {
               if (event.logicalKey == LogicalKey.enter ||
                   event.logicalKey == LogicalKey.space) {
                 _handleEnter(context, config, currentEntry, selectedOption);
+                return true;
+              }
+              // [i] on the Plugins tab opens the install wizard.
+              // Gated to _PluginsEntry so it doesn't shadow text-edit
+              // intent on other tabs.
+              if (event.logicalKey == LogicalKey.keyI &&
+                  currentEntry is _PluginsEntry) {
+                context.read(_installingPluginProvider.notifier).state = true;
                 return true;
               }
               if (event.logicalKey == LogicalKey.escape) {
@@ -566,13 +590,21 @@ class ConfigureView extends StatelessComponent {
     BuildContext context,
     int selectedIndex,
   ) {
+    const dim = Color.fromRGB(140, 140, 150);
+    const hintRow = Text(
+      '[i] install new plugin   [Enter] configure selected',
+      style: TextStyle(color: dim),
+    );
+
     final manifests = context.watch(installedPluginsProvider);
     if (manifests.isEmpty) {
       return const [
         Text(
-          '(no plugins installed — use `nixblitz plugin add <url>`)',
+          '(no plugins installed)',
           style: TextStyle(color: Color.fromRGB(150, 150, 170)),
         ),
+        SizedBox(height: 1),
+        hintRow,
       ];
     }
 
@@ -594,7 +626,6 @@ class ConfigureView extends StatelessComponent {
 
     const focusedColor = Color.fromRGB(247, 147, 26);
     const normal = Color.fromRGB(200, 200, 200);
-    const dim = Color.fromRGB(140, 140, 150);
 
     final rows = <Component>[
       Text(
@@ -635,6 +666,9 @@ class ConfigureView extends StatelessComponent {
         ),
       );
     }
+
+    rows.add(const SizedBox(height: 1));
+    rows.add(hintRow);
 
     return rows;
   }

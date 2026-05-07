@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:common/common.dart';
 
+import '../ui/widgets/signature_label.dart';
+
 /// Entry point for `nixblitz plugin <verb> ...`. Runs outside the
 /// TUI (no `runApp`, no terminal takeover) so it can print and exit.
 ///
@@ -122,7 +124,7 @@ Future<bool> _askConsent(
   // Signature line — Approach A. The fingerprint is what gets
   // pinned on the PluginMarker; subsequent refreshes that present
   // a different fingerprint are escalated to re-consent.
-  stdout.writeln('signature:   ${_describeSignature(p.signature)}');
+  stdout.writeln('signature:   ${describeSignature(p.signature)}');
   if (insecure) {
     stdout.writeln('insecure:    yes (--insecure given for non-https URL)');
   }
@@ -152,39 +154,6 @@ Future<bool> _askConsent(
   final line = stdin.readLineSync() ?? '';
   final answer = line.trim().toLowerCase();
   return answer == 'y' || answer == 'yes';
-}
-
-/// Render a [GitSignature] as a single-line string for the consent
-/// prompt. Three relevant flavours, plus a generic fall-through:
-///
-/// - `signed by SSH key SHA256:abc…   (alice@example.com)` — fully
-///   verified against the operator's keyring.
-/// - `signed by SSH key SHA256:abc… [unverified key]` — good
-///   signature, key not in operator's `allowed_signers`. Still
-///   pinnable for TOFU.
-/// - `(unsigned)` — no signature on the commit. The install can
-///   still proceed; subsequent refreshes won't be able to detect
-///   key changes.
-String _describeSignature(GitSignature s) {
-  if (!s.isPresent) return '(unsigned)';
-  final fp = s.fingerprint.isEmpty ? '(no fingerprint)' : s.fingerprint;
-  final identity = s.signer.isEmpty ? '' : '   (${s.signer})';
-  switch (s.status) {
-    case 'G':
-      return 'signed by $fp$identity';
-    case 'U':
-      return 'signed by $fp$identity [unverified key]';
-    case 'X':
-      return 'signed by $fp$identity [signature expired]';
-    case 'Y':
-      return 'signed by $fp$identity [signing key expired]';
-    case 'R':
-      return 'signed by $fp$identity [signing key revoked]';
-    case 'B':
-      return 'BAD signature ($fp)';
-    default:
-      return 'signed (status=${s.status}, fp=$fp)';
-  }
 }
 
 Future<int> _runRemove(PluginService svc, ArgResults args) async {
