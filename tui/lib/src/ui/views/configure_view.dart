@@ -176,9 +176,10 @@ class ConfigureView extends StatelessComponent {
         // Plugin form takes over the whole view when the user has
         // drilled into one — bypasses the tab grid key handling.
         if (editingPluginDir != null) {
-          // TODO(Task 9c): rebuild the configure-view plugin form
-          // properly on markers. Until then, look up the manifest
-          // for the requested plugin id from installedPluginsProvider.
+          // The drilled-in plugin is identified by its id; look up the
+          // manifest from installedPluginsProvider. If it's gone (the
+          // operator removed it in a parallel session), drop the
+          // selection and fall back to the tab grid below.
           final manifests = context.watch(installedPluginsProvider);
           final manifest = manifests
               .where((m) => m.id == editingPluginDir)
@@ -390,9 +391,11 @@ class ConfigureView extends StatelessComponent {
     }
 
     // Plugins tab: drill into selected plugin's config form.
+    // installedPluginsProvider sorts by id, so the index here matches
+    // the row order rendered by `_buildPluginsOptions`. The header row
+    // it draws is purely visual — selectedOption indexes the data list,
+    // not the rendered widget list.
     if (currentEntry is _PluginsEntry) {
-      // TODO(Task 9c): drive the plugin tab off markers + a sort
-      // matched against the manifest list rendered below.
       final manifests = context.read(installedPluginsProvider);
       if (selectedOption < manifests.length) {
         context.read(_editingPluginDirNameProvider.notifier).state =
@@ -557,7 +560,7 @@ class ConfigureView extends StatelessComponent {
     ];
   }
 
-  // ---------- Plugins (marker-driven; UX polish in Task 9c) ----------
+  // ---------- Plugins ----------
 
   List<Component> _buildPluginsOptions(
     BuildContext context,
@@ -573,21 +576,70 @@ class ConfigureView extends StatelessComponent {
       ];
     }
 
-    // TODO(Task 9c): bring back the rich aligned-column table by
-    // joining each manifest with its on-disk PluginMarker (for
-    // branch / rev / autoUpdate). For now show just id + display
-    // name so the navigation works.
+    // Join each manifest with its on-disk marker so the operator
+    // sees branch / rev / status at a glance. The markers live at
+    // <baseDir>/plugins/<id>/.nixblitz-installed.json — fs read is
+    // synchronous + cheap, fine for a render-time call.
+    final baseDir = context.read(baseDirProvider);
+    final pluginsRoot = '$baseDir/plugins';
+    final markers = {
+      for (final m in manifests) m.id: readMarker('$pluginsRoot/${m.id}'),
+    };
+
+    // Compute column widths from the actual data.
+    final idWidth = manifests.map((m) => m.id.length).fold<int>(6, _max);
+    final branchWidth = markers.values
+        .map((m) => (m?.branch ?? '').length)
+        .fold<int>(6, _max);
+
     const focusedColor = Color.fromRGB(247, 147, 26);
     const normal = Color.fromRGB(200, 200, 200);
-    return List<Component>.generate(manifests.length, (i) {
+    const dim = Color.fromRGB(140, 140, 150);
+
+    final rows = <Component>[
+      Text(
+        '  ${'PLUGIN'.padRight(idWidth)}  ${'BRANCH'.padRight(branchWidth)}  REV       STATUS',
+        style: const TextStyle(color: dim),
+      ),
+    ];
+
+    for (var i = 0; i < manifests.length; i++) {
       final m = manifests[i];
+      final marker = markers[m.id];
       final focused = selectedIndex == i;
-      return Text(
-        '${focused ? "> " : "  "}${m.id}  —  ${m.name}',
-        style: TextStyle(color: focused ? focusedColor : normal),
+
+      final id = m.id.padRight(idWidth);
+      final branch = (marker?.branch ?? '?').padRight(branchWidth);
+      final rev = marker == null
+          ? '?       '
+          : (marker.rev.length >= 8
+                ? marker.rev.substring(0, 8)
+                : marker.rev.padRight(8));
+
+      final status = StringBuffer();
+      if (marker == null) {
+        status.write('marker missing');
+      } else if (marker.disabled) {
+        status.write('disabled');
+      } else {
+        status.write('enabled');
+      }
+      if (marker != null && !marker.autoUpdate) {
+        status.write(' · pinned');
+      }
+
+      rows.add(
+        Text(
+          '${focused ? "> " : "  "}$id  $branch  $rev  $status',
+          style: TextStyle(color: focused ? focusedColor : normal),
+        ),
       );
-    });
+    }
+
+    return rows;
   }
+
+  static int _max(int a, int b) => a > b ? a : b;
 }
 
 // ---------------------------------------------------------------------------
