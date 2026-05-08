@@ -70,10 +70,10 @@ in {
 
   features.apps.cln.enable = appEnabled "cln";
 
-  # blitz-api is no longer a built-in app — it lives as a plugin
-  # (forge.f44.fyi/f44/nixblitz-plugin-blitz-api). Operator runs
-  # `nixblitz plugin add ...` (or [i] in the TUI) to install it.
-  features.apps.blitz-web.enable = appEnabled "blitz_web";
+  # blitz-api and blitz-web are no longer built-in apps — they live as
+  # plugins (forge.f44.fyi/f44/nixblitz_official_plugins/{blitz-api,blitz-web}).
+  # Operator runs `nixblitz plugin add ...` (or [i] in the TUI) to install
+  # them.
 
   # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
   # are up. Needs at least one service enabled — nix-bitcoin.operator adds

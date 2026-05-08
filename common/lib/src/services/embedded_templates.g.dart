@@ -21,13 +21,6 @@ const String _flake = r'''
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    blitz-web = {
-      # Tracks the branch with the nix packaging in place (pending PR
-      # back to raspiblitz/raspiblitz-web). Once merged upstream this
-      # can point at github:raspiblitz/raspiblitz-web directly.
-      url = "github:fusion44/raspiblitz-web";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
     # come from this third-party flake. Pinned to a tag so refreshes
     # are explicit; bump deliberately rather than tracking `main`.
@@ -43,7 +36,6 @@ const String _flake = r'''
     disko,
     nix-bitcoin,
     nixblitz,
-    blitz-web,
     nixos-raspberrypi,
   }: let
     inherit (nixpkgs) lib;
@@ -134,10 +126,10 @@ const String _flake = r'''
         ++ [
           disko.nixosModules.default
           nix-bitcoin.nixosModules.default
-          # blitz-api dropped from inputs — its plugin pulls the
-          # upstream module via `builtins.getFlake` at module-eval
-          # time. See `examples_redesign/nixblitz_official_plugins/blitz-api/plugin.nix`.
-          blitz-web.nixosModules.default
+          # blitz-api and blitz-web dropped from inputs — their plugins
+          # pull the upstream modules via `builtins.getFlake` at
+          # module-eval time. See
+          # `examples_redesign/nixblitz_official_plugins/{blitz-api,blitz-web}/plugin.nix`.
         ];
     };
 
@@ -446,10 +438,10 @@ in {
 
   features.apps.cln.enable = appEnabled "cln";
 
-  # blitz-api is no longer a built-in app — it lives as a plugin
-  # (forge.f44.fyi/f44/nixblitz-plugin-blitz-api). Operator runs
-  # `nixblitz plugin add ...` (or [i] in the TUI) to install it.
-  features.apps.blitz-web.enable = appEnabled "blitz_web";
+  # blitz-api and blitz-web are no longer built-in apps — they live as
+  # plugins (forge.f44.fyi/f44/nixblitz_official_plugins/{blitz-api,blitz-web}).
+  # Operator runs `nixblitz plugin add ...` (or [i] in the TUI) to install
+  # them.
 
   # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
   # are up. Needs at least one service enabled — nix-bitcoin.operator adds
@@ -571,50 +563,6 @@ in {
         # 0.0002 BTC/kvB ≈ 20 sat/vB, plenty for test flows.
         fallbackfee=0.0002
       '';
-    };
-  };
-}
-''';
-
-const String _modulesAppsBlitzWeb = r'''
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}: let
-  cfg = config.features.apps.blitz-web;
-in {
-  options.features.apps.blitz-web = {
-    enable = lib.mkEnableOption "Blitz Web UI (mobile-first frontend)";
-    hostName = lib.mkOption {
-      type = lib.types.str;
-      default = "localhost";
-      description = ''
-        Nginx virtual host name. Share this with `features.apps.blitz-api`
-        so the SPA and its backend API land on the same vhost — the
-        frontend is built with BACKEND_SERVER fixed to http://127.0.0.1.
-      '';
-    };
-    openFirewall = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Open port 80 on the nginx virtual host.";
-    };
-  };
-
-  config = lib.mkIf cfg.enable {
-    # Upstream renamed the attribute to `services.raspiblitz-web`; our
-    # user-facing `features.apps.blitz-web` option keeps the shorter name
-    # for symmetry with blitz-api.
-    services.raspiblitz-web = {
-      enable = true;
-      nginx = {
-        enable = true;
-        hostName = cfg.hostName;
-        location = "/";
-        openFirewall = cfg.openFirewall;
-      };
     };
   };
 }
@@ -1287,7 +1235,6 @@ Map<String, String> _getAllTemplates() {
     'hosts/installer-pi5.nix': _hostsInstallerPi5,
     'hosts/installer.nix': _hostsInstaller,
     'modules/apps/bitcoind.nix': _modulesAppsBitcoind,
-    'modules/apps/blitz-web.nix': _modulesAppsBlitzWeb,
     'modules/apps/cln.nix': _modulesAppsCln,
     'modules/apps/lnd.nix': _modulesAppsLnd,
     'modules/system/base.nix': _modulesSystemBase,

@@ -15,13 +15,6 @@
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    blitz-web = {
-      # Tracks the branch with the nix packaging in place (pending PR
-      # back to raspiblitz/raspiblitz-web). Once merged upstream this
-      # can point at github:raspiblitz/raspiblitz-web directly.
-      url = "github:fusion44/raspiblitz-web";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
     # come from this third-party flake. Pinned to a tag so refreshes
     # are explicit; bump deliberately rather than tracking `main`.
@@ -37,7 +30,6 @@
     disko,
     nix-bitcoin,
     nixblitz,
-    blitz-web,
     nixos-raspberrypi,
   }: let
     inherit (nixpkgs) lib;
@@ -128,10 +120,10 @@
         ++ [
           disko.nixosModules.default
           nix-bitcoin.nixosModules.default
-          # blitz-api dropped from inputs — its plugin pulls the
-          # upstream module via `builtins.getFlake` at module-eval
-          # time. See `examples_redesign/nixblitz_official_plugins/blitz-api/plugin.nix`.
-          blitz-web.nixosModules.default
+          # blitz-api and blitz-web dropped from inputs — their plugins
+          # pull the upstream modules via `builtins.getFlake` at
+          # module-eval time. See
+          # `examples_redesign/nixblitz_official_plugins/{blitz-api,blitz-web}/plugin.nix`.
         ];
     };
 

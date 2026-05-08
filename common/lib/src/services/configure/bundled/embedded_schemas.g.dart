@@ -37,19 +37,6 @@ const String _bitcoindJson = r'''
 }
 ''';
 
-const String _blitz_webJson = r'''
-{
-  "id": "blitz_web",
-  "label": "Blitz Web",
-  "description": "Web frontend for monitoring + managing the node",
-  "capabilities": [],
-  "service_unit": "blitz-web",
-  "fields": [
-    { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
-  ]
-}
-''';
-
 const String _clnJson = r'''
 {
   "id": "cln",
@@ -84,7 +71,6 @@ const String _lndJson = r'''
 
 const Map<String, String> _allAppSchemas = {
   'bitcoind': _bitcoindJson,
-  'blitz_web': _blitz_webJson,
   'cln': _clnJson,
   'lnd': _lndJson,
 };

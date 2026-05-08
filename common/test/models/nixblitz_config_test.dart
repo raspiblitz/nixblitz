@@ -173,7 +173,7 @@ void main() {
   });
 
   group('NixblitzConfig.fromJson v18', () {
-    test('round-trip with five apps', () {
+    test('round-trip with three apps + plugin entries', () {
       final systemJson = SystemConfig.defaults().toJson();
       final json = <String, dynamic>{
         'schema_version': 18,

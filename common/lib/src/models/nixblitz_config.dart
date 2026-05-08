@@ -115,8 +115,8 @@ class NixblitzConfig {
   final SystemConfig system;
 
   /// Generic per-app config storage. Key is the app identifier
-  /// (e.g. `"bitcoind"`, `"lnd"`, `"cln"`, `"blitz_web"`, plus any
-  /// installed plugin's id); value is the app's flat config map.
+  /// (e.g. `"bitcoind"`, `"lnd"`, `"cln"`, plus any installed
+  /// plugin's id); value is the app's flat config map.
   /// Use [appOption], [isAppEnabled], [setAppOption], etc. for
   /// type-safe access.
   final Map<String, Map<String, dynamic>> appConfigs;
@@ -144,7 +144,6 @@ class NixblitzConfig {
       },
       'lnd': {'enabled': false, 'alias': ''},
       'cln': {'enabled': false},
-      'blitz_web': {'enabled': true},
     },
   );
 

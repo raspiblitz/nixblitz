@@ -5,7 +5,7 @@ import 'package:common/src/models/configure/app_manifest.dart';
 import 'package:test/test.dart';
 
 void main() {
-  for (final name in ['bitcoind', 'lnd', 'cln', 'blitz_web']) {
+  for (final name in ['bitcoind', 'lnd', 'cln']) {
     test('$name.json parses', () {
       final s = File(
         'lib/src/services/configure/bundled/manifests/$name.json',
@@ -43,14 +43,5 @@ void main() {
     final network = m.field('network');
     expect(network, isA<EnumField>());
     expect((network as EnumField).choices, ['mainnet', 'regtest']);
-  });
-
-  test('blitz_web has service_unit override to blitz-web', () {
-    final s = File(
-      'lib/src/services/configure/bundled/manifests/blitz_web.json',
-    ).readAsStringSync();
-    final m = AppManifest.fromJsonString(s);
-    expect(m.serviceUnit, 'blitz-web');
-    expect(m.unitName, 'blitz-web');
   });
 }
