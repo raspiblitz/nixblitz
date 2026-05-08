@@ -10,6 +10,7 @@ import '../../providers/ui_state_provider.dart';
 import 'configure/field_editor.dart';
 import 'plugin_config_view.dart';
 import 'plugin_install_view.dart';
+import 'plugin_refresh_all_view.dart';
 import 'plugin_refresh_view.dart';
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,11 @@ final _installingPluginProvider = StateProvider<bool>((ref) => false);
 /// for the named plugin id. Set by `r` on the Plugins tab and reset
 /// when the refresh view dismisses.
 final _refreshingPluginProvider = StateProvider<String?>((ref) => null);
+
+/// True while the Configure view is delegating to [PluginRefreshAllView]
+/// (the bulk refresh flow). Toggled by `R` (shift-r) on the Plugins
+/// tab and reset when the refresh-all view dismisses.
+final _refreshingAllPluginsProvider = StateProvider<bool>((ref) => false);
 
 // ---------------------------------------------------------------------------
 // ConfigureView
@@ -183,6 +189,16 @@ class ConfigureView extends StatelessComponent {
         pluginId: refreshingPluginId,
         onDismiss: () =>
             context.read(_refreshingPluginProvider.notifier).state = null,
+      );
+    }
+
+    // ── Plugin refresh-all takeover ──────────────────────────────────
+    final refreshingAll = context.watch(_refreshingAllPluginsProvider);
+    if (refreshingAll) {
+      return PluginRefreshAllView(
+        pluginService: context.read(pluginServiceProvider),
+        onDismiss: () =>
+            context.read(_refreshingAllPluginsProvider.notifier).state = false,
       );
     }
 
@@ -332,15 +348,22 @@ class ConfigureView extends StatelessComponent {
                 context.read(_installingPluginProvider.notifier).state = true;
                 return true;
               }
-              // [r] on the Plugins tab refreshes the highlighted plugin
-              // (clones HEAD, compares signature, advances pin or hard-fails
-              // on key rotation). Same gate as [i] — Plugins tab only.
+              // [r] / [R] on the Plugins tab — refresh single / all.
+              // Distinguishing case: shift-r (capital R) is bulk;
+              // plain r refreshes only the highlighted row. Same gate
+              // as [i] — Plugins tab only, no other-tab interference.
               if (event.logicalKey == LogicalKey.keyR &&
                   currentEntry is _PluginsEntry) {
-                final manifests = context.read(installedPluginsProvider);
-                if (selectedOption < manifests.length) {
-                  context.read(_refreshingPluginProvider.notifier).state =
-                      manifests[selectedOption].id;
+                final shifted = event.character == 'R';
+                if (shifted) {
+                  context.read(_refreshingAllPluginsProvider.notifier).state =
+                      true;
+                } else {
+                  final manifests = context.read(installedPluginsProvider);
+                  if (selectedOption < manifests.length) {
+                    context.read(_refreshingPluginProvider.notifier).state =
+                        manifests[selectedOption].id;
+                  }
                 }
                 return true;
               }
@@ -621,7 +644,7 @@ class ConfigureView extends StatelessComponent {
   ) {
     const dim = Color.fromRGB(140, 140, 150);
     const hintRow = Text(
-      '[i] install new   [r] refresh selected   [Enter] configure selected',
+      '[i] install   [r] refresh   [R] refresh all   [Enter] configure',
       style: TextStyle(color: dim),
     );
 
