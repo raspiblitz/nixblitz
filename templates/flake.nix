@@ -15,18 +15,6 @@
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    blitz-api = {
-      url = "github:fusion44/blitz_api";
-      # CRITICAL on Pi 5: without this follows, blitz-api pulls
-      # in its own pinned nixos-unstable, captures `pkgs` from
-      # there at flake-eval time, and bakes a uv path into its
-      # pyproject install hook that we can't override. With the
-      # follows, blitz-api's eval uses our nixpkgs and our
-      # uv override (in installed-pi5.nix's `nixpkgs.overlays`)
-      # actually reaches the install hook. See the rule in
-      # CLAUDE.md about always following nixpkgs on new inputs.
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     blitz-web = {
       # Tracks the branch with the nix packaging in place (pending PR
       # back to raspiblitz/raspiblitz-web). Once merged upstream this
@@ -49,7 +37,6 @@
     disko,
     nix-bitcoin,
     nixblitz,
-    blitz-api,
     blitz-web,
     nixos-raspberrypi,
   }: let
@@ -141,7 +128,9 @@
         ++ [
           disko.nixosModules.default
           nix-bitcoin.nixosModules.default
-          blitz-api.nixosModules.default
+          # blitz-api dropped from inputs — its plugin pulls the
+          # upstream module via `builtins.getFlake` at module-eval
+          # time. See `examples_redesign/nixblitz_official_plugins/blitz-api/plugin.nix`.
           blitz-web.nixosModules.default
         ];
     };
