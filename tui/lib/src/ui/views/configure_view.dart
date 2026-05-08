@@ -10,6 +10,7 @@ import '../../providers/ui_state_provider.dart';
 import 'configure/field_editor.dart';
 import 'plugin_config_view.dart';
 import 'plugin_install_view.dart';
+import 'plugin_refresh_view.dart';
 
 // ---------------------------------------------------------------------------
 // _MenuEntry — sealed sum type for the Configure tab bar
@@ -80,6 +81,11 @@ final _editingPluginDirNameProvider = StateProvider<String?>((ref) => null);
 /// the consent-driven install wizard. Toggled by `i` on the Plugins
 /// tab and reset when the install view dismisses.
 final _installingPluginProvider = StateProvider<bool>((ref) => false);
+
+/// Non-null while the Configure view is delegating to [PluginRefreshView]
+/// for the named plugin id. Set by `r` on the Plugins tab and reset
+/// when the refresh view dismisses.
+final _refreshingPluginProvider = StateProvider<String?>((ref) => null);
 
 // ---------------------------------------------------------------------------
 // ConfigureView
@@ -166,6 +172,17 @@ class ConfigureView extends StatelessComponent {
         pluginService: context.read(pluginServiceProvider),
         onDismiss: () =>
             context.read(_installingPluginProvider.notifier).state = false,
+      );
+    }
+
+    // ── Plugin refresh takeover ──────────────────────────────────────
+    final refreshingPluginId = context.watch(_refreshingPluginProvider);
+    if (refreshingPluginId != null) {
+      return PluginRefreshView(
+        pluginService: context.read(pluginServiceProvider),
+        pluginId: refreshingPluginId,
+        onDismiss: () =>
+            context.read(_refreshingPluginProvider.notifier).state = null,
       );
     }
 
@@ -313,6 +330,18 @@ class ConfigureView extends StatelessComponent {
               if (event.logicalKey == LogicalKey.keyI &&
                   currentEntry is _PluginsEntry) {
                 context.read(_installingPluginProvider.notifier).state = true;
+                return true;
+              }
+              // [r] on the Plugins tab refreshes the highlighted plugin
+              // (clones HEAD, compares signature, advances pin or hard-fails
+              // on key rotation). Same gate as [i] — Plugins tab only.
+              if (event.logicalKey == LogicalKey.keyR &&
+                  currentEntry is _PluginsEntry) {
+                final manifests = context.read(installedPluginsProvider);
+                if (selectedOption < manifests.length) {
+                  context.read(_refreshingPluginProvider.notifier).state =
+                      manifests[selectedOption].id;
+                }
                 return true;
               }
               if (event.logicalKey == LogicalKey.escape) {
@@ -592,7 +621,7 @@ class ConfigureView extends StatelessComponent {
   ) {
     const dim = Color.fromRGB(140, 140, 150);
     const hintRow = Text(
-      '[i] install new plugin   [Enter] configure selected',
+      '[i] install new   [r] refresh selected   [Enter] configure selected',
       style: TextStyle(color: dim),
     );
 
