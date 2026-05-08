@@ -656,6 +656,18 @@ class ConfigureView extends StatelessComponent {
     final configAsync = context.watch(configProvider);
     final config = configAsync.value;
 
+    // Set of plugin ids the daily update check found behind upstream.
+    // Read synchronously each rebuild (cheap; the check writes a
+    // small JSON file). Prefixes the STATUS column with "↑" so the
+    // operator sees at a glance which rows have a refresh available.
+    // pluginsAhead lives on the lightweight (daily) check; if it
+    // hasn't run or didn't succeed the set is empty (no false alarms).
+    final updateStatus = readUpdateStatus();
+    final pluginsBehind = {
+      for (final p in updateStatus.lightweight?.pluginsAhead ?? const [])
+        p.pluginId,
+    };
+
     // Compute column widths from the actual data.
     final idWidth = manifests.map((m) => m.id.length).fold<int>(6, _max);
     final branchWidth = markers.values
@@ -696,9 +708,12 @@ class ConfigureView extends StatelessComponent {
       //   - marker.disabled? (operator excluded it from plugins.list)
       //   - app_configs[id].enabled? (the plugin's own start/stop gate)
       //
-      // See [pluginStatusLabel] for the resolution rules.
+      // See [pluginStatusLabel] for the resolution rules. A leading
+      // "↑ " prefix marks plugins where the upstream rev is ahead of
+      // the pinned rev — the operator can hit [r] on the row to refresh.
       final cfgEnabled = config?.isAppEnabled(m.id) ?? false;
-      final status = pluginStatusLabel(marker: marker, cfgEnabled: cfgEnabled);
+      final base = pluginStatusLabel(marker: marker, cfgEnabled: cfgEnabled);
+      final status = pluginsBehind.contains(m.id) ? '↑ $base' : base;
 
       rows.add(
         Text(
