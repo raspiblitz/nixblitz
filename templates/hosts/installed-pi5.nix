@@ -32,4 +32,16 @@
   # generation via the boot menu, matching the experience x86
   # operators already have via systemd-boot.
   boot.loader.raspberry-pi.bootloader = "kernel";
+
+  # Enable the Pi 5's onboard 4-pin fan header. Without this dtparam
+  # the `cooling_fan` device tree node stays at its default
+  # `status = "disabled"` and the kernel never enrolls the fan as
+  # a thermal cooling device — `/sys/class/thermal/cooling_device*`
+  # comes up empty, no PWM control reaches the fan, and the SoC
+  # cooks under sustained load (kernel compile, etc). The vendor
+  # `nixos-raspberrypi` flake doesn't turn this on by default.
+  hardware.raspberry-pi.config.all.base-dt-params.cooling_fan = {
+    enable = true;
+    value = "on";
+  };
 }
