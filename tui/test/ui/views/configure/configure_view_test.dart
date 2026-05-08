@@ -284,6 +284,43 @@ void main() {
 
   // ── 5. pluginStatusLabel — distinguishes marker.disabled vs app_configs ──
 
+  group('pluginSigShort', () {
+    PluginMarker mkMarker({String? signatureFingerprint}) => PluginMarker(
+      id: 'demo',
+      url: 'git+https://example.test/demo',
+      version: '0.1.0',
+      rev: 'deadbeef',
+      installedAt: DateTime.utc(2026, 5, 6),
+      disabled: false,
+      signatureFingerprint: signatureFingerprint,
+    );
+
+    test('null marker renders as placeholder', () {
+      expect(pluginSigShort(null), '?       ');
+    });
+
+    test('null fingerprint renders as "(unsign)"', () {
+      expect(pluginSigShort(mkMarker(signatureFingerprint: null)), '(unsign)');
+    });
+
+    test('SHA256 prefix is stripped, 8-char tail returned', () {
+      final m = mkMarker(
+        signatureFingerprint: 'SHA256:cjpfs1MT+veO9adeWCZZvEb6VZskk',
+      );
+      expect(pluginSigShort(m), 'cjpfs1MT');
+    });
+
+    test('no prefix takes first 8 chars', () {
+      final m = mkMarker(signatureFingerprint: 'A1B2C3D4E5F6G7H8I9');
+      expect(pluginSigShort(m), 'A1B2C3D4');
+    });
+
+    test('short fingerprint pads to 8 chars', () {
+      final m = mkMarker(signatureFingerprint: 'SHORT');
+      expect(pluginSigShort(m), 'SHORT   ');
+    });
+  });
+
   group('pluginStatusLabel', () {
     PluginMarker mkMarker({bool disabled = false, bool autoUpdate = true}) =>
         PluginMarker(

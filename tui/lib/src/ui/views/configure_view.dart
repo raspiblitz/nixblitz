@@ -667,7 +667,7 @@ class ConfigureView extends StatelessComponent {
 
     final rows = <Component>[
       Text(
-        '  ${'PLUGIN'.padRight(idWidth)}  ${'BRANCH'.padRight(branchWidth)}  REV       STATUS',
+        '  ${'PLUGIN'.padRight(idWidth)}  ${'BRANCH'.padRight(branchWidth)}  REV       SIG       STATUS',
         style: const TextStyle(color: dim),
       ),
     ];
@@ -685,6 +685,12 @@ class ConfigureView extends StatelessComponent {
                 ? marker.rev.substring(0, 8)
                 : marker.rev.padRight(8));
 
+      // SIG: the fingerprint we pinned at install time, or "(unsigned)"
+      // if the operator consented to an unsigned commit. Short-form so
+      // the column stays narrow; the install consent prompt + the
+      // refresh-mismatch screen show the full fingerprint.
+      final sig = pluginSigShort(marker);
+
       // STATUS surfaces three independent operator-visible bits:
       //   - marker present? (system-level: plugin is registered)
       //   - marker.disabled? (operator excluded it from plugins.list)
@@ -696,7 +702,7 @@ class ConfigureView extends StatelessComponent {
 
       rows.add(
         Text(
-          '${focused ? "> " : "  "}$id  $branch  $rev  $status',
+          '${focused ? "> " : "  "}$id  $branch  $rev  $sig  $status',
           style: TextStyle(color: focused ? focusedColor : normal),
         ),
       );
@@ -744,6 +750,32 @@ String pluginStatusLabel({
     buf.write(' · pinned');
   }
   return buf.toString();
+}
+
+// ---------------------------------------------------------------------------
+// pluginSigShort — pure helper for the plugins-tab SIG column
+// ---------------------------------------------------------------------------
+
+/// Render the marker's pinned signature fingerprint as a short tag for
+/// the plugins-tab SIG column. Three states:
+///
+///   - marker == null                       → "?       "
+///   - marker.signatureFingerprint == null  → "(unsign)"
+///   - signed                                → first 8 chars of the
+///                                              fingerprint after any
+///                                              `algo:` prefix
+///
+/// Pure helper — testable without rendering. The full fingerprint
+/// surfaces in the install consent prompt and in the
+/// PluginSignatureMismatch UX.
+String pluginSigShort(PluginMarker? marker) {
+  if (marker == null) return '?       ';
+  final fp = marker.signatureFingerprint;
+  if (fp == null) return '(unsign)';
+  // Strip a leading `SHA256:` / `RSA:` / etc. prefix if present.
+  final colon = fp.indexOf(':');
+  final body = colon >= 0 ? fp.substring(colon + 1) : fp;
+  return body.length >= 8 ? body.substring(0, 8) : body.padRight(8);
 }
 
 // ---------------------------------------------------------------------------
