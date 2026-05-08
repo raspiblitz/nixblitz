@@ -2,7 +2,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:common/common.dart';
 import 'package:common/src/services/dashboard/tile_snapshot.dart';
-import 'dashboard/dashboard_chrome.dart';
+import 'dashboard/node_tile.dart';
 import 'dashboard/plugin_tile.dart';
 import 'dashboard/tile_layout.dart';
 import 'dashboard/tile_renderer.dart';
@@ -52,106 +52,46 @@ class _DashboardViewState extends State<DashboardView> {
     ];
   }
 
-  /// Reads `/var/lib/nixblitz-tui/update-status.json` (populated by
-  /// the daily / weekly systemd timers) and renders a single
-  /// "updates available" line when the lightweight check found
-  /// flake inputs whose upstream HEAD has moved past the locked
-  /// rev. The richer per-package preview (from the heavy check)
-  /// is surfaced inside the Update menu, not on the dashboard —
-  /// the dashboard's job is to nudge, not to enumerate.
-  ///
-  /// Cross-checks the cached `inputsAhead` against the live
-  /// `flake.lock` so we don't keep nagging "updates available" for
-  /// inputs whose lock has already advanced (e.g. after the
-  /// operator ran Update once between scheduled checks). Without
-  /// this, the dashboard banner would report a phantom update and
-  /// the Update flow's `nix flake update` would correctly say
-  /// "Nothing to apply" — confusing.
-  List<Component> _buildUpdateAvailableBanner(BuildContext context) {
-    final status = readUpdateStatus();
-    final lines = <Component>[];
+  Component _buildNodeTile(BuildContext context, NixblitzConfig config) {
+    final lastApply = context.watch(lastApplyTimeProvider);
+    final appliedAgoText = lastApply.maybeWhen(
+      data: (t) => t == null ? null : humanizeAge(t),
+      orElse: () => null,
+    );
 
-    final light = status.lightweight;
+    final updateStatus = readUpdateStatus();
+    final light = updateStatus.lightweight;
+    final updateSources = <String>[];
     if (light != null && light.ok && light.inputsAhead.isNotEmpty) {
+      // filterStillAhead drops phantom updates whose lock has
+      // already advanced since the cached check.
       final stillAhead = UpdateCheckService.filterStillAhead(
         light.inputsAhead,
         flakePath: context.read(baseDirProvider),
       );
-      if (stillAhead.isNotEmpty) {
-        final n = stillAhead.length;
-        final names = stillAhead.map((e) => e.name).take(3).join(', ');
-        final more = n > 3 ? ' (+${n - 3} more)' : '';
-        final ago = humanizeAge(light.checkedAt);
-        lines.add(
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Text(
-              'updates available: $names$more — '
-              'checked $ago — press [u] Update',
-              style: const TextStyle(color: Color.fromRGB(120, 200, 220)),
-            ),
-          ),
-        );
-      }
+      updateSources.addAll(stillAhead.map((e) => e.name));
     }
-
-    return lines;
-  }
-
-  /// Surfaces template-content drift between the binary and
-  /// `~/nixblitz/`. Triggered when an updated TUI binary ships
-  /// new template content without bumping the config schema —
-  /// the case the page-size-16k fix slipped through. Apply and
-  /// Update both auto-rewrite drifted templates as a preflight,
-  /// so the operator just needs to run either one.
-  List<Component> _buildDriftBanner(BuildContext context) {
     final drift = context.watch(templatesDriftProvider);
-    if (!drift.hasDrift) return const [];
-    final n = drift.totalChanged;
-    return [
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '! $n template '
-              '${n == 1 ? "file differs" : "files differ"} '
-              '— TUI was upgraded, run [a] Apply or [u] Update to rebuild',
-              style: const TextStyle(color: Color.fromRGB(255, 200, 80)),
-            ),
-            const Text(
-              '  Apply and Update auto-rewrite drifted templates '
-              'before rebuilding',
-              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
-            ),
-          ],
-        ),
-      ),
-    ];
-  }
+    final systemUpdatesCount = updateSources.length + (drift.hasDrift ? 1 : 0);
 
-  /// Renders the green "all applied — Xm ago" caption when the
-  /// working tree is clean and HEAD has a commit. Empty list
-  /// when HEAD is missing (fresh install, pre-first-Apply) so we
-  /// don't surface a confusing "applied …" line on a repo that's
-  /// never been applied.
-  List<Component> _buildAllAppliedLine(BuildContext context) {
-    final lastApply = context.watch(lastApplyTimeProvider);
-    final ago = lastApply.maybeWhen(
-      data: (t) => t == null ? null : humanizeAge(t),
-      orElse: () => null,
+    // Count is unique sections (apps with edits), not key-count.
+    final pendingKeys = context.watch(pendingChangeKeysProvider);
+    final configSections = <String>{};
+    for (final k in pendingKeys) {
+      final dot = k.indexOf('.');
+      configSections.add(dot >= 0 ? k.substring(0, dot) : k);
+    }
+    final configChangesNames = configSections.toList()..sort();
+
+    return NodeTile(
+      hostname: config.system.hostname,
+      uptimeSec: _readUptimeSec(context),
+      appliedAgoText: appliedAgoText,
+      systemUpdatesCount: systemUpdatesCount,
+      systemUpdateSources: updateSources,
+      configChangesCount: configChangesNames.length,
+      configChangesNames: configChangesNames,
     );
-    if (ago == null) return const [];
-    return [
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Text(
-          '~ all applied — last apply $ago',
-          style: const TextStyle(color: Color.fromRGB(110, 220, 110)),
-        ),
-      ),
-    ];
   }
 
   bool _handleScrollKey(KeyboardEvent event) {
@@ -215,50 +155,16 @@ class _DashboardViewState extends State<DashboardView> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: DashboardChrome(
-                hostname: config.system.hostname,
-                platform: config.system.platform,
-                network: config.appOption<String>('bitcoind', 'network'),
-                uptimeSec: _readUptimeSec(context),
-                appliedAgo:
-                    null, // Stub; future task wires git_provider's last-applied
-              ),
-            ),
+            // Identity-continuity caveat — see plugin-trust-models.md §5.4.
             if (pendingCount > 0)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '! $pendingCount pending '
-                      '${pendingCount == 1 ? "change" : "changes"} '
-                      '— press [a] to review',
-                      style: const TextStyle(
-                        color: Color.fromRGB(247, 147, 26),
-                      ),
-                    ),
-                    // Identity-continuity caveat (Approach A,
-                    // §5.4 Layer 1 of plugin-trust-models.md): the
-                    // dirty tree could be the operator's own edits
-                    // OR an out-of-band tamper. The TUI can't tell
-                    // from the diff alone; flag the dual reading
-                    // so the operator reviews unfamiliar entries.
-                    const Text(
-                      '  if you don\'t recognise these, an external '
-                      'process may have modified the tracked tree',
-                      style: TextStyle(color: Color.fromRGB(150, 150, 180)),
-                    ),
-                  ],
+                child: const Text(
+                  'review pending edits before applying — '
+                  'an external process may have modified the tracked tree',
+                  style: TextStyle(color: Color.fromRGB(150, 150, 180)),
                 ),
-              )
-            else
-              ..._buildAllAppliedLine(context),
-            ..._buildUpdateAvailableBanner(context),
-            ..._buildDriftBanner(context),
-            const SizedBox(height: 1),
+              ),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -266,7 +172,11 @@ class _DashboardViewState extends State<DashboardView> {
                   builder: (context, constraints) {
                     final cols = columnsFor(constraints.maxWidth);
                     final pluginTiles = _pluginTiles(context);
-                    final tiles = <Component>[...bundledTiles, ...pluginTiles];
+                    final tiles = <Component>[
+                      _buildNodeTile(context, config),
+                      ...bundledTiles,
+                      ...pluginTiles,
+                    ];
                     return Focusable(
                       focused: true,
                       onKeyEvent: _handleScrollKey,

@@ -62,6 +62,13 @@ const _entries = [
     DevView.dashboard,
   ),
   _DevMenuEntry(
+    'Node Tile (header)',
+    'NodeTile preview with hotkey-toggleable update / drift / pending / '
+        'applied-age state. Use for iterating on the dashboard-header '
+        'replacement — see how the tile renders for each state combo.',
+    DevView.dashboardHeader,
+  ),
+  _DevMenuEntry(
     'Seed Reveal Flow',
     'First-boot LND seed disclosure: choice → display → confirm, '
         'with a fake mnemonic so it can be exercised without a real '

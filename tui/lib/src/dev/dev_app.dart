@@ -5,6 +5,7 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import 'views/confirm_prompt_demo_view.dart';
 import 'views/dashboard_demo_view.dart';
+import 'views/dashboard_header_demo_view.dart';
 import 'views/dev_menu_view.dart';
 import 'views/help_popup_demo_view.dart';
 import 'views/log_demo_view.dart';
@@ -27,6 +28,7 @@ enum DevView {
   serviceCard,
   helpPopup,
   dashboard,
+  dashboardHeader,
   seedReveal,
 }
 
@@ -136,6 +138,7 @@ class _DevShell extends StatelessComponent {
                 DevView.serviceCard => const ServiceCardDemoView(),
                 DevView.helpPopup => const HelpPopupDemoView(),
                 DevView.dashboard => const DashboardDemoView(),
+                DevView.dashboardHeader => const DashboardHeaderDemoView(),
                 DevView.seedReveal => const SeedDemoView(),
               },
             ),
