@@ -342,8 +342,10 @@ streams live. ~5-10 minutes on regtest, mostly bootstrap of:
 
 - bitcoind (regtest is empty so chain sync is instant)
 - lnd (waits for bitcoind; reads block 0)
-- blitz-api (FastAPI; waits for lnd's macaroon)
-- blitz-web (the React UI behind nginx)
+
+> The FastAPI backend (`blitz-api`) and the React UI (`blitz-web`)
+> ship as plugins, not built-in apps. Install them after the wizard
+> from Configure → Plugins to get the web frontend.
 
 > If `nixos-rebuild` exits with code 4, the wizard shows a yellow
 > "completed with warnings" banner instead of failing outright.

@@ -149,12 +149,14 @@ CLI invocations the timer wraps: `nixblitz check light` and
 
 ## Templates drift detection
 
-The TUI compares its embedded templates against
-`~/nixblitz/templates/` per-key on launch. When non-empty, the
-dashboard surfaces a yellow banner and the footer adds
-`[r]: Refresh templates`; pressing `[r]` rewrites the on-disk
-copy from the binary and routes you to the apply view so you
-review the diff before committing.
+The TUI compares its embedded templates against `~/nixblitz/`
+per-key on launch. When drift is detected, it folds into the
+dashboard's NodeTile `system updates` row alongside any
+flake-input bumps — the operator sees a single "X to apply"
+indicator rather than a separate banner. Apply (`[a]`) and Update
+(`[u]`) both auto-rewrite the drifted files as a preflight before
+running `nixos-rebuild`, so drift never has its own operator-facing
+concept or keybind to learn.
 
 This is intentionally separate from config-schema migrations
 (which run on launch when `config.json`'s `version` field is older

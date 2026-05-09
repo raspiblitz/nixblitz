@@ -80,7 +80,7 @@ nixblitz/
 │   ├── hosts/installer.nix  # Live-ISO host config
 │   ├── hosts/installed.nix  # Post-install host config
 │   ├── modules/system/      # base, disko, operator, test-lnd, update-check
-│   └── modules/apps/        # bitcoind, lnd, cln, blitz-api, blitz-web
+│   └── modules/apps/        # bitcoind, lnd, cln (blitz-api / blitz-web ship as plugins)
 ├── scripts/                 # Codegen helpers
 │   └── gen_embedded_templates.dart
 └── examples_redesign/       # Vendored references (gitignored)
@@ -172,18 +172,18 @@ generations also stick around — `sudo nixos-rebuild switch
 The TUI uses [Riverpod](https://riverpod.dev) for reactive state.
 A handful of providers do the heavy lifting:
 
-| Provider                                                         | What                                                                                                                                                                  |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `configProvider`                                                 | The `NixblitzConfig` from `~/nixblitz/config.json`                                                                                                                    |
-| `pendingChangesProvider`                                         | git-diff lines for the dashboard's "pending" banner                                                                                                                   |
-| `templatesDriftProvider`                                         | Snapshot of `EmbeddedTemplates` vs `~/nixblitz/`; populated at TUI launch, drives the dashboard's "[r] refresh" banner                                                |
-| `gitServiceProvider`                                             | Wraps `git` for diff + commit + reset                                                                                                                                 |
-| `systemServiceProvider`                                          | nixos-rebuild + service-status queries                                                                                                                                |
-| `pluginServiceProvider`                                          | `plugin add/remove/refresh` machinery                                                                                                                                 |
-| `pluginConfigProvider(dir)`                                      | Per-plugin `config.json` (one per active plugin)                                                                                                                      |
-| `pluginDashboardServiceProvider` / `pluginTileSnapshotsProvider` | Plugin tile pollers + snapshots                                                                                                                                       |
-| `dashboardDataSourceProvider`                                    | Picks the SSE / null source for built-in tiles. Forwards last-known snapshots across recreates via an internal cache so config-change rebuilds don't blank the tiles. |
-| `sudoSessionProvider`                                            | Singleton SudoSession (auth state + keepalive)                                                                                                                        |
+| Provider                                                         | What                                                                                                                                                                                            |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `configProvider`                                                 | The `NixblitzConfig` from `~/nixblitz/config.json`                                                                                                                                              |
+| `pendingChangesProvider`                                         | git-diff lines feeding the dashboard's NodeTile `config changes` row                                                                                                                            |
+| `templatesDriftProvider`                                         | Snapshot of `EmbeddedTemplates` vs `~/nixblitz/`; populated at TUI launch. Folded into the NodeTile's `system updates` count so drift surfaces as "rebuild needed" alongside flake-input bumps. |
+| `gitServiceProvider`                                             | Wraps `git` for diff + commit + reset                                                                                                                                                           |
+| `systemServiceProvider`                                          | nixos-rebuild + service-status queries                                                                                                                                                          |
+| `pluginServiceProvider`                                          | `plugin add/remove/refresh` machinery                                                                                                                                                           |
+| `pluginConfigProvider(dir)`                                      | Per-plugin `config.json` (one per active plugin)                                                                                                                                                |
+| `pluginDashboardServiceProvider` / `pluginTileSnapshotsProvider` | Plugin tile pollers + snapshots                                                                                                                                                                 |
+| `dashboardDataSourceProvider`                                    | Picks the SSE / null source for built-in tiles. Forwards last-known snapshots across recreates via an internal cache so config-change rebuilds don't blank the tiles.                           |
+| `sudoSessionProvider`                                            | Singleton SudoSession (auth state + keepalive)                                                                                                                                                  |
 
 All UI components watch via `context.watch(provider)`; one-shot
 reads use `context.read(provider)`.
@@ -211,13 +211,15 @@ from two sources to avoid the "waiting for event…" flash:
 ### Templates drift detection
 
 `detectTemplatesDrift(baseDir)` compares the binary's
-`EmbeddedTemplates.getAll()` against the on-disk
-`~/nixblitz/templates/` per-key. Computed once at launch and
-stashed in `templatesDriftProvider`. When non-empty, the
-dashboard surfaces a yellow banner and the footer adds `[r]:
-Refresh templates`; pressing `[r]` runs `refreshTemplatesSync()`
-and routes to the apply view so the operator reviews the diff
-before committing.
+`EmbeddedTemplates.getAll()` against `~/nixblitz/` per-key.
+Computed once at launch and stashed in `templatesDriftProvider`.
+The drift count folds into the NodeTile's `system updates` row
+(it bumps the count by 1 with no per-name entry) so the operator
+sees a single "X to apply" indicator regardless of whether the
+trigger is a flake-input bump, a templates-only release, or both.
+Apply / Update both auto-rewrite drifted templates as a preflight
+before invoking `nixos-rebuild`, so drift never has its own
+operator-facing concept or keybind.
 
 This is intentionally separate from config-schema migrations
 (which run via `_autoMigrateConfig` on launch when
@@ -228,12 +230,10 @@ catches it.
 
 ### Footer hints
 
-The footer text is computed by `_footerHint(view, hasPending,
-hasDrift)`. Some keybinds only appear when their action is
-actually applicable: `[a]: Apply` only when there are pending
-changes, `[r]: Refresh templates` only when drift is detected.
-This keeps the footer terse and prevents operators from being
-told about shortcuts that would no-op.
+The footer text is computed by `_footerHint(view,
+{required hasPending})`. `[a]: Apply` only appears when there
+are pending changes, keeping the footer terse and preventing
+operators from being told about shortcuts that would no-op.
 
 ## SudoSession (sudo posture)
 
