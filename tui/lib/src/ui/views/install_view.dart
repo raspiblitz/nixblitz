@@ -907,11 +907,6 @@ class _InstallViewState extends State<InstallView> {
             ),
           const SizedBox(height: 1),
           Expanded(child: ScrollableLog(lines: logLines, focused: true)),
-          const SizedBox(height: 1),
-          const Text(
-            '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [gg/G] top/bottom   [/] search',
-            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
-          ),
         ],
       ),
     );
@@ -1053,7 +1048,6 @@ class _InstallViewState extends State<InstallView> {
             Expanded(child: ScrollableLog(lines: logLines, focused: true)),
             const SizedBox(height: 1),
             const Text(
-              '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [gg/G] top/bottom   [/] search   '
               '[Esc] back to disk picker',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),

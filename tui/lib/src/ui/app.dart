@@ -88,6 +88,7 @@ List<({String text, Color color})> _headerSegments(
   NixblitzConfig config,
   String liveAlias,
   int pendingCount,
+  AppView view,
 ) {
   const dim = Color.fromRGB(180, 180, 200);
   const pending = Color.fromRGB(220, 180, 100); // same yellow as `*` markers
@@ -112,15 +113,24 @@ List<({String text, Color color})> _headerSegments(
   };
   if (platform.isNotEmpty) segs.add((text: platform, color: dim));
 
-  // Pending status: yellow `X pending` when count > 0, dim
-  // `all applied` when zero. Wording deliberately avoids
-  // "in sync" / "synced" — that reads as Bitcoin / Lightning
-  // chain-sync state in this domain. `applied` ties to the
-  // `[a]` Apply keybind that flips pending → applied.
-  if (pendingCount > 0) {
-    segs.add((text: '$pendingCount pending', color: pending));
-  } else {
-    segs.add((text: 'all applied', color: dim));
+  // Status segment: during the pre-dashboard wizard phases the
+  // "all applied" / "X pending" idiom is meaningless (no system
+  // to apply against yet); show a phase label instead. Wording
+  // for the dashboard case deliberately avoids "in sync" /
+  // "synced" — that reads as Bitcoin / Lightning chain-sync
+  // state in this domain. `applied` ties to the `[a]` Apply
+  // keybind that flips pending → applied.
+  switch (view) {
+    case AppView.install:
+      segs.add((text: 'installing', color: dim));
+    case AppView.setup:
+      segs.add((text: 'setting up', color: dim));
+    default:
+      if (pendingCount > 0) {
+        segs.add((text: '$pendingCount pending', color: pending));
+      } else {
+        segs.add((text: 'all applied', color: dim));
+      }
   }
 
   return segs;
@@ -432,6 +442,7 @@ class _Shell extends StatelessComponent {
                               cfg,
                               liveAlias,
                               pendingCount,
+                              context.watch(currentViewProvider),
                             );
                             // Render as a Row of segment + " | "
                             // separator + segment, each in its
