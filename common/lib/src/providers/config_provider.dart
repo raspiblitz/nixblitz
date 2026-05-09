@@ -38,8 +38,18 @@ class ConfigNotifier extends StateNotifier<AsyncValue<NixblitzConfig>> {
     }
   }
 
+  // Sync write deliberately. Async writes here race with sync
+  // writeConfigSync calls in adjacent code paths (the setup wizard
+  // writes via writeConfigSync + immediately calls updateConfig with
+  // the same content, and _markStepCompleted does the same dance):
+  // Dart's `writeAsString` truncates at open time but doesn't clear
+  // bytes past the new content's length, so two concurrent
+  // truncate-and-write calls splice the longer write's tail onto the
+  // shorter write's body. Result: malformed JSON. Sync write closes
+  // the race entirely and the file is small enough that the lost
+  // async-ness doesn't matter.
   Future<void> updateConfig(NixblitzConfig config) async {
-    await _configService.writeConfig(config);
+    _configService.writeConfigSync(config);
     state = AsyncValue.data(config);
   }
 
