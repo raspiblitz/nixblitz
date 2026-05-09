@@ -382,6 +382,23 @@ const String _hostsInstalledPi5 = r'''
     enable = true;
     value = "on";
   };
+
+  # 8 GB swapfile. The Pi 5 ships with 8 GB RAM, which is enough
+  # for nix-bitcoin runtime but NOT enough to compile Rust workspaces
+  # like `uv` from source — rustc + LLVM linker peak around 1-1.5 GB
+  # per concurrent rustc, cargo schedules multiple within a single
+  # build, and OOM-kills the whole `nixos-rebuild` (taking SSH and
+  # the entire system with it) midway through the closure. A swapfile
+  # absorbs the spike at the cost of some I/O. Future Pi-local
+  # rebuilds that miss the cachix substituters (e.g. when the
+  # nixpkgs pin moves past what nvmd's CI has built) need this to
+  # finish at all.
+  swapDevices = [
+    {
+      device = "/var/lib/swapfile";
+      size = 8 * 1024;
+    }
+  ];
 }
 ''';
 
