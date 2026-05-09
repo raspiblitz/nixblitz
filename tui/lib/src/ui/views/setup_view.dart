@@ -297,6 +297,15 @@ class _SetupViewState extends State<SetupView> {
         message,
       ], workingDirectory: baseDirPath);
       LogService.info('git commit "$message" exit=${gitCommit.exitCode}');
+      // HEAD just moved; invalidate the cached HEAD-config so
+      // pendingChangeKeysProvider diffs against the new HEAD instead
+      // of the stale pre-wizard cache. Without this, every section
+      // the wizard touched shows up as pending on the post-wizard
+      // dashboard until the operator restarts the TUI. Apply / Update
+      // already do this at their own commit sites.
+      if (gitCommit.exitCode == 0) {
+        context.invalidate(committedConfigProvider);
+      }
     } catch (e, st) {
       LogService.error('commitWizardFiles failed', e, st);
     }
