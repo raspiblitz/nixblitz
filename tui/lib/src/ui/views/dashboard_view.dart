@@ -31,8 +31,16 @@ class _DashboardViewState extends State<DashboardView> {
   /// Plugins whose manifests fail to parse are silently skipped
   /// (logged); the dashboard staying functional matters more than
   /// surfacing per-plugin manifest errors here.
-  List<Component> _pluginTiles(BuildContext context) {
+  ///
+  /// Height estimate per tile: snapshot rows + chrome (~8). Falls
+  /// back to a small constant when no snapshot has arrived yet —
+  /// the layout re-packs every frame so heights catch up as data
+  /// lands.
+  List<SizedTile> _pluginTiles(BuildContext context) {
     final manifests = context.watch(installedPluginsProvider);
+    final snapshots = context
+        .watch(pluginTileSnapshotsProvider)
+        .maybeWhen(data: (m) => m, orElse: () => null);
     final entries = <({String id, String title, String accent})>[];
     for (final m in manifests) {
       final spec = m.dashboard;
@@ -44,10 +52,13 @@ class _DashboardViewState extends State<DashboardView> {
     );
     return [
       for (final e in entries)
-        PluginTile(
-          dirName: e.id,
-          fallbackTitle: e.title,
-          accentColorHex: e.accent,
+        (
+          widget: PluginTile(
+            dirName: e.id,
+            fallbackTitle: e.title,
+            accentColorHex: e.accent,
+          ),
+          height: (snapshots?[e.id]?.rows.length ?? 4) + 8,
         ),
     ];
   }
@@ -141,19 +152,35 @@ class _DashboardViewState extends State<DashboardView> {
         // its live snapshot. The snapshot is seeded from the cache so
         // a late subscriber sees data immediately (no flicker through
         // loading state on re-entry).
+        //
+        // Height estimate: one row per top-level layout primitive +
+        // 8 rows of chrome (border, title, spacers, optional footer
+        // upper bound). Slight over-estimate when the manifest's
+        // footer rule resolves to nothing for the current snapshot;
+        // packing is robust to that — [assignColumnsByHeight] places
+        // each tile into the currently-shortest column, so a small
+        // overestimate just nudges the next tile to the other column.
         final manifests = context.watch(tileManifestsProvider);
-        final bundledTiles = <Component>[
+        final bundledTiles = <SizedTile>[
           for (final m in manifests)
-            TileRenderer(
-              manifest: m,
-              snapshot:
-                  context.watch(tileSnapshotProvider(m.id)).value ??
-                  const TileSnapshot(),
+            (
+              widget: TileRenderer(
+                manifest: m,
+                snapshot:
+                    context.watch(tileSnapshotProvider(m.id)).value ??
+                    const TileSnapshot(),
+              ),
+              height: m.layout.length + 8,
             ),
         ];
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          // `stretch` (not `start`) so the Expanded child below
+          // gets the full horizontal width. Without this, the
+          // nested LayoutBuilder reports its intrinsic-content
+          // width and `columnsFor` never crosses the 3-col
+          // breakpoint even at wide terminals.
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Identity-continuity caveat — see plugin-trust-models.md §5.4.
             if (pendingCount > 0)
@@ -172,8 +199,11 @@ class _DashboardViewState extends State<DashboardView> {
                   builder: (context, constraints) {
                     final cols = columnsFor(constraints.maxWidth);
                     final pluginTiles = _pluginTiles(context);
-                    final tiles = <Component>[
-                      _buildNodeTile(context, config),
+                    final tiles = <SizedTile>[
+                      (
+                        widget: _buildNodeTile(context, config),
+                        height: NodeTile.tileHeight,
+                      ),
                       ...bundledTiles,
                       ...pluginTiles,
                     ];

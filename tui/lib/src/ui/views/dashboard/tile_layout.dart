@@ -1,5 +1,11 @@
 import 'package:nocterm/nocterm.dart';
 
+/// A dashboard tile bundled with the row-count it expects to occupy.
+/// The packer balances columns by *total height*, not tile count, so
+/// callers pass an estimate of each tile's vertical footprint
+/// (chrome + body rows) alongside the widget.
+typedef SizedTile = ({Component widget, int height});
+
 /// How many tile columns fit at [width]. Below 80 cols labels get
 /// cramped side-by-side; at 140+ there's enough horizontal room
 /// for 3.
@@ -9,50 +15,53 @@ int columnsFor(double width) {
   return 3;
 }
 
-/// Pure column-assignment for [tileRows]. Given [n] tiles and
-/// [cols] columns, return the list of tile indices that land in
-/// each column, top-to-bottom.
+/// Pure column-assignment for [tileRows]. Returns the list of tile
+/// indices that land in each column, top-to-bottom.
 ///
-/// Conceptually the layout is a `rows x cols` grid filled
-/// row-major. Strict round-robin would leave a partial last row
-/// LEFT-aligned, which strands an orphan tile alone in the bottom
-/// of the leftmost column when other columns ended earlier — reads
-/// as "something missing." Right-aligning the partial last row
-/// pushes the gap into the BOTTOM-LEFT corner(s), where it reads
-/// as the natural end of a list.
+/// Algorithm: shortest-fit greedy. Iterate input order; place each
+/// tile into the column with the currently-smallest total height
+/// (ties → leftmost column). This is the standard approach for
+/// content-balanced masonry layouts and lets the dashboard cope
+/// with real-world content where one tile (Lightning) is twice as
+/// tall as another (Hardware).
 ///
-/// A naive "move the last tile to the shortest column" rule (an
-/// earlier attempt) gets cols=2 right but breaks cols=3 / N=5: it
-/// teleports the last tile across the middle column to the
-/// rightmost, leaving the middle column as a *between* gap —
-/// worse than the original. Right-aligning the entire last
-/// partial row keeps the gaps contiguous on the left.
+/// Order within a column always matches input order, so the
+/// dashboard reads top-to-bottom in the same order tiles were
+/// supplied. Cross-column reading order is column-major (down
+/// the first column, then the next).
 ///
-/// Not real masonry — tiles have varying heights and we don't
-/// track them. Just count-balance with a consistent gap position.
-///
-/// Public so the layout logic can be tested without rendering;
-/// callers in the dashboard go through [tileRows] instead.
-List<List<int>> assignColumns(int n, int cols) {
-  if (n <= 0 || cols <= 0) return List.generate(cols, (_) => const []);
-  if (cols == 1) return [List.generate(n, (i) => i)];
-
-  final rows = (n + cols - 1) ~/ cols;
-  final lastRowStart = (rows - 1) * cols;
-  final lastRowCount = n - lastRowStart;
-  final shift = rows > 1 && lastRowCount < cols ? cols - lastRowCount : 0;
-
-  final columns = List.generate(cols, (_) => <int>[]);
-  for (var i = 0; i < n; i++) {
-    final col = i < lastRowStart ? i % cols : (i - lastRowStart + shift);
-    columns[col].add(i);
+/// Earlier shapes of this function balanced *count* (each column
+/// gets the same number of tiles, with the last partial row
+/// right-aligned). That looked fine when tile heights were
+/// similar but stranded short tiles in one column while the
+/// other clipped past the viewport when heights diverged.
+/// Height-aware packing fixes that at the cost of slightly more
+/// computation (linear in tiles × cols, vs. constant before).
+List<List<int>> assignColumnsByHeight(List<int> heights, int cols) {
+  if (cols <= 0) return const [];
+  if (heights.isEmpty) return List.generate(cols, (_) => const <int>[]);
+  if (cols == 1) {
+    return [List.generate(heights.length, (i) => i)];
   }
-  return columns;
+
+  final colHeights = List.filled(cols, 0);
+  final colTiles = List.generate(cols, (_) => <int>[]);
+
+  for (var i = 0; i < heights.length; i++) {
+    var minCol = 0;
+    for (var c = 1; c < cols; c++) {
+      if (colHeights[c] < colHeights[minCol]) minCol = c;
+    }
+    colTiles[minCol].add(i);
+    colHeights[minCol] += heights[i];
+  }
+
+  return colTiles;
 }
 
 /// Lay out [tiles] in a [cols]-wide masonry: each column is a
 /// stack of tiles abutting top-to-bottom; tiles are distributed
-/// to columns by index (`tile[i] → column[i % cols]`).
+/// to columns by [assignColumnsByHeight] above.
 ///
 /// Why masonry instead of per-row pairing: nocterm has no
 /// `IntrinsicHeight` and `CrossAxisAlignment.stretch` in an
@@ -70,19 +79,23 @@ List<List<int>> assignColumns(int n, int cols) {
 ///
 /// Returns a single-element list (the layout root) so callers can
 /// keep treating this as "the body" of a scrollable column.
-List<Component> tileRows(List<Component> tiles, int cols) {
+List<Component> tileRows(List<SizedTile> tiles, int cols) {
   if (tiles.isEmpty) return const [];
 
-  // Single column: just stack everything top to bottom.
   if (cols <= 1) {
     return [
-      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: tiles),
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: tiles.map((t) => t.widget).toList(),
+      ),
     ];
   }
 
-  final assignments = assignColumns(tiles.length, cols);
+  final heights = tiles.map((t) => t.height).toList();
+  final assignments = assignColumnsByHeight(heights, cols);
   final columns = [
-    for (final indices in assignments) [for (final i in indices) tiles[i]],
+    for (final indices in assignments)
+      [for (final i in indices) tiles[i].widget],
   ];
 
   final rowChildren = <Component>[];

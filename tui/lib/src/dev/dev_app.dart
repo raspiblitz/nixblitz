@@ -7,6 +7,7 @@ import 'views/confirm_prompt_demo_view.dart';
 import 'views/dashboard_demo_view.dart';
 import 'views/dashboard_header_demo_view.dart';
 import 'views/dev_menu_view.dart';
+import 'views/tile_layout_demo_view.dart';
 import 'views/help_popup_demo_view.dart';
 import 'views/log_demo_view.dart';
 import 'views/option_editor_demo_view.dart';
@@ -29,6 +30,7 @@ enum DevView {
   helpPopup,
   dashboard,
   dashboardHeader,
+  tileLayout,
   seedReveal,
 }
 
@@ -139,6 +141,7 @@ class _DevShell extends StatelessComponent {
                 DevView.helpPopup => const HelpPopupDemoView(),
                 DevView.dashboard => const DashboardDemoView(),
                 DevView.dashboardHeader => const DashboardHeaderDemoView(),
+                DevView.tileLayout => const TileLayoutDemoView(),
                 DevView.seedReveal => const SeedDemoView(),
               },
             ),

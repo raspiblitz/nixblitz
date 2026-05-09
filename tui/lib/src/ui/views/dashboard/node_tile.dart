@@ -20,6 +20,13 @@ import '../../widgets/tile.dart';
 /// appear inside the tile — they live in the dashboard's keybind
 /// footer. Tiles are passive readouts.
 class NodeTile extends StatelessComponent {
+  /// Total terminal-row footprint of this tile, used by
+  /// [tileRows] / [assignColumnsByHeight] for height-balanced
+  /// column packing. Always 4 content rows (uptime, last apply,
+  /// system updates, config changes) plus chrome (border, title,
+  /// padding, spacer).
+  static const int tileHeight = 10;
+
   final String hostname;
   final int? uptimeSec;
   final String? appliedAgoText;

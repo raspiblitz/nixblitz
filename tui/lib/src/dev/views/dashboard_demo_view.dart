@@ -39,62 +39,77 @@ class DashboardDemoView extends StatelessComponent {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final cols = columnsFor(constraints.maxWidth);
-          final tiles = <Component>[
-            const Tile(
-              title: 'nixblitz',
-              accent: _white,
-              statusLabel: 'x86 | regtest',
-              rows: [
-                TileRow('network', 'regtest'),
-                TileRow('uptime', '21h 7m'),
-                TileRow('blitz-api', 'running', valueColor: _ok),
-                TileRow('blitz-web', 'stopped'),
-                TileRow('nginx', 'running', valueColor: _ok),
-                TileRow('redis', 'running', valueColor: _ok),
-              ],
+          final tiles = <SizedTile>[
+            (
+              widget: const Tile(
+                title: 'nixblitz',
+                accent: _white,
+                statusLabel: 'x86 | regtest',
+                rows: [
+                  TileRow('network', 'regtest'),
+                  TileRow('uptime', '21h 7m'),
+                  TileRow('blitz-api', 'running', valueColor: _ok),
+                  TileRow('blitz-web', 'stopped'),
+                  TileRow('nginx', 'running', valueColor: _ok),
+                  TileRow('redis', 'running', valueColor: _ok),
+                ],
+              ),
+              height: 6 + 6,
             ),
-            const Tile(
-              title: 'memory / disk',
-              accent: _cyan,
-              rows: [
-                TileRow('memory', '1.1 GB / 7.8 GB (15%)'),
-                TileRow('disk', '93 GB / 147 GB (64%)'),
-              ],
+            (
+              widget: const Tile(
+                title: 'memory / disk',
+                accent: _cyan,
+                rows: [
+                  TileRow('memory', '1.1 GB / 7.8 GB (15%)'),
+                  TileRow('disk', '93 GB / 147 GB (64%)'),
+                ],
+              ),
+              height: 2 + 6,
             ),
-            const Tile(
-              title: 'Bitcoin',
-              accent: _orange,
-              statusLabel: '39%',
-              rows: [
-                TileRow('blocks', '153'),
-                TileRow('peers', '0'),
-                TileRow('mempool', '0 tx'),
-                TileRow('disk', '46 KB'),
-              ],
+            (
+              widget: const Tile(
+                title: 'Bitcoin',
+                accent: _orange,
+                statusLabel: '39%',
+                rows: [
+                  TileRow('blocks', '153'),
+                  TileRow('peers', '0'),
+                  TileRow('mempool', '0 tx'),
+                  TileRow('disk', '46 KB'),
+                ],
+              ),
+              height: 4 + 6,
             ),
-            const Tile(
-              title: 'Lightning',
-              accent: _purple,
-              statusLabel: 'LND_GRPC',
-              rows: [
-                TileRow('alias', '0267a599c9def57bc8a7'),
-                TileRow('pubkey', '0267a599c9…'),
-                TileRow('synced', 'no'),
-                TileRow('peers', '0'),
-                TileRow('channels', '0 active'),
-                TileRow('on-chain', '98_995_882 sat'),
-                TileRow('channel', '895_530 sat'),
-              ],
+            (
+              widget: const Tile(
+                title: 'Lightning',
+                accent: _purple,
+                statusLabel: 'LND_GRPC',
+                rows: [
+                  TileRow('alias', '0267a599c9def57bc8a7'),
+                  TileRow('pubkey', '0267a599c9…'),
+                  TileRow('synced', 'no'),
+                  TileRow('peers', '0'),
+                  TileRow('channels', '0 active'),
+                  TileRow('on-chain', '98_995_882 sat'),
+                  TileRow('channel', '895_530 sat'),
+                ],
+              ),
+              height: 7 + 6,
             ),
-            const Tile(
-              title: 'Tailscale',
-              accent: _teal,
-              statusLabel: 'online',
-              statusColor: _ok,
-              rows: [
-                TileRow('tailnet', 'headscale.f44.fyi'),
-                TileRow('self_ip', '100.64.0.1'),
-              ],
+            (
+              widget: const Tile(
+                title: 'Tailscale',
+                accent: _teal,
+                statusLabel: 'online',
+                statusColor: _ok,
+                rows: [
+                  TileRow('tailnet', 'headscale.f44.fyi'),
+                  TileRow('self_ip', '100.64.0.1'),
+                ],
+              ),
+              height: 2 + 6,
             ),
           ];
 

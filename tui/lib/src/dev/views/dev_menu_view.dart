@@ -69,6 +69,13 @@ const _entries = [
     DevView.dashboardHeader,
   ),
   _DevMenuEntry(
+    'Tile Layout Packing',
+    'Synthetic tiles with random heights to exercise the height-aware '
+        'masonry packer. Hotkeys cycle tile count / column count / '
+        're-randomize heights so layout edge cases can be tried fast.',
+    DevView.tileLayout,
+  ),
+  _DevMenuEntry(
     'Seed Reveal Flow',
     'First-boot LND seed disclosure: choice → display → confirm, '
         'with a fake mnemonic so it can be exercised without a real '
