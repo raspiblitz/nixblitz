@@ -1115,7 +1115,7 @@ class _UpdateViewState extends State<UpdateView> {
           Expanded(child: ScrollableLog(lines: outputLines, focused: true)),
           const SizedBox(height: 1),
           const Text(
-            '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [g/G] top/bottom   [/] search',
+            '[↑/↓ j/k] scroll   [PgUp/PgDn] page   [gg/G] top/bottom   [/] search',
             style: TextStyle(color: Color.fromRGB(150, 150, 180)),
           ),
         ],
