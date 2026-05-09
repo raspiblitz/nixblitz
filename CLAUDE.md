@@ -156,6 +156,11 @@ When adding a flake input to either `flake.nix` or `templates/flake.nix`, **alwa
 - **Breaks downstream overlays.** A flake input that captures `pkgs = nixpkgs.legacyPackages.${system}` from its own pinned nixpkgs won't see your `nixpkgs.overlays` declarations at NixOS module level. The Pi 5's blitz-api / uv jemalloc-sys saga (issue #24 thread) bit us exactly because `blitz-api` had no follows — its uv was captured at blitz-api flake-eval time, and our overlay couldn't reach it. **Always follows.**
 - **Reduces binary-cache hit rate.** The combinatorial explosion of pinned-nixpkgs versions means cache.nixos.org / our future Attic cache substitutes fewer paths.
 
-Same rule applies for any other shared input in scope (`disko`, `nixos-raspberrypi`, …) — if input A depends on input B and we already pin B, A should follow.
+Same rule applies for any other shared input in scope (`disko`, …) — if input A depends on input B and we already pin B, A should follow.
 
-**Documented exception:** `flake.nix`'s `nixpkgs-unstable` deliberately stays separate because the Dart-workspace-member-filter patch lives there. If you find yourself wanting another exception, add a comment immediately above the input explaining why so the rule stays understandable to the next contributor.
+**Documented exceptions** — both have a comment block above the input recording WHY:
+
+- `flake.nix`'s `nixpkgs-unstable` stays separate because the Dart-workspace-member-filter patch lives there.
+- `templates/flake.nix`'s `nixos-raspberrypi` does NOT follow nixpkgs. nvmd's CI publishes the Pi 5 vendor kernel + page-size-16k jemalloc to `nixos-raspberrypi.cachix.org` built against THEIR pinned nixpkgs; following ours diverges the derivation hash, forces a multi-hour Pi-local kernel rebuild on every nixpkgs bump, and risks thermal-stressing operator hardware. The cache hit on `nixos-raspberrypi.cachix.org` is dramatically more valuable than the ~400MB of extra nixpkgs in the closure.
+
+Whenever a third exception is genuinely warranted, add it here AND in a comment above the input.

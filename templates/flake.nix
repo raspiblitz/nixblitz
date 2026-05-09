@@ -18,9 +18,17 @@
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
     # come from this third-party flake. Pinned to a tag so refreshes
     # are explicit; bump deliberately rather than tracking `main`.
+    #
+    # Deliberately NOT following nixpkgs (the only documented exception
+    # to that rule besides `flake.nix`'s nixpkgs-unstable). nvmd's CI
+    # publishes the vendor kernel + page-size-16k jemalloc to
+    # `nixos-raspberrypi.cachix.org` built against THEIR pinned
+    # nixpkgs; following ours diverges the derivation hash and forces
+    # a Pi-local kernel rebuild — multi-hour aarch64 pain on every
+    # nixpkgs bump. Closure cost (one extra nixpkgs snapshot, ~400MB)
+    # is well below what we save in build time + thermal load.
     nixos-raspberrypi = {
       url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
