@@ -11,6 +11,7 @@ import '../widgets/experimental_warning.dart';
 import '../widgets/lnd_seed_panel.dart';
 import '../widgets/password_input.dart';
 import '../widgets/scrollable_log.dart';
+import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 
@@ -53,6 +54,16 @@ final _pluginInstallStatusProvider =
     StateProvider<({String? message, bool error})>(
       (ref) => (message: null, error: false),
     );
+
+/// Selected index in the Lightning backend picker. Held in a
+/// StateProvider so the SelectPopup's `onHighlight` callback can
+/// drive a rebuild without making the surrounding view stateful.
+final _lightningBackendIdxProvider = StateProvider<int>((ref) => 0);
+
+/// Backend the operator confirmed (after Enter on the SelectPopup).
+/// null while the picker is still showing; set to "lnd"/"cln"/"none"
+/// once the operator picks. Drives the install-status overlay.
+final _lightningBackendChoiceProvider = StateProvider<String?>((ref) => null);
 
 class SetupView extends StatefulComponent {
   const SetupView({super.key});
@@ -138,6 +149,71 @@ class _SetupViewState extends State<SetupView> {
     final s = seconds % 60;
     if (m > 0) return '${m}m ${s}s';
     return '${s}s';
+  }
+
+  bool _selectLightningStarted = false;
+
+  void _startInstallLightningBackend(String backend) {
+    if (_selectLightningStarted) return;
+    _selectLightningStarted = true;
+
+    if (backend == 'none') {
+      LogService.info('selectLightningBackend: operator chose none');
+      _markStepCompleted(SetupStep.selectLightningBackend);
+      context.read(_setupStepProvider.notifier).state = SetupStep.buildServices;
+      return;
+    }
+
+    final url = backend == 'lnd'
+        ? 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/lnd'
+        : 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/cln';
+
+    context.read(_pluginInstallStatusProvider.notifier).state = (
+      message: 'Fetching $backend plugin from forge…',
+      error: false,
+    );
+
+    final pluginService = context.read(pluginServiceProvider);
+    pluginService
+        .install(url)
+        .then((marker) {
+          if (!mounted) return;
+          LogService.info(
+            'selectLightningBackend: installed $backend (rev=${marker.rev})',
+          );
+
+          // Seed app_configs.<backend>.enabled = true. Existing keys
+          // win (resumability — operator may re-enter the wizard with
+          // values they already typed).
+          final configService = context.read(configServiceProvider);
+          final cfg = context.read(configProvider).value;
+          if (cfg != null) {
+            final apps = Map<String, Map<String, dynamic>>.from(cfg.appConfigs);
+            apps[backend] = {
+              'enabled': true,
+              ...?apps[backend],
+            };
+            final updated = cfg.copyWith(appConfigs: apps);
+            configService.writeConfigSync(updated);
+            context.read(configProvider.notifier).updateConfig(updated);
+          }
+
+          _markStepCompleted(SetupStep.selectLightningBackend);
+          // lnd needs the alias prompt; cln has no alias config so skip.
+          context.read(_setupStepProvider.notifier).state =
+              backend == 'lnd'
+                  ? SetupStep.setLightningAlias
+                  : SetupStep.buildServices;
+        })
+        .catchError((e, st) {
+          LogService.error('selectLightningBackend failed for $backend', e, st);
+          if (!mounted) return;
+          context.read(_pluginInstallStatusProvider.notifier).state = (
+            message: 'Install failed: $e',
+            error: true,
+          );
+          _selectLightningStarted = false; // allow retry
+        });
   }
 
   /// Auto-fires when entering the [SetupStep.installBitcoindPlugin]
@@ -261,6 +337,91 @@ class _SetupViewState extends State<SetupView> {
           ],
         ),
       ),
+    );
+  }
+
+  Component _buildSelectLightningBackend() {
+    final status = context.watch(_pluginInstallStatusProvider);
+    final choice = context.watch(_lightningBackendChoiceProvider);
+    final idx = context.watch(_lightningBackendIdxProvider);
+
+    // If a choice has been confirmed and an install is in flight or
+    // errored, show the install status. Otherwise show the picker.
+    if (choice != null && status.message != null) {
+      return Focusable(
+        focused: true,
+        onKeyEvent: (event) {
+          try {
+            if (status.error && event.logicalKey == LogicalKey.keyR) {
+              _startInstallLightningBackend(choice);
+              return true;
+            }
+            return false;
+          } catch (e, st) {
+            LogService.error('selectLightningBackend retry failed', e, st);
+            return true;
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.all(2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Installing $choice plugin',
+                style: const TextStyle(
+                  color: Color.fromRGB(247, 147, 26),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                status.message ?? '',
+                style: TextStyle(
+                  color: status.error
+                      ? const Color.fromRGB(255, 80, 80)
+                      : const Color.fromRGB(220, 220, 220),
+                ),
+              ),
+              if (status.error) ...[
+                const SizedBox(height: 1),
+                const Text(
+                  '[r] retry',
+                  style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Picker. SelectPopup is controlled — parent owns the index.
+    // Parallel arrays: index 0 → 'lnd', 1 → 'cln', 2 → 'none'.
+    const backendValues = ['lnd', 'cln', 'none'];
+    const backendLabels = [
+      'LND (Lightning Network Daemon)',
+      'Core Lightning (CLN)',
+      'None — bitcoin-only node',
+    ];
+
+    return SelectPopup(
+      title: 'Choose Lightning backend',
+      options: backendLabels,
+      selectedIndex: idx,
+      onHighlight: (i) =>
+          context.read(_lightningBackendIdxProvider.notifier).state = i,
+      onConfirm: (i) {
+        final value = backendValues[i];
+        context.read(_lightningBackendChoiceProvider.notifier).state = value;
+        _startInstallLightningBackend(value);
+      },
+      onCancel: () {
+        // Operator can't really cancel out of the wizard mid-flow; treat
+        // Esc as "fall back to none" so they always have a way out.
+        context.read(_lightningBackendChoiceProvider.notifier).state = 'none';
+        _startInstallLightningBackend('none');
+      },
     );
   }
 
@@ -517,7 +678,7 @@ class _SetupViewState extends State<SetupView> {
     return switch (step) {
       SetupStep.setPassword => _buildSetPassword(),
       SetupStep.installBitcoindPlugin => _buildInstallBitcoindPlugin(),
-      SetupStep.selectLightningBackend => const Text('Loading…'),
+      SetupStep.selectLightningBackend => _buildSelectLightningBackend(),
       SetupStep.setLightningAlias => _buildSetLightningAlias(),
       SetupStep.buildServices => _buildBuildServices(),
       SetupStep.waitBitcoind => _buildWaitBitcoind(),
