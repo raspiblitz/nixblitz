@@ -135,16 +135,7 @@ class NixblitzConfig {
 
   factory NixblitzConfig.defaults() => NixblitzConfig(
     system: SystemConfig.defaults(),
-    appConfigs: const {
-      'bitcoind': {
-        'enabled': true,
-        'network': 'mainnet',
-        'pruned': true,
-        'prune_size_gb': 550,
-      },
-      'lnd': {'enabled': false, 'alias': ''},
-      'cln': {'enabled': false},
-    },
+    appConfigs: const {},
   );
 
   // ── generic accessors ──────────────────────────────────────────────

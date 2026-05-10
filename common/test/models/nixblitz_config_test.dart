@@ -298,6 +298,11 @@ void main() {
         );
       },
     );
+
+    test('defaults() has empty app_configs', () {
+      final c = NixblitzConfig.defaults();
+      expect(c.appConfigs, isEmpty);
+    });
   });
 
   group('SystemConfig', () {
