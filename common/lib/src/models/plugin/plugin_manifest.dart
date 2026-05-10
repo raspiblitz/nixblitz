@@ -32,7 +32,7 @@ import 'package:common/src/models/plugin/plugin_tile.dart';
 /// `unit:` references rather than `command:` + `run_as_root: true`.
 /// Tile commands always run as the admin user (no `run_as_root` on
 /// `dashboard`). See sudo posture / Posture A in the project plan.
-const int currentPluginManifestVersion = 2;
+const int currentPluginManifestVersion = 3;
 
 /// Lowest manifest schema version this TUI can safely load. v1
 /// manifests are rejected because their `run_as_root: true` action
@@ -118,6 +118,12 @@ class PluginManifest {
   /// for its declared `tile_ids`. Default empty.
   final List<StreamerSpec> streamers;
 
+  /// DSL tile manifest paths shipped by this plugin. Each entry is a
+  /// path relative to the plugin's source root (e.g. `tile-bitcoin.json`).
+  /// The dashboard registers these into the global tile manifest pool
+  /// only when the plugin is enabled, alongside the bundled manifests.
+  final List<String> tileManifests;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -133,6 +139,7 @@ class PluginManifest {
     this.requires = const [],
     this.module,
     this.streamers = const [],
+    this.tileManifests = const [],
   }) : id = id ?? name;
 
   factory PluginManifest.fromJsonString(String s) =>
@@ -293,6 +300,24 @@ class PluginManifest {
       }
     }
 
+    final rawTileManifests = json['tile_manifests'];
+    final tileManifestsList = <String>[];
+    if (rawTileManifests != null) {
+      if (rawTileManifests is! List) {
+        throw const PluginManifestError(
+          'manifest.tile_manifests must be a list of relative path strings',
+        );
+      }
+      for (final entry in rawTileManifests) {
+        if (entry is! String || entry.isEmpty) {
+          throw const PluginManifestError(
+            'manifest.tile_manifests entries must be non-empty strings',
+          );
+        }
+        tileManifestsList.add(entry);
+      }
+    }
+
     return PluginManifest(
       schemaVersion: schemaVersion,
       minTuiVersion: minTui,
@@ -308,6 +333,7 @@ class PluginManifest {
       requires: List.unmodifiable(requiresList),
       module: module,
       streamers: List.unmodifiable(streamersList),
+      tileManifests: List.unmodifiable(tileManifestsList),
     );
   }
 
@@ -330,5 +356,6 @@ class PluginManifest {
     if (module != null) 'module': module,
     if (streamers.isNotEmpty)
       'streamers': [for (final s in streamers) s.toJson()],
+    if (tileManifests.isNotEmpty) 'tile_manifests': tileManifests,
   };
 }
