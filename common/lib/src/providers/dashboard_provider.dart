@@ -1,6 +1,6 @@
 // common/lib/src/providers/dashboard_provider.dart
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io';
 
 import 'package:riverpod/riverpod.dart';
 
@@ -134,10 +134,43 @@ final tileDataCacheProvider = Provider<TileDataCache>((ref) {
   return cache;
 });
 
-/// The four bundled tile manifests, parsed at startup.
-final tileManifestsProvider = Provider<List<TileManifest>>(
-  (ref) => bundledManifests,
-);
+/// Bundled manifests + every enabled plugin's declared `tile_manifests`.
+/// Paths are resolved relative to `<baseDir>/plugins/<id>/`. A plugin
+/// whose manifest declares `tile_manifests` but whose `app_configs[id]
+/// .enabled` is false contributes nothing — same gating as streamers.
+///
+/// Per-plugin manifests are filtered: parse failures and missing files
+/// log a warning and skip rather than blowing up the dashboard. The
+/// final list is sorted by tile id for stable order across rebuilds.
+final tileManifestsProvider = Provider<List<TileManifest>>((ref) {
+  final base = ref.watch(baseDirProvider);
+  final configAsync = ref.watch(configProvider);
+  final config = configAsync.value;
+  final plugins = ref.watch(installedPluginsProvider);
+
+  final out = <TileManifest>[...bundledManifests];
+
+  for (final plugin in plugins) {
+    if (plugin.tileManifests.isEmpty) continue;
+    if (config == null || !config.isAppEnabled(plugin.id)) continue;
+
+    for (final relPath in plugin.tileManifests) {
+      final path = '$base/plugins/${plugin.id}/$relPath';
+      try {
+        final content = File(path).readAsStringSync();
+        out.add(TileManifest.fromJsonString(content));
+      } catch (e, st) {
+        LogService.warn(
+          'plugin ${plugin.id}: failed to load tile manifest $relPath: $e',
+        );
+        LogService.error('plugin tile manifest load trace', e, st);
+      }
+    }
+  }
+
+  out.sort((a, b) => a.id.compareTo(b.id));
+  return List.unmodifiable(out);
+});
 
 /// Per-tile snapshot stream the renderer subscribes to. Seeded with the
 /// current cache value so a late subscriber sees data immediately.
