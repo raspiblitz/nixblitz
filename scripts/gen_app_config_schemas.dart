@@ -30,10 +30,8 @@ void main() {
       .toList()
     ..sort((a, b) => a.path.compareTo(b.path));
 
-  if (files.isEmpty) {
-    stderr.writeln('Error: no .json files found in ${manifestDir.path}');
-    exit(1);
-  }
+  // An empty manifest dir is valid: all apps have been extracted to plugins.
+  // We still write the .g.dart so the part file exists and compiles.
 
   final buffer = StringBuffer();
   buffer.writeln(

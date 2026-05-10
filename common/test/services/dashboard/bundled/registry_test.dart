@@ -3,9 +3,12 @@ import 'package:test/test.dart';
 
 void main() {
   group('bundledManifests', () {
-    test('contains four core tiles in stable order', () {
+    test('contains only hardware + system tiles after bitcoin/lightning moved to plugins', () {
+      // bitcoin and lightning tile manifests now ship inside the
+      // bitcoind / lnd / cln plugins. Only procfs/sysfs readers
+      // remain as built-ins.
       final ids = bundledManifests.map((m) => m.id).toList();
-      expect(ids, ['bitcoin', 'hardware', 'lightning', 'system']);
+      expect(ids, ['hardware', 'system']);
     });
 
     test('all manifests have non-empty title', () {
