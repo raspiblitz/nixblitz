@@ -133,10 +133,8 @@ class NixblitzConfig {
     Map<String, dynamic> extra = const {},
   }) : _extra = extra;
 
-  factory NixblitzConfig.defaults() => NixblitzConfig(
-    system: SystemConfig.defaults(),
-    appConfigs: const {},
-  );
+  factory NixblitzConfig.defaults() =>
+      NixblitzConfig(system: SystemConfig.defaults(), appConfigs: const {});
 
   // ── generic accessors ──────────────────────────────────────────────
 

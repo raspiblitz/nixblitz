@@ -37,11 +37,7 @@ void main() {
 
     test('rejects empty-string entry in tile_manifests', () {
       final json = {
-        'manifest': {
-          'schema_version': 3,
-          'min_tui_version': 3,
-          'name': 'Test',
-        },
+        'manifest': {'schema_version': 3, 'min_tui_version': 3, 'name': 'Test'},
         'id': 'test',
         'tile_manifests': ['tile-foo.json', ''],
       };

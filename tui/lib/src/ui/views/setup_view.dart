@@ -198,10 +198,7 @@ class _SetupViewState extends State<SetupView> {
           final cfg = context.read(configProvider).value;
           if (cfg != null) {
             final apps = Map<String, Map<String, dynamic>>.from(cfg.appConfigs);
-            apps[backend] = {
-              'enabled': true,
-              ...?apps[backend],
-            };
+            apps[backend] = {'enabled': true, ...?apps[backend]};
             final updated = cfg.copyWith(appConfigs: apps);
             configService.writeConfigSync(updated);
             context.read(configProvider.notifier).updateConfig(updated);
@@ -209,10 +206,9 @@ class _SetupViewState extends State<SetupView> {
 
           _markStepCompleted(SetupStep.selectLightningBackend);
           // lnd needs the alias prompt; cln has no alias config so skip.
-          context.read(_setupStepProvider.notifier).state =
-              backend == 'lnd'
-                  ? SetupStep.setLightningAlias
-                  : SetupStep.buildServices;
+          context.read(_setupStepProvider.notifier).state = backend == 'lnd'
+              ? SetupStep.setLightningAlias
+              : SetupStep.buildServices;
         })
         .catchError((e, st) {
           LogService.error('selectLightningBackend failed for $backend', e, st);
@@ -243,14 +239,10 @@ class _SetupViewState extends State<SetupView> {
 
     final pluginService = context.read(pluginServiceProvider);
     pluginService
-        .install(
-          'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/bitcoind',
-        )
+        .install('forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/bitcoind')
         .then((marker) {
           if (!mounted) return;
-          LogService.info(
-            'installBitcoindPlugin: success (rev=${marker.rev})',
-          );
+          LogService.info('installBitcoindPlugin: success (rev=${marker.rev})');
 
           // Seed app_configs.bitcoind from defaults if absent. The plugin
           // ships a config_schema with sane defaults; we want them on the
@@ -307,11 +299,7 @@ class _SetupViewState extends State<SetupView> {
           }
           return false;
         } catch (e, st) {
-          LogService.error(
-            'installBitcoindPlugin key handler failed',
-            e,
-            st,
-          );
+          LogService.error('installBitcoindPlugin key handler failed', e, st);
           return true;
         }
       },

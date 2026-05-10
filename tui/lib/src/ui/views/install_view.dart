@@ -9,7 +9,6 @@ import '../widgets/ascii_banner.dart';
 import '../widgets/confirm_prompt.dart';
 import '../widgets/experimental_warning.dart';
 import '../widgets/scrollable_log.dart';
-import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
 
 final _diskSelectionIndexProvider = StateProvider<int>((ref) => 0);
@@ -23,38 +22,6 @@ final _confirmProvider = StateProvider<bool>((ref) => false);
 final _confirmSelectionProvider = StateProvider<int>(
   (ref) => 1,
 ); // 0=install, 1=go back (default safe)
-final _configOptionIndexProvider = StateProvider<int>((ref) => 0);
-
-/// A lightning backend choice. [appId] is the manifest id (e.g. 'lnd', 'cln'),
-/// or null for "no LN backend".
-class _LightningChoice {
-  final String? appId;
-  final String label;
-  const _LightningChoice({this.appId, required this.label});
-  bool get isNone => appId == null;
-
-  @override
-  int get hashCode => appId.hashCode ^ label.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _LightningChoice &&
-          runtimeType == other.runtimeType &&
-          appId == other.appId &&
-          label == other.label;
-}
-
-final _networkIndexProvider = StateProvider<int>((ref) => 0); // mainnet
-final _lightningChoiceProvider = StateProvider<_LightningChoice>(
-  (ref) => const _LightningChoice(appId: null, label: 'None'),
-);
-
-// Which popup is open (null = none)
-enum _PopupType { network, lightning }
-
-final _activePopupProvider = StateProvider<_PopupType?>((ref) => null);
-final _popupSelectionIndexProvider = StateProvider<int>((ref) => 0);
 
 class InstallView extends StatefulComponent {
   const InstallView({super.key});
@@ -267,7 +234,6 @@ class _InstallViewState extends State<InstallView> {
     return switch (step) {
       InstallStep.detectSystem => _buildDetectSystem(),
       InstallStep.selectDisk => _buildSelectDisk(),
-      InstallStep.configureServices => _buildConfigureServices(),
       InstallStep.confirmInstall => _buildConfirmInstall(),
       InstallStep.installing => _buildInstalling(),
       InstallStep.complete => _buildComplete(),
@@ -389,8 +355,17 @@ class _InstallViewState extends State<InstallView> {
               if (event.logicalKey == LogicalKey.enter) {
                 context.read(selectedDiskProvider.notifier).state =
                     visibleDisks[clampedIndex];
-                context.read(installStepProvider.notifier).state =
-                    InstallStep.configureServices;
+                final config = context.read(configProvider).value;
+                if (config == null) {
+                  LogService.error(
+                    'Disk picker Enter: config not loaded yet, '
+                    'cannot scaffold and proceed',
+                  );
+                  return true;
+                }
+                final platform =
+                    context.read(systemInfoProvider).value?.platform ?? 'x86';
+                _saveConfigAndProceed(config, platform);
                 return true;
               }
               return false;
@@ -478,245 +453,7 @@ class _InstallViewState extends State<InstallView> {
     return Text('[↑/↓ j/k] move   [Enter] select', style: dim);
   }
 
-  Component _buildConfigureServices() {
-    final configAsync = context.watch(configProvider);
-    final systemInfoAsync = context.watch(systemInfoProvider);
-    final selectedOption = context.watch(_configOptionIndexProvider);
-    final networkIndex = context.watch(_networkIndexProvider);
-    final lightningChoice = context.watch(_lightningChoiceProvider);
-    final activePopup = context.watch(_activePopupProvider);
-    final popupIndex = context.watch(_popupSelectionIndexProvider);
-    final registry = context.watch(appManifestRegistryProvider);
-
-    return configAsync.when(
-      loading: () => const Text('Loading...'),
-      error: (e, _) => Text('Error: $e'),
-      data: (config) {
-        final platform = systemInfoAsync.value?.platform ?? 'x86';
-        const optionCount = 3; // 0=network, 1=lightning, 2=continue
-
-        // Get network choices from bitcoind manifest's network field
-        final networkField = registry.get('bitcoind')?.field('network');
-        final networks = (networkField is EnumField)
-            ? networkField.choices
-            : const ['mainnet', 'testnet', 'regtest', 'signet'];
-
-        // Get LN backend choices from manifest registry
-        final lnApps = registry.withCapability('lightning_backend');
-        final lnChoices = [
-          ...lnApps.map((m) => _LightningChoice(appId: m.id, label: m.label)),
-          const _LightningChoice(appId: null, label: 'None'),
-        ];
-
-        // If a popup is open, show it as an overlay
-        if (activePopup != null) {
-          return _buildPopup(
-            activePopup,
-            popupIndex,
-            networkIndex,
-            lightningChoice,
-            networks,
-            lnChoices,
-          );
-        }
-
-        return Focusable(
-          focused: true,
-          onKeyEvent: (event) {
-            try {
-              if (event.logicalKey == LogicalKey.keyJ ||
-                  event.logicalKey == LogicalKey.arrowDown) {
-                if (selectedOption < optionCount - 1) {
-                  context.read(_configOptionIndexProvider.notifier).state =
-                      selectedOption + 1;
-                }
-                return true;
-              }
-              if (event.logicalKey == LogicalKey.keyK ||
-                  event.logicalKey == LogicalKey.arrowUp) {
-                if (selectedOption > 0) {
-                  context.read(_configOptionIndexProvider.notifier).state =
-                      selectedOption - 1;
-                }
-                return true;
-              }
-              if (event.logicalKey == LogicalKey.enter ||
-                  event.logicalKey == LogicalKey.space) {
-                if (selectedOption == 0) {
-                  context.read(_popupSelectionIndexProvider.notifier).state =
-                      networkIndex;
-                  context.read(_activePopupProvider.notifier).state =
-                      _PopupType.network;
-                  return true;
-                }
-                if (selectedOption == 1) {
-                  final lnIndex = lnChoices.indexOf(lightningChoice);
-                  context.read(_popupSelectionIndexProvider.notifier).state =
-                      lnIndex >= 0 ? lnIndex : lnChoices.length - 1;
-                  context.read(_activePopupProvider.notifier).state =
-                      _PopupType.lightning;
-                  return true;
-                }
-                if (selectedOption == 2) {
-                  _saveConfigAndProceed(
-                    config,
-                    platform,
-                    networkIndex,
-                    lightningChoice,
-                  );
-                  return true;
-                }
-              }
-              if (event.logicalKey == LogicalKey.escape) {
-                context.read(installStepProvider.notifier).state =
-                    InstallStep.selectDisk;
-                return true;
-              }
-              return false;
-            } catch (e, st) {
-              LogService.error('Configure services key handler failed', e, st);
-              return true;
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.all(2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Initial Configuration',
-                  style: const TextStyle(
-                    color: Color.fromRGB(247, 147, 26),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  'Platform: $platform (auto-detected)',
-                  style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-                ),
-                const SizedBox(height: 1),
-                _configLine(
-                  label: 'Network',
-                  value: networks[networkIndex],
-                  focused: selectedOption == 0,
-                ),
-                _configLine(
-                  label: 'Lightning',
-                  value: _lightningLabel(lightningChoice),
-                  focused: selectedOption == 1,
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  selectedOption == 2
-                      ? '> [ Continue with installation ]'
-                      : '  [ Continue with installation ]',
-                  style: TextStyle(
-                    color: selectedOption == 2
-                        ? const Color.fromRGB(247, 147, 26)
-                        : const Color.fromRGB(200, 200, 200),
-                    fontWeight: selectedOption == 2
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  '↑/↓ navigate  Enter select  Esc back',
-                  style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Component _buildPopup(
-    _PopupType type,
-    int popupIndex,
-    int networkIndex,
-    _LightningChoice lightningChoice,
-    List<String> networks,
-    List<_LightningChoice> lnChoices,
-  ) {
-    final String title;
-    final List<String> options;
-    final int currentIndex;
-
-    switch (type) {
-      case _PopupType.network:
-        title = 'Select Network';
-        options = networks;
-        currentIndex = popupIndex;
-      case _PopupType.lightning:
-        title = 'Select Lightning';
-        options = lnChoices.map((c) => c.label).toList();
-        currentIndex = popupIndex;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Initial Configuration',
-            style: const TextStyle(
-              color: Color.fromRGB(247, 147, 26),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 1),
-          SelectPopup(
-            title: title,
-            options: options,
-            selectedIndex: currentIndex,
-            onHighlight: (index) {
-              context.read(_popupSelectionIndexProvider.notifier).state = index;
-            },
-            onConfirm: (index) {
-              switch (type) {
-                case _PopupType.network:
-                  context.read(_networkIndexProvider.notifier).state = index;
-                case _PopupType.lightning:
-                  context.read(_lightningChoiceProvider.notifier).state =
-                      lnChoices[index];
-              }
-              context.read(_activePopupProvider.notifier).state = null;
-            },
-            onCancel: () {
-              context.read(_activePopupProvider.notifier).state = null;
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Component _configLine({
-    required String label,
-    required String value,
-    required bool focused,
-  }) {
-    final prefix = focused ? '> ' : '  ';
-    final color = focused
-        ? const Color.fromRGB(247, 147, 26)
-        : const Color.fromRGB(200, 200, 200);
-    return Text('$prefix$label: $value', style: TextStyle(color: color));
-  }
-
-  String _lightningLabel(_LightningChoice choice) {
-    return choice.label;
-  }
-
-  void _saveConfigAndProceed(
-    NixblitzConfig config,
-    String platform,
-    int networkIndex,
-    _LightningChoice lightningChoice,
-  ) {
+  void _saveConfigAndProceed(NixblitzConfig config, String platform) {
     if (_saving) return;
     _saving = true;
 
@@ -724,7 +461,6 @@ class _InstallViewState extends State<InstallView> {
       final baseDirPath = context.read(baseDirProvider);
       final configNotifier = context.read(configProvider.notifier);
       final configService = context.read(configServiceProvider);
-      final registry = context.read(appManifestRegistryProvider);
 
       // Persist the disk path the operator picked alongside the
       // other config bits — disko-x86's `device` reads it on
@@ -735,38 +471,20 @@ class _InstallViewState extends State<InstallView> {
       final selectedDisk = context.read(selectedDiskProvider);
       final diskDevice = selectedDisk?.path ?? '';
 
-      // Get network choices (for logging)
-      final networkField = registry.get('bitcoind')?.field('network');
-      final networks = (networkField is EnumField)
-          ? networkField.choices
-          : const ['mainnet', 'testnet', 'regtest', 'signet'];
-
       LogService.info(
-        'Save config start: network=${networks[networkIndex]}, '
-        'lightning=${_lightningLabel(lightningChoice)}, '
-        'platform=$platform, disk=$diskDevice',
+        'Save config start: platform=$platform, disk=$diskDevice',
       );
 
-      // Build updated config by setting the network and enabling/disabling
-      // each lightning backend based on the user's choice
-      var updatedConfig = config
-          .copyWith(
-            system: config.system.copyWith(
-              platform: platform,
-              diskDevice: diskDevice,
-            ),
-          )
-          .setAppOption('bitcoind', 'network', networks[networkIndex]);
-
-      // Enable/disable all lightning backends based on selection
-      final lnApps = registry.withCapability('lightning_backend');
-      for (final app in lnApps) {
-        updatedConfig = updatedConfig.setAppOption(
-          app.id,
-          'enabled',
-          app.id == lightningChoice.appId,
-        );
-      }
+      // Build updated config by setting platform and disk. Bitcoind
+      // network and other app config are seeded by the wizard's
+      // installBitcoindPlugin step on first boot — install-time has
+      // no app config UI by design.
+      var updatedConfig = config.copyWith(
+        system: config.system.copyWith(
+          platform: platform,
+          diskDevice: diskDevice,
+        ),
+      );
       LogService.info('Save config: updated config prepared');
 
       final targetDir = Directory(baseDirPath);
@@ -877,7 +595,7 @@ class _InstallViewState extends State<InstallView> {
       },
       onCancel: () {
         context.read(installStepProvider.notifier).state =
-            InstallStep.configureServices;
+            InstallStep.selectDisk;
       },
     );
   }

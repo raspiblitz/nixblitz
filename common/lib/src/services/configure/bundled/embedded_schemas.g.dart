@@ -5,5 +5,4 @@
 
 part of 'embedded_schemas.dart';
 
-const Map<String, String> _allAppSchemas = {
-};
+const Map<String, String> _allAppSchemas = {};

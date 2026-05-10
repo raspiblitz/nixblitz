@@ -78,6 +78,7 @@ cln/
 The three plugin.nix files all `getFlake "github:fort-nix/nix-bitcoin/${rev}"`. They must share the same rev so the operator's nix store doesn't end up with two simultaneous copies of nix-bitcoin (closure bloat, eval ambiguity). Decide the pin once here; later tasks use it.
 
 **Files:**
+
 - Test: `tests/scripts/check-nix-bitcoin-rev-consistency.sh` (created later in Task 11)
 
 - [ ] **Step 1: Get the current nix-bitcoin master rev**
@@ -114,6 +115,7 @@ No commit yet — the rev gets baked into plugin.nix files in subsequent tasks.
 The new field is a `List<String>` of paths (relative to the plugin root) pointing at DSL tile manifest JSON files. Loaded only when the plugin is enabled.
 
 **Files:**
+
 - Modify: `common/lib/src/models/plugin/plugin_manifest.dart`
 - Test: `common/test/models/plugin/plugin_manifest_test.dart`
 
@@ -267,6 +269,7 @@ EOF
 `tileManifestsProvider` currently returns just the bundled list. Extend it so each enabled plugin's `tileManifests` paths get loaded from `~/nixblitz/plugins/<id>/<path>` and appended.
 
 **Files:**
+
 - Modify: `common/lib/src/providers/dashboard_provider.dart`
 - Test: `common/test/providers/dashboard_provider_tile_manifests_test.dart` (new)
 
@@ -451,6 +454,7 @@ EOF
 Creates the bitcoind plugin tree under `examples_redesign/nixblitz_official_plugins/bitcoind/`.
 
 **Files:**
+
 - Create: `examples_redesign/nixblitz_official_plugins/bitcoind/plugin.json`
 - Create: `examples_redesign/nixblitz_official_plugins/bitcoind/plugin.nix`
 - Create: `examples_redesign/nixblitz_official_plugins/bitcoind/tile-bitcoin.json`
@@ -490,12 +494,32 @@ Creates the bitcoind plugin tree under `examples_redesign/nixblitz_official_plug
     "description": "Bitcoin reference client (full or pruned node).",
     "capabilities": [],
     "fields": [
-      { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
-      { "name": "network", "type": "enum", "label": "Network",
-        "choices": ["mainnet", "regtest"], "default": "mainnet" },
-      { "name": "pruned", "type": "bool", "label": "Prune mode", "default": true },
-      { "name": "prune_size_gb", "type": "int", "label": "Prune size (GB)",
-        "default": 550, "min": 0 }
+      {
+        "name": "enabled",
+        "type": "bool",
+        "label": "Enabled",
+        "default": false
+      },
+      {
+        "name": "network",
+        "type": "enum",
+        "label": "Network",
+        "choices": ["mainnet", "regtest"],
+        "default": "mainnet"
+      },
+      {
+        "name": "pruned",
+        "type": "bool",
+        "label": "Prune mode",
+        "default": true
+      },
+      {
+        "name": "prune_size_gb",
+        "type": "int",
+        "label": "Prune size (GB)",
+        "default": 550,
+        "min": 0
+      }
     ]
   }
 }
@@ -756,6 +780,7 @@ EOF
 Same shape as bitcoind. Streamer wraps `lncli`.
 
 **Files:**
+
 - Create: `examples_redesign/nixblitz_official_plugins/lnd/plugin.json`
 - Create: `examples_redesign/nixblitz_official_plugins/lnd/plugin.nix`
 - Create: `examples_redesign/nixblitz_official_plugins/lnd/tile-lightning.json`
@@ -797,7 +822,12 @@ Same shape as bitcoind. Streamer wraps `lncli`.
     "description": "Lightning Network Daemon (LND) — most common LN implementation.",
     "capabilities": ["lightning_backend"],
     "fields": [
-      { "name": "enabled", "type": "bool", "label": "Enabled", "default": false },
+      {
+        "name": "enabled",
+        "type": "bool",
+        "label": "Enabled",
+        "default": false
+      },
       { "name": "alias", "type": "str", "label": "Node alias", "default": "" }
     ]
   }
@@ -1037,6 +1067,7 @@ EOF
 Same shape as lnd, but wrapping `services.clightning`. Tile manifest is **byte-identical** to lnd's so a single CI check enforces the equivalence.
 
 **Files:**
+
 - Create: `examples_redesign/nixblitz_official_plugins/cln/plugin.json`
 - Create: `examples_redesign/nixblitz_official_plugins/cln/plugin.nix`
 - Create: `examples_redesign/nixblitz_official_plugins/cln/tile-lightning.json`
@@ -1078,7 +1109,12 @@ Same shape as lnd, but wrapping `services.clightning`. Tile manifest is **byte-i
     "description": "Core Lightning (CLN) — Blockstream's LN implementation.",
     "capabilities": ["lightning_backend"],
     "fields": [
-      { "name": "enabled", "type": "bool", "label": "Enabled", "default": false }
+      {
+        "name": "enabled",
+        "type": "bool",
+        "label": "Enabled",
+        "default": false
+      }
     ]
   }
 }
@@ -1259,6 +1295,7 @@ EOF
 Adds an auto-step that fires after `setPassword`. Calls `PluginService.install` for the bitcoind plugin URL. Renders progress like the existing `buildServices` step (streaming log + retry on failure).
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/setup_view.dart`
 
 - [ ] **Step 1: Add the new SetupStep enum value**
@@ -1482,6 +1519,7 @@ EOF
 Adds a SelectPopup-driven step that lets the operator pick lnd / cln / none. Selected option triggers a `PluginService.install` for the matching plugin.
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/setup_view.dart`
 
 - [ ] **Step 1: Add a state provider for the selection**
@@ -1688,6 +1726,7 @@ EOF
 The plugins now own these. Delete the bundled copies and regenerate the codegen outputs.
 
 **Files:**
+
 - Delete: `common/lib/src/services/dashboard/bundled/manifests/bitcoin.json`
 - Delete: `common/lib/src/services/dashboard/bundled/manifests/lightning.json`
 - Delete: `common/lib/src/services/configure/bundled/manifests/bitcoind.json`
@@ -1795,6 +1834,7 @@ EOF
 The plugin NixOS modules replace the templates wrappers. nix-bitcoin drops out of `templates/flake.nix` inputs entirely. `templates/hosts/installed.nix`'s `features.apps.{bitcoind,lnd,cln}.*` block goes away.
 
 **Files:**
+
 - Delete: `templates/modules/apps/bitcoind.nix`
 - Delete: `templates/modules/apps/lnd.nix`
 - Delete: `templates/modules/apps/cln.nix`
@@ -1926,6 +1966,7 @@ EOF
 Plugin scaffolds these on install; defaults() shouldn't pre-seed them. Empty appConfigs map matches the "fresh node has no apps yet" semantic.
 
 **Files:**
+
 - Modify: `common/lib/src/models/nixblitz_config.dart`
 - Modify: `common/test/models/nixblitz_config_test.dart`
 
@@ -1990,6 +2031,7 @@ EOF
 A small bash test ensuring the three plugins agree on `nix-bitcoin` rev + that `tile-lightning.json` is byte-identical between `lnd` and `cln`. Wired into `just test` so CI catches drift.
 
 **Files:**
+
 - Create: `tests/scripts/check-plugin-consistency.sh`
 - Modify: `justfile`
 
@@ -2131,6 +2173,7 @@ EOF
 Manually exercise the full install + wizard flow on a clean x86 VM to confirm the architecture works end-to-end.
 
 **Files:**
+
 - None (this is operator validation, not a code change)
 
 - [ ] **Step 1: Clean VM**
@@ -2155,6 +2198,7 @@ nix run github:fusion44/nixblitz_ng
 ```
 
 Verify the wizard steps:
+
 - setPassword prompts (works as before)
 - **NEW:** installBitcoindPlugin auto-fires after password set, fetches plugin from forge, advances. If forge unreachable, error + retry shown.
 - **NEW:** selectLightningBackend pops a SelectPopup with three options. Pick `lnd`.
@@ -2174,6 +2218,7 @@ nixblitz
 ```
 
 Verify:
+
 - Dashboard renders.
 - Bitcoin tile + Lightning tile both populate (data from the new bash streamers, not blitz-api).
 - `~/nixblitz/plugins/` contains `bitcoind/` and `lnd/` (or `cln/`) directories.
@@ -2191,6 +2236,7 @@ Expected: both active (running).
 - [ ] **Step 5: Document any gaps**
 
 If anything fails, capture:
+
 - `~/nixblitz.log` from the VM
 - `journalctl -b -p err`
 - The state of `~/nixblitz/` (plugins.list, config.json, plugins/ tree)
@@ -2218,7 +2264,7 @@ No commit — this task is just validation.
 - Wizard installBitcoindPlugin step ✅ (Task 7)
 - Wizard selectLightningBackend SelectPopup step ✅ (Task 8)
 - setLightningAlias skip for cln/none ✅ (Task 8 — done via the next-step branching)
-- Resumability via setup_step_completed ✅ (Tasks 7, 8 — both call _markStepCompleted)
+- Resumability via setup_step_completed ✅ (Tasks 7, 8 — both call \_markStepCompleted)
 - plugin.json gains tile_manifests[] field ✅ (Task 2)
 - schema_version 2 → 3 ✅ (Task 2)
 - Streamer language: bash + jq ✅ (Tasks 4-6)
@@ -2226,7 +2272,7 @@ No commit — this task is just validation.
 - test-lnd untouched ✅ (no task touches `templates/modules/system/test-lnd.nix`)
 - system + hardware bundled tile manifests stay ✅ (Task 9 only deletes bitcoin + lightning)
 - No migration code ✅ (no migration task)
-- features.apps.{bitcoind,lnd,cln}.* deleted ✅ (Task 10)
+- features.apps.{bitcoind,lnd,cln}.\* deleted ✅ (Task 10)
 - appEnabled / appOpt helpers stay ✅ (Task 10 only touches the wiring block, not helpers)
 - Plugin id matches existing app_configs key ✅ (Tasks 4, 5, 6 — plugin id = `bitcoind` / `lnd` / `cln`)
 

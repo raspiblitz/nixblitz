@@ -1,7 +1,6 @@
 enum InstallStep {
   detectSystem,
   selectDisk,
-  configureServices,
   confirmInstall,
   installing,
   complete,
