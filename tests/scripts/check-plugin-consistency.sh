@@ -2,42 +2,44 @@
 # tests/scripts/check-plugin-consistency.sh
 #
 # Asserts:
-# 1. The bitcoind / lnd / cln plugins all pin the same nix-bitcoin
-#    rev. They share a binary (`getFlake` at the same SHA = same store
-#    entry) and dual / triple-pinning would bloat the operator's
-#    closure with multiple copies of nix-bitcoin's nixpkgs snapshot.
-# 2. The lnd / cln tile-lightning.json files are byte-identical.
-#    They render the same Lightning tile; an edit to one without the
-#    other produces visible drift between operators on different LN
-#    backends.
+# 1. Only the bitcoind plugin pins nix-bitcoin; lnd / cln must NOT. They
+#    rely on bitcoind's import for the shared nix-bitcoin option tree —
+#    importing the anonymous `nixosModules.default` from multiple plugins
+#    triggers double-declaration of options like `nix-bitcoin.useVersionLockedPkgs`
+#    (the module system can't dedupe anonymous inline modules), and the
+#    rebuild fails.
+# 2. The lnd / cln tile-lightning.json files are byte-identical. They
+#    render the same Lightning tile; an edit to one without the other
+#    produces visible drift between operators on different LN backends.
 
 set -euo pipefail
 
 PLUGINS_ROOT="examples_redesign/nixblitz_official_plugins"
 fail=0
 
-echo "==> Checking nix-bitcoin rev consistency"
-declare -a revs
-for id in bitcoind lnd cln; do
-  rev=$(grep -E '^\s*nixBitcoinRev = ' "${PLUGINS_ROOT}/${id}/plugin.nix" \
-        | sed -E 's/.*"([0-9a-f]{40})".*/\1/')
-  if [[ -z "${rev}" || ${#rev} -ne 40 ]]; then
-    echo "  ❌ ${id}/plugin.nix: failed to extract nixBitcoinRev (got '${rev}')"
-    fail=1
-    continue
-  fi
-  echo "  ${id}: ${rev}"
-  revs+=("${rev}")
-done
+echo "==> Checking nix-bitcoin pin lives ONLY in bitcoind"
 
-if [[ ${#revs[@]} -eq 3 ]]; then
-  if [[ "${revs[0]}" == "${revs[1]}" && "${revs[1]}" == "${revs[2]}" ]]; then
-    echo "  ✅ all three plugins agree on nix-bitcoin rev"
-  else
-    echo "  ❌ nix-bitcoin rev divergence — bump all three plugins together"
-    fail=1
-  fi
+bitcoind_rev=$(grep -E '^\s*nixBitcoinRev = ' \
+                "${PLUGINS_ROOT}/bitcoind/plugin.nix" \
+              | sed -E 's/.*"([0-9a-f]{40})".*/\1/' || true)
+if [[ -z "${bitcoind_rev}" || ${#bitcoind_rev} -ne 40 ]]; then
+  echo "  ❌ bitcoind/plugin.nix: failed to extract nixBitcoinRev (got '${bitcoind_rev}')"
+  fail=1
+else
+  echo "  bitcoind: ${bitcoind_rev}"
 fi
+
+for id in lnd cln; do
+  if grep -qE '^\s*nixBitcoinRev = ' "${PLUGINS_ROOT}/${id}/plugin.nix"; then
+    echo "  ❌ ${id}/plugin.nix pins nixBitcoinRev — it must not."
+    echo "     Only the bitcoind plugin imports nix-bitcoin. lnd and cln"
+    echo "     rely on it transitively; importing nix-bitcoin from multiple"
+    echo "     plugins double-declares nix-bitcoin.* options."
+    fail=1
+  else
+    echo "  ${id}: no nix-bitcoin pin (correct)"
+  fi
+done
 
 echo "==> Checking lnd/cln tile-lightning.json byte identity"
 if diff -q "${PLUGINS_ROOT}/lnd/tile-lightning.json" \
