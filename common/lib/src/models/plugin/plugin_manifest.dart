@@ -28,8 +28,13 @@ import 'package:common/src/models/plugin/plugin_tile.dart';
 
 /// What version of the manifest schema this TUI understands.
 ///
-/// v2 (current): privileged actions are dispatched as systemd
-/// `unit:` references rather than `command:` + `run_as_root: true`.
+/// v3 (current): `tile_manifests` field added — plugins can ship
+/// DSL tile manifest paths that the dashboard registers when the
+/// plugin is enabled. Backward-compatible with v2 (the field
+/// defaults to empty when absent).
+///
+/// v2: privileged actions are dispatched as systemd `unit:`
+/// references rather than `command:` + `run_as_root: true`.
 /// Tile commands always run as the admin user (no `run_as_root` on
 /// `dashboard`). See sudo posture / Posture A in the project plan.
 const int currentPluginManifestVersion = 3;
