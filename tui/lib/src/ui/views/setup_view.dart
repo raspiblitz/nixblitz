@@ -157,6 +157,15 @@ class _SetupViewState extends State<SetupView> {
     if (_selectLightningStarted) return;
     _selectLightningStarted = true;
 
+    // Clear any leftover status from the previous wizard step
+    // (installBitcoindPlugin shares the same provider) so a stale
+    // success/error message doesn't flash before this step's own
+    // status takes over.
+    context.read(_pluginInstallStatusProvider.notifier).state = (
+      message: null,
+      error: false,
+    );
+
     if (backend == 'none') {
       LogService.info('selectLightningBackend: operator chose none');
       _markStepCompleted(SetupStep.selectLightningBackend);
