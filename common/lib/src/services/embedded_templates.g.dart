@@ -939,7 +939,7 @@ in {
         assertion = bitcoind.regtest;
         message =
           "features.system.testLnd requires bitcoind running on regtest. "
-          + "Set features.apps.bitcoind.network = \"regtest\" first.";
+          + "Set app_configs.bitcoind.network = \"regtest\" in config.json first.";
       }
     ];
 
