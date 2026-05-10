@@ -26,9 +26,6 @@ in {
       trusted-users = ["root" "admin"];
     };
 
-    # nix-bitcoin secrets management
-    nix-bitcoin.generateSecrets = true;
-
     environment.systemPackages = with pkgs; [
       git
       jujutsu

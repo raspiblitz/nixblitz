@@ -60,15 +60,11 @@ in {
     else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
-  features.apps.bitcoind.enable = appEnabled "bitcoind";
-  features.apps.bitcoind.network = appOpt "bitcoind" "network" "mainnet";
-  features.apps.bitcoind.pruned = appOpt "bitcoind" "pruned" false;
-  features.apps.bitcoind.pruneSizeGb = appOpt "bitcoind" "prune_size_gb" 0;
-
-  features.apps.lnd.enable = appEnabled "lnd";
-  features.apps.lnd.alias = appOpt "lnd" "alias" "";
-
-  features.apps.cln.enable = appEnabled "cln";
+  # bitcoind / lnd / cln were built-in apps before; they're plugins
+  # now (forge.f44.fyi/f44/nixblitz_official_plugins/{bitcoind,lnd,cln}).
+  # The plugin loop in templates/flake.nix imports their plugin.nix
+  # files based on plugins.list + app_configs.<id>.enabled. Operators
+  # install via `nixblitz plugin add ...` or the setup wizard.
 
   # blitz-api and blitz-web are no longer built-in apps — they live as
   # plugins (forge.f44.fyi/f44/nixblitz_official_plugins/{blitz-api,blitz-web}).

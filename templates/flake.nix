@@ -7,10 +7,9 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nix-bitcoin = {
-      url = "github:fort-nix/nix-bitcoin";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # nix-bitcoin used to be an input here, but it's pulled by the
+    # bitcoind / lnd / cln plugins now via builtins.getFlake at a
+    # coordinated rev. The operator's flake input list is shorter for it.
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -36,7 +35,6 @@
     self,
     nixpkgs,
     disko,
-    nix-bitcoin,
     nixblitz,
     nixos-raspberrypi,
   }: let
@@ -127,11 +125,11 @@
         ++ pluginModules
         ++ [
           disko.nixosModules.default
-          nix-bitcoin.nixosModules.default
-          # blitz-api and blitz-web dropped from inputs — their plugins
-          # pull the upstream modules via `builtins.getFlake` at
-          # module-eval time. See
-          # `examples_redesign/nixblitz_official_plugins/{blitz-api,blitz-web}/plugin.nix`.
+          # nix-bitcoin.nixosModules.default was here; the bitcoind / lnd /
+          # cln plugins now import it themselves via builtins.getFlake at a
+          # coordinated rev. blitz-api and blitz-web dropped from inputs too —
+          # their plugins pull the upstream modules via `builtins.getFlake`.
+          # See examples_redesign/nixblitz_official_plugins/.
         ];
     };
 

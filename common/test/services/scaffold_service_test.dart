@@ -22,8 +22,10 @@ void main() {
       final targetDir = Directory('${tempDir.path}/nixblitz');
       expect(targetDir.existsSync(), true);
       expect(File('${targetDir.path}/flake.nix').existsSync(), true);
+      // bitcoind.nix / lnd.nix / cln.nix were removed; apps are plugins now.
+      // Verify a system module is present instead.
       expect(
-        File('${targetDir.path}/modules/apps/bitcoind.nix').existsSync(),
+        File('${targetDir.path}/modules/system/base.nix').existsSync(),
         true,
       );
       expect(File('${targetDir.path}/hardware/x86.nix').existsSync(), true);

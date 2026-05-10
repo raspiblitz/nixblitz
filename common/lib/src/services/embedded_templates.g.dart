@@ -13,10 +13,9 @@ const String _flake = r'''
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nix-bitcoin = {
-      url = "github:fort-nix/nix-bitcoin";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    # nix-bitcoin used to be an input here, but it's pulled by the
+    # bitcoind / lnd / cln plugins now via builtins.getFlake at a
+    # coordinated rev. The operator's flake input list is shorter for it.
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -42,7 +41,6 @@ const String _flake = r'''
     self,
     nixpkgs,
     disko,
-    nix-bitcoin,
     nixblitz,
     nixos-raspberrypi,
   }: let
@@ -133,11 +131,11 @@ const String _flake = r'''
         ++ pluginModules
         ++ [
           disko.nixosModules.default
-          nix-bitcoin.nixosModules.default
-          # blitz-api and blitz-web dropped from inputs — their plugins
-          # pull the upstream modules via `builtins.getFlake` at
-          # module-eval time. See
-          # `examples_redesign/nixblitz_official_plugins/{blitz-api,blitz-web}/plugin.nix`.
+          # nix-bitcoin.nixosModules.default was here; the bitcoind / lnd /
+          # cln plugins now import it themselves via builtins.getFlake at a
+          # coordinated rev. blitz-api and blitz-web dropped from inputs too —
+          # their plugins pull the upstream modules via `builtins.getFlake`.
+          # See examples_redesign/nixblitz_official_plugins/.
         ];
     };
 
@@ -465,15 +463,11 @@ in {
     else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
-  features.apps.bitcoind.enable = appEnabled "bitcoind";
-  features.apps.bitcoind.network = appOpt "bitcoind" "network" "mainnet";
-  features.apps.bitcoind.pruned = appOpt "bitcoind" "pruned" false;
-  features.apps.bitcoind.pruneSizeGb = appOpt "bitcoind" "prune_size_gb" 0;
-
-  features.apps.lnd.enable = appEnabled "lnd";
-  features.apps.lnd.alias = appOpt "lnd" "alias" "";
-
-  features.apps.cln.enable = appEnabled "cln";
+  # bitcoind / lnd / cln were built-in apps before; they're plugins
+  # now (forge.f44.fyi/f44/nixblitz_official_plugins/{bitcoind,lnd,cln}).
+  # The plugin loop in templates/flake.nix imports their plugin.nix
+  # files based on plugins.list + app_configs.<id>.enabled. Operators
+  # install via `nixblitz plugin add ...` or the setup wizard.
 
   # blitz-api and blitz-web are no longer built-in apps — they live as
   # plugins (forge.f44.fyi/f44/nixblitz_official_plugins/{blitz-api,blitz-web}).
@@ -550,113 +544,6 @@ const String _hostsInstaller = r'''
 }
 ''';
 
-const String _modulesAppsBitcoind = r'''
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}: let
-  cfg = config.features.apps.bitcoind;
-in {
-  options.features.apps.bitcoind = {
-    enable = lib.mkEnableOption "Bitcoin daemon";
-    network = lib.mkOption {
-      # testnet / signet are parked until nix-bitcoin grows section-aware
-      # config generation (top-level rpcbind/rpcport are rejected by
-      # Bitcoin Core on non-main networks). See IDEAS.md.
-      type = lib.types.enum ["mainnet" "regtest"];
-      default = "mainnet";
-      description = "Bitcoin network to connect to.";
-    };
-    pruned = lib.mkOption {
-      type = lib.types.bool;
-      default = true;
-      description = "Whether to prune the blockchain.";
-    };
-    pruneSizeGb = lib.mkOption {
-      type = lib.types.int;
-      default = 550;
-      description = "Prune target size in GB (minimum 550).";
-    };
-  };
-
-  config = lib.mkIf cfg.enable {
-    services.bitcoind = {
-      enable = true;
-      dataDir = "/mnt/data/bitcoind";
-      regtest = cfg.network == "regtest";
-      prune =
-        if cfg.pruned
-        then cfg.pruneSizeGb * 1000
-        else 0;
-      # nix-bitcoin writes `[regtest]` and the regtest-scoped options
-      # before our extraConfig, so anything here lands inside the
-      # regtest section.
-      extraConfig = lib.optionalString (cfg.network == "regtest") ''
-        # Regtest has no real tx activity for bitcoind to infer fee
-        # rates from; without a fallback, sendtoaddress / fundrawtx
-        # refuse with "Fee estimation failed. Fallbackfee is disabled."
-        # 0.0002 BTC/kvB ≈ 20 sat/vB, plenty for test flows.
-        fallbackfee=0.0002
-      '';
-    };
-  };
-}
-''';
-
-const String _modulesAppsCln = r'''
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}: let
-  cfg = config.features.apps.cln;
-in {
-  options.features.apps.cln = {
-    enable = lib.mkEnableOption "Core Lightning (CLN)";
-  };
-
-  config = lib.mkIf cfg.enable {
-    services.clightning = {
-      enable = true;
-      dataDir = "/mnt/data/clightning";
-    };
-  };
-}
-''';
-
-const String _modulesAppsLnd = r'''
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}: let
-  cfg = config.features.apps.lnd;
-in {
-  options.features.apps.lnd = {
-    enable = lib.mkEnableOption "Lightning Network Daemon (LND)";
-    alias = lib.mkOption {
-      type = lib.types.str;
-      default = "";
-      description = "Node alias visible on the Lightning Network.";
-    };
-  };
-
-  config = lib.mkIf cfg.enable {
-    services.lnd = {
-      enable = true;
-      dataDir = "/mnt/data/lnd";
-      extraConfig = ''
-        ${lib.optionalString (cfg.alias != "") "alias=${cfg.alias}"}
-      '';
-    };
-  };
-}
-''';
-
 const String _modulesSystemBase = r'''
 {
   config,
@@ -685,9 +572,6 @@ in {
       experimental-features = ["nix-command" "flakes"];
       trusted-users = ["root" "admin"];
     };
-
-    # nix-bitcoin secrets management
-    nix-bitcoin.generateSecrets = true;
 
     environment.systemPackages = with pkgs; [
       git
@@ -1278,9 +1162,6 @@ Map<String, String> _getAllTemplates() {
     'hosts/installed.nix': _hostsInstalled,
     'hosts/installer-pi5.nix': _hostsInstallerPi5,
     'hosts/installer.nix': _hostsInstaller,
-    'modules/apps/bitcoind.nix': _modulesAppsBitcoind,
-    'modules/apps/cln.nix': _modulesAppsCln,
-    'modules/apps/lnd.nix': _modulesAppsLnd,
     'modules/system/base.nix': _modulesSystemBase,
     'modules/system/disko-pi5.nix': _modulesSystemDiskoPi5,
     'modules/system/disko-x86.nix': _modulesSystemDiskoX86,
