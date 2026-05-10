@@ -60,23 +60,6 @@ in {
     else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
 
-  # bitcoind / lnd / cln were built-in apps before; they're plugins
-  # now (forge.f44.fyi/f44/nixblitz_official_plugins/{bitcoind,lnd,cln}).
-  # The plugin loop in templates/flake.nix imports their plugin.nix
-  # files based on plugins.list + app_configs.<id>.enabled. Operators
-  # install via `nixblitz plugin add ...` or the setup wizard.
-
-  # blitz-api and blitz-web are no longer built-in apps — they live as
-  # plugins (forge.f44.fyi/f44/nixblitz_official_plugins/{blitz-api,blitz-web}).
-  # Operator runs `nixblitz plugin add ...` (or [i] in the TUI) to install
-  # them.
-
-  # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
-  # are up. Needs at least one service enabled — nix-bitcoin.operator adds
-  # the user to groups that only exist when the relevant service runs.
-  features.system.operator.enable =
-    (appEnabled "bitcoind") || (appEnabled "lnd") || (appEnabled "cln");
-
   # Test-LND: secondary regtest-only LND instance for opening channels
   # against the primary node and dry-running payments via `lncli-test`.
   # Auto-enabled whenever bitcoind is on regtest; off on any real network.
