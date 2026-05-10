@@ -137,7 +137,8 @@ final tileDataCacheProvider = Provider<TileDataCache>((ref) {
 /// Bundled manifests + every enabled plugin's declared `tile_manifests`.
 /// Paths are resolved relative to `<baseDir>/plugins/<id>/`. A plugin
 /// whose manifest declares `tile_manifests` but whose `app_configs[id]
-/// .enabled` is false contributes nothing — same gating as streamers.
+/// .enabled` is false contributes nothing — same `app_configs[id]
+/// .enabled` gating as streamers (no marker / dep-check filtering).
 ///
 /// Per-plugin manifests are filtered: parse failures and missing files
 /// log a warning and skip rather than blowing up the dashboard. The
