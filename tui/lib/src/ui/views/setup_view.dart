@@ -23,6 +23,8 @@ const _kLndSeedPath = '/mnt/data/lnd/lnd-seed-mnemonic';
 
 enum SetupStep {
   setPassword,
+  installBitcoindPlugin,
+  selectLightningBackend,
   setLightningAlias,
   buildServices,
   waitBitcoind,
@@ -44,6 +46,13 @@ final _buildServicesExitCodeProvider = StateProvider<int?>((ref) => null);
 /// than a plain instance variable so the per-second tick
 /// triggers a UI rebuild via context.watch.
 final _buildServicesElapsedProvider = StateProvider<int>((ref) => 0);
+
+/// Holds the state of the in-flight plugin install during the
+/// installBitcoindPlugin / selectLightningBackend wizard steps.
+final _pluginInstallStatusProvider =
+    StateProvider<({String? message, bool error})>(
+      (ref) => (message: null, error: false),
+    );
 
 class SetupView extends StatefulComponent {
   const SetupView({super.key});
@@ -129,6 +138,130 @@ class _SetupViewState extends State<SetupView> {
     final s = seconds % 60;
     if (m > 0) return '${m}m ${s}s';
     return '${s}s';
+  }
+
+  /// Auto-fires when entering the [SetupStep.installBitcoindPlugin]
+  /// step. Installs the bitcoind plugin via the standard
+  /// PluginService.install flow. On success advances to
+  /// selectLightningBackend; on failure leaves the operator on this
+  /// step with an error + retry affordance.
+  bool _installBitcoindPluginStarted = false;
+
+  void _startInstallBitcoindPlugin() {
+    if (_installBitcoindPluginStarted) return;
+    _installBitcoindPluginStarted = true;
+
+    context.read(_pluginInstallStatusProvider.notifier).state = (
+      message: 'Fetching bitcoind plugin from forge…',
+      error: false,
+    );
+
+    final pluginService = context.read(pluginServiceProvider);
+    pluginService
+        .install(
+          'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/bitcoind',
+        )
+        .then((marker) {
+          if (!mounted) return;
+          LogService.info(
+            'installBitcoindPlugin: success (rev=${marker.rev})',
+          );
+
+          // Seed app_configs.bitcoind from defaults if absent. The plugin
+          // ships a config_schema with sane defaults; we want them on the
+          // operator's config.json so subsequent steps see "bitcoind
+          // enabled".
+          final configService = context.read(configServiceProvider);
+          final cfg = context.read(configProvider).value;
+          if (cfg != null) {
+            final apps = Map<String, Map<String, dynamic>>.from(cfg.appConfigs);
+            apps['bitcoind'] = {
+              'enabled': true,
+              'network': 'mainnet',
+              'pruned': true,
+              'prune_size_gb': 550,
+              ...?apps['bitcoind'],
+            };
+            final updated = cfg.copyWith(appConfigs: apps);
+            configService.writeConfigSync(updated);
+            context.read(configProvider.notifier).updateConfig(updated);
+          }
+
+          _markStepCompleted(SetupStep.installBitcoindPlugin);
+          context.read(_setupStepProvider.notifier).state =
+              SetupStep.selectLightningBackend;
+        })
+        .catchError((e, st) {
+          LogService.error('installBitcoindPlugin failed', e, st);
+          if (!mounted) return;
+          context.read(_pluginInstallStatusProvider.notifier).state = (
+            message: 'Install failed: $e',
+            error: true,
+          );
+          _installBitcoindPluginStarted = false; // allow retry
+        });
+  }
+
+  Component _buildInstallBitcoindPlugin() {
+    // Auto-fire on first render. The handler guards against re-entry
+    // via _installBitcoindPluginStarted.
+    Future.microtask(_startInstallBitcoindPlugin);
+
+    final status = context.watch(_pluginInstallStatusProvider);
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (status.error && event.logicalKey == LogicalKey.keyR) {
+            _startInstallBitcoindPlugin();
+            return true;
+          }
+          if (event.matches(LogicalKey.keyC, ctrl: true)) {
+            shutdownApp(0);
+            return true;
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error(
+            'installBitcoindPlugin key handler failed',
+            e,
+            st,
+          );
+          return true;
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Installing bitcoind plugin',
+              style: TextStyle(
+                color: Color.fromRGB(247, 147, 26),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              status.message ?? 'starting…',
+              style: TextStyle(
+                color: status.error
+                    ? const Color.fromRGB(255, 80, 80)
+                    : const Color.fromRGB(220, 220, 220),
+              ),
+            ),
+            if (status.error) ...[
+              const SizedBox(height: 1),
+              const Text(
+                '[r] retry   [Ctrl+C] quit',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   void _startBuildServices() {
@@ -280,13 +413,15 @@ class _SetupViewState extends State<SetupView> {
   void _commitWizardFiles(String message) {
     try {
       final baseDirPath = context.read(baseDirProvider);
-      final filesToStage = <String>['config.json'];
-      if (File('$baseDirPath/flake.lock').existsSync()) {
-        filesToStage.add('flake.lock');
-      }
+      // Stage everything: nixos-rebuild evaluates the flake from git's
+      // tracked tree, so any wizard-installed plugin files (plugins/<id>/…)
+      // and the regenerated plugins.list have to be committed before the
+      // rebuild runs. Staging only config.json + flake.lock used to leave
+      // freshly-installed plugins untracked, so the rebuilt system shipped
+      // with zero plugin modules and the bitcoind-wait step polled forever.
       final gitAdd = Process.runSync('git', [
         'add',
-        ...filesToStage,
+        '-A',
       ], workingDirectory: baseDirPath);
       if (gitAdd.exitCode != 0) {
         LogService.warn('git add failed: ${gitAdd.stderr}');
@@ -381,6 +516,8 @@ class _SetupViewState extends State<SetupView> {
 
     return switch (step) {
       SetupStep.setPassword => _buildSetPassword(),
+      SetupStep.installBitcoindPlugin => _buildInstallBitcoindPlugin(),
+      SetupStep.selectLightningBackend => const Text('Loading…'),
       SetupStep.setLightningAlias => _buildSetLightningAlias(),
       SetupStep.buildServices => _buildBuildServices(),
       SetupStep.waitBitcoind => _buildWaitBitcoind(),
@@ -441,7 +578,7 @@ class _SetupViewState extends State<SetupView> {
           LogService.info('Password set successfully');
           _markStepCompleted(SetupStep.setPassword);
           context.read(_setupStepProvider.notifier).state =
-              SetupStep.setLightningAlias;
+              SetupStep.installBitcoindPlugin;
         });
       },
     );
