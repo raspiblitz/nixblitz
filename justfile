@@ -13,12 +13,21 @@ test trace="":
     cd common
     $env.DART_VM_OPTIONS = "--enable-asserts"
     dart test
+    cd ..
+    bash tests/scripts/check-plugin-consistency.sh
   } else if ("{{trace}}" == "") {
     cd common
     dart test
+    cd ..
+    bash tests/scripts/check-plugin-consistency.sh
   } else {
     print "Unknown argument '{{trace}}'. Pass '-t' for verbose or nothing for default."
   }
+
+# Check that bitcoind/lnd/cln plugins agree on nix-bitcoin rev + share
+# the same lightning tile manifest (CI invariant).
+check-plugin-consistency:
+  bash tests/scripts/check-plugin-consistency.sh
 
 # Run dart analyze on all packages
 analyze:
