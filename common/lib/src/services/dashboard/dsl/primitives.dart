@@ -10,9 +10,22 @@ class TileManifestError implements Exception {
 
 /// Parent type for all primitive nodes. JSON shape is a single-key map
 /// whose key names the primitive and whose value is the args map.
+///
+/// Every primitive may carry an optional [visibleWhen] binding. If set,
+/// the renderer resolves it against the tile's data and only renders
+/// the primitive when the result is exactly `true`. Missing key /
+/// `false` / non-bool → hidden. The hidden primitive also drops out
+/// of the grid-width pre-render pass, so columns size to what's
+/// actually on screen.
 @immutable
 sealed class Primitive {
-  const Primitive();
+  /// Optional visibility gate. `null` ⇒ always visible. When set,
+  /// must be a binding directive resolvable via [resolveValue];
+  /// anything other than literal `true` after resolution hides the
+  /// primitive.
+  final dynamic visibleWhen;
+
+  const Primitive({this.visibleWhen});
 
   factory Primitive.fromJson(
     Map<String, dynamic> json, {
@@ -52,7 +65,12 @@ class Row extends Primitive {
   final String label;
   final dynamic value; // literal, or a binding directive map
   final String? valueColor;
-  const Row({required this.label, required this.value, this.valueColor});
+  const Row({
+    required this.label,
+    required this.value,
+    this.valueColor,
+    super.visibleWhen,
+  });
   factory Row._fromJson(Map<String, dynamic> a) {
     final label = a['label'];
     if (label is! String) {
@@ -65,6 +83,7 @@ class Row extends Primitive {
       label: label,
       value: a['value'],
       valueColor: a['value_color'] as String?,
+      visibleWhen: a['visible_when'],
     );
   }
 }
@@ -78,6 +97,7 @@ class StatusRow extends Primitive {
     required this.label,
     required this.value,
     required this.color,
+    super.visibleWhen,
   });
   factory StatusRow._fromJson(Map<String, dynamic> a) {
     final label = a['label'];
@@ -90,7 +110,12 @@ class StatusRow extends Primitive {
     if (!a.containsKey('color')) {
       throw TileManifestError('StatusRow.color is required');
     }
-    return StatusRow(label: label, value: a['value'], color: a['color']);
+    return StatusRow(
+      label: label,
+      value: a['value'],
+      color: a['color'],
+      visibleWhen: a['visible_when'],
+    );
   }
 }
 
@@ -108,6 +133,7 @@ class ProgressBar extends Primitive {
     this.max = 1.0,
     this.format = 'percent',
     this.color,
+    super.visibleWhen,
   });
   factory ProgressBar._fromJson(Map<String, dynamic> a) {
     if (!a.containsKey('value')) {
@@ -128,6 +154,7 @@ class ProgressBar extends Primitive {
       max: a['max'] ?? 1.0,
       format: fmt,
       color: a['color'] as String?,
+      visibleWhen: a['visible_when'],
     );
   }
 }
@@ -136,7 +163,7 @@ class ProgressBar extends Primitive {
 class Section extends Primitive {
   final String? title;
   final List<Primitive> children;
-  const Section({this.title, required this.children});
+  const Section({this.title, required this.children, super.visibleWhen});
   factory Section._fromJson(Map<String, dynamic> a) {
     final raw = a['children'];
     if (raw is! List) {
@@ -146,17 +173,21 @@ class Section extends Primitive {
         .cast<Map<String, dynamic>>()
         .map((j) => Primitive.fromJson(j)) // allowFooter defaults false
         .toList();
-    return Section(title: a['title'] as String?, children: children);
+    return Section(
+      title: a['title'] as String?,
+      children: children,
+      visibleWhen: a['visible_when'],
+    );
   }
 }
 
 @immutable
 class Spacer extends Primitive {
   final int height;
-  const Spacer({this.height = 1});
+  const Spacer({this.height = 1, super.visibleWhen});
   factory Spacer._fromJson(Map<String, dynamic> a) {
     final h = a['height'] as num?;
-    return Spacer(height: h?.toInt() ?? 1);
+    return Spacer(height: h?.toInt() ?? 1, visibleWhen: a['visible_when']);
   }
 }
 

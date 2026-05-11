@@ -105,6 +105,7 @@ class TileRenderer extends StatelessComponent {
     }
 
     for (final p in layout) {
+      if (!_isVisible(p, data)) continue;
       switch (p) {
         case dsl.Row():
           countLabel(p.label);
@@ -126,6 +127,15 @@ class TileRenderer extends StatelessComponent {
     return _GridWidths(label: maxLabel, value: maxValue);
   }
 
+  /// Evaluate a primitive's `visibleWhen` binding against [data].
+  /// `null` (unset) ⇒ always visible. Anything other than literal
+  /// `true` after resolution ⇒ hidden — so missing keys, `false`,
+  /// strings, etc. all hide the primitive (fail-closed).
+  static bool _isVisible(dsl.Primitive p, Map<String, dynamic> data) {
+    if (p.visibleWhen == null) return true;
+    return resolveValue(p.visibleWhen, data) == true;
+  }
+
   Component _buildPrimitive(
     dsl.Primitive p,
     Map<String, dynamic> data,
@@ -133,6 +143,7 @@ class TileRenderer extends StatelessComponent {
     required int indent,
     required _GridWidths grid,
   }) {
+    if (!_isVisible(p, data)) return const SizedBox.shrink();
     final prefix = ' ' * indent;
     switch (p) {
       case dsl.Row():
