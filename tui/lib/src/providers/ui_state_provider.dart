@@ -6,7 +6,20 @@ enum AppView {
   setup,
   dashboard,
   configure,
+
+  /// Combined "what nixos-rebuild can do" view — sidebar splits
+  /// read-only checks from destructive applies. Replaces the
+  /// older standalone Apply / Update tabs.
+  system,
+
+  /// Kept reachable from [system]'s "Apply pending changes" action
+  /// until the rebuild-streaming + done-screen state machine is
+  /// folded directly into [SystemView]. Not surfaced in the top
+  /// menu.
   apply,
+
+  /// Same story as [apply]: still routable from [system] for the
+  /// update / refresh actions; not in the top menu anymore.
   update,
   debug,
   configTooNew,

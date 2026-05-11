@@ -98,7 +98,10 @@ class _ApplyViewState extends State<ApplyView> {
     // re-evaluates automatically when committed changes).
     context.invalidate(pendingChangesProvider);
     context.invalidate(committedConfigProvider);
-    context.read(currentViewProvider.notifier).state = AppView.dashboard;
+    // Apply is reached only from the System tab now — return there
+    // so the operator can pick a follow-up action without bouncing
+    // back to the dashboard first.
+    context.read(currentViewProvider.notifier).state = AppView.system;
   }
 
   void _append(String line) {

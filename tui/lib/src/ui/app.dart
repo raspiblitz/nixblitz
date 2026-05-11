@@ -11,6 +11,7 @@ import 'views/configure_view.dart';
 import 'views/debug_view.dart';
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
+import 'views/system_view.dart';
 import 'views/update_view.dart';
 import 'shutdown.dart';
 import 'widgets/help_popup.dart';
@@ -378,14 +379,13 @@ class _Shell extends StatelessComponent {
                     AppView.configure;
                 return true;
               }
-              if (event.logicalKey == LogicalKey.keyA) {
+              if (event.logicalKey == LogicalKey.keyA ||
+                  event.logicalKey == LogicalKey.keyU) {
+                // Both [a] (Apply) and [u] (Update) now land on the
+                // unified System tab — the merged screen splits them
+                // into Apply and Check sections internally.
                 context.read(currentViewProvider.notifier).state =
-                    AppView.apply;
-                return true;
-              }
-              if (event.logicalKey == LogicalKey.keyU) {
-                context.read(currentViewProvider.notifier).state =
-                    AppView.update;
+                    AppView.system;
                 return true;
               }
               if (event.matches(LogicalKey.keyD, shift: true)) {
@@ -547,6 +547,7 @@ class _Shell extends StatelessComponent {
                         AppView.setup => const SetupView(),
                         AppView.dashboard => const DashboardView(),
                         AppView.configure => const ConfigureView(),
+                        AppView.system => const SystemView(),
                         AppView.apply => const ApplyView(),
                         AppView.update => const UpdateView(),
                         AppView.debug => const DebugView(),

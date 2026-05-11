@@ -622,7 +622,7 @@ class _UpdateViewState extends State<UpdateView> {
         label: 'Cancel',
         state: const ActionState(enabled: true, subtitle: ''),
         runAction: () {
-          context.read(currentViewProvider.notifier).state = AppView.dashboard;
+          context.read(currentViewProvider.notifier).state = AppView.system;
         },
       ),
     ];
@@ -675,8 +675,8 @@ class _UpdateViewState extends State<UpdateView> {
             return true;
           }
           if (event.logicalKey == LogicalKey.escape) {
-            context.read(currentViewProvider.notifier).state =
-                AppView.dashboard;
+            // Returns to System (the only path that lands here now).
+            context.read(currentViewProvider.notifier).state = AppView.system;
             return true;
           }
           return false;
@@ -1203,8 +1203,7 @@ class _UpdateViewState extends State<UpdateView> {
             // refresh — see apply_view._leave for context.
             context.invalidate(pendingChangesProvider);
             context.invalidate(committedConfigProvider);
-            context.read(currentViewProvider.notifier).state =
-                AppView.dashboard;
+            context.read(currentViewProvider.notifier).state = AppView.system;
             return true;
           }
           return false;

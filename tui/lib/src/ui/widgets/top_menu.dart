@@ -14,11 +14,13 @@ class TopMenuEntry {
 /// Canonical ordered list of view entries shown in the top menu.
 /// Help / Quit are NOT in the strip — they stay as their `?` / `q`
 /// hotkey shortcuts; the strip is for view navigation only.
+///
+/// Apply and Update are intentionally absent: both are reached via
+/// the unified System tab's Apply / Check sections.
 const List<TopMenuEntry> kTopMenuEntries = [
   TopMenuEntry(label: 'Dashboard', view: AppView.dashboard),
   TopMenuEntry(label: 'Configure', view: AppView.configure),
-  TopMenuEntry(label: 'Apply', view: AppView.apply),
-  TopMenuEntry(label: 'Update', view: AppView.update),
+  TopMenuEntry(label: 'System', view: AppView.system),
   TopMenuEntry(label: 'Debug', view: AppView.debug),
 ];
 
