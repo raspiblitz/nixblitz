@@ -185,8 +185,13 @@ class PluginService {
       // Copy the plugin's published files. Anything else in the
       // upstream repo (.git/, top-level docs, tests/) is dropped —
       // we only ship what installed.nix needs to import + the docs
-      // an operator might want to read post-install.
-      _copyPluginFiles(pluginSourceDir, pluginDir.path);
+      // an operator might want to read post-install. Tile manifests
+      // declared in the plugin's manifest are pulled along by path.
+      _copyPluginFiles(
+        pluginSourceDir,
+        pluginDir.path,
+        extraRelPaths: manifest.tileManifests,
+      );
 
       // Initialize app_configs.<id> from the manifest's config_schema
       // defaults if the operator doesn't already have an entry.
@@ -371,7 +376,11 @@ class PluginService {
       // config now lives in the main config.json's app_configs map.
       pluginDir.deleteSync(recursive: true);
       pluginDir.createSync(recursive: true);
-      _copyPluginFiles(pluginSourceDir, pluginDir.path);
+      _copyPluginFiles(
+        pluginSourceDir,
+        pluginDir.path,
+        extraRelPaths: manifest.tileManifests,
+      );
 
       final updated = existing.copyWith(
         version: manifest.version ?? existing.version,
@@ -506,8 +515,15 @@ class PluginService {
   /// `plugin.json` and `plugin.nix` are required (caller has
   /// already verified them); `README.md` and `LICENSE` are copied
   /// when present; the optional `streamers/` directory is copied
-  /// recursively when present.
-  void _copyPluginFiles(String src, String dst) {
+  /// recursively when present. [extraRelPaths] is the manifest's
+  /// declared `tile_manifests` — every entry is a relative path
+  /// inside the source tree and must be copied verbatim so the
+  /// dashboard provider can read it at runtime.
+  void _copyPluginFiles(
+    String src,
+    String dst, {
+    List<String> extraRelPaths = const [],
+  }) {
     for (final name in const [
       'plugin.json',
       'plugin.nix',
@@ -520,6 +536,18 @@ class PluginService {
     final streamers = Directory('$src/streamers');
     if (streamers.existsSync()) {
       _copyDir(streamers, Directory('$dst/streamers'));
+    }
+    for (final relPath in extraRelPaths) {
+      final srcFile = File('$src/$relPath');
+      if (!srcFile.existsSync()) {
+        LogService.warn(
+          'plugin install: declared tile manifest $relPath missing in source',
+        );
+        continue;
+      }
+      final dstFile = File('$dst/$relPath');
+      dstFile.parent.createSync(recursive: true);
+      srcFile.copySync(dstFile.path);
     }
   }
 
