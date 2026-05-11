@@ -296,14 +296,21 @@ class ConfigureView extends StatelessComponent {
         // Synchronous Provider (NOT FutureProvider) — direct read, no
         // AsyncValue unwrap, no flicker frame on configProvider ticks.
         final pendingKeys = context.watch(pendingChangeKeysProvider);
+        final focusedColumn = context.watch(_focusedColumnProvider);
+        // Pass -1 (no row "selected") when the sidebar owns focus, so
+        // option editors skip the cursor + accent and render in their
+        // idle color. Avoids the misleading "> hostname: [foo]" cue
+        // when j/k is actually moving the sidebar.
+        final visibleSelected = focusedColumn == _ConfigureColumn.content
+            ? selectedOption
+            : -1;
         final options = _buildOptions(
           context,
           config,
           currentEntry,
-          selectedOption,
+          visibleSelected,
           pendingKeys: pendingKeys,
         );
-        final focusedColumn = context.watch(_focusedColumnProvider);
 
         return Focusable(
           focused: !modalActive,

@@ -160,8 +160,14 @@ class SystemView extends StatelessComponent {
                       children: [
                         Text(
                           _headingFor(section),
-                          style: const TextStyle(
-                            color: Color.fromRGB(247, 147, 26),
+                          style: TextStyle(
+                            // Bold + bright when this column owns
+                            // focus; bold + dim grey otherwise, so
+                            // the eye is pulled toward the sidebar
+                            // when that's where j/k is going.
+                            color: column == _SystemColumn.content
+                                ? const Color.fromRGB(200, 200, 220)
+                                : const Color.fromRGB(110, 110, 130),
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -173,7 +179,8 @@ class SystemView extends StatelessComponent {
                         for (var i = 0; i < actions.length; i++) ...[
                           _ActionRow(
                             action: actions[i],
-                            focused: i == selected,
+                            selected: i == selected,
+                            columnFocused: column == _SystemColumn.content,
                           ),
                           if (i < actions.length - 1) const SizedBox(height: 1),
                         ],
@@ -476,27 +483,41 @@ class _SystemSidebar extends StatelessComponent {
 
 class _ActionRow extends StatelessComponent {
   final _SystemAction action;
-  final bool focused;
+  final bool selected;
+  final bool columnFocused;
 
-  const _ActionRow({required this.action, required this.focused});
+  const _ActionRow({
+    required this.action,
+    required this.selected,
+    required this.columnFocused,
+  });
 
   @override
   Component build(BuildContext context) {
     const accent = Color.fromRGB(247, 147, 26);
     const normal = Color.fromRGB(200, 200, 200);
     const dim = Color.fromRGB(140, 140, 150);
+    const inactive = Color.fromRGB(85, 85, 105);
+
+    // Cursor + accent only when this column owns focus. Otherwise the
+    // whole pane drops to the same dim grey the sidebar uses for its
+    // idle state — no `>`, no bold — so it's visually clear that
+    // j/k is going somewhere else.
+    final showCursor = selected && columnFocused;
+    final labelColor = columnFocused ? (selected ? accent : normal) : inactive;
+    final descColor = columnFocused ? dim : inactive;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '${focused ? "> " : "  "}${action.label}',
+          '${showCursor ? "> " : "  "}${action.label}',
           style: TextStyle(
-            color: focused ? accent : normal,
-            fontWeight: focused ? FontWeight.bold : FontWeight.normal,
+            color: labelColor,
+            fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
           ),
         ),
-        Text('    ${action.description}', style: const TextStyle(color: dim)),
+        Text('    ${action.description}', style: TextStyle(color: descColor)),
       ],
     );
   }
