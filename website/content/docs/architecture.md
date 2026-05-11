@@ -22,7 +22,8 @@ Three layers, each with one job:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Dart TUI                                                   │
-│  - Renders dashboard / configure / apply / update / debug   │
+│  - Renders dashboard / configure / system / debug           │
+│    (system splits read-only Check + destructive Apply)      │
 │  - Reads + writes ~/nixblitz/config.json                    │
 │  - Runs `nixos-rebuild switch` to deploy changes            │
 └────────────────────────────┬────────────────────────────────┘
@@ -46,8 +47,8 @@ on disk, never writes to `/var`. It writes JSON; NixOS turns the
 JSON into a system. If the JSON says `bitcoind.enabled = true`,
 NixOS makes sure bitcoind is running; if it says `false`, NixOS
 stops the unit and removes the on-disk presence. Rebuild output is
-streamed to the TUI's Apply view — the operator sees what's
-changing.
+streamed to the TUI's **System → Apply** pane — the operator sees
+what's changing.
 
 The big architectural difference vs. RaspiBlitz: there's no
 "current state" to read off the system to make a decision. The
@@ -81,8 +82,11 @@ the rest: starting / stopping units, regenerating configs in
 ```
 
 The flake on disk is a verbatim copy of the embedded templates;
-upgrading the TUI lets you propagate template changes via
-`Update → Refresh templates`. No manual file edits.
+upgrading the TUI propagates template changes by auto-rewriting any
+drifted files as a preflight inside **System → Apply** (and inside
+the Update flows on the same tab). The operator never has to
+trigger a separate "refresh templates" step — drift just lands in
+the Apply diff alongside their own edits. No manual file edits.
 
 `config.json` lives at `~/nixblitz/config.json` and is the
 single thing the operator changes. The flake's host config calls
@@ -91,7 +95,8 @@ the result into every module's `enable` flag and option set.
 
 ## The Apply transaction
 
-When the operator hits `[a]` Apply:
+When the operator hits `[a]` Apply (or picks **System → Apply →
+Apply pending changes**):
 
 1. **Diff**: the TUI shows `git diff` of `~/nixblitz/`. Both
    `config.json` edits and any auto-applied template refreshes
@@ -101,7 +106,7 @@ When the operator hits `[a]` Apply:
 3. **Commit**: `git add -A && git commit -m "Apply settings"` —
    creates a recoverable point.
 4. **Rebuild**: `sudo nixos-rebuild switch --flake ~/nixblitz#nixblitz`
-   streams output line-by-line to the Apply view.
+   streams output line-by-line into the Apply pane.
 5. **Classify**: a regex-based outcome classifier reads the rebuild
    output and reports success / partial (some units failed but
    activation finished) / failure.
@@ -130,9 +135,9 @@ exist.
 
 ## Periodic update checks
 
-Two systemd timers run on the installed system to surface "X
-updates available" on the dashboard without the operator having to
-trigger an Update flow:
+Two systemd timers run on the installed system to surface
+pending upstream bumps on the dashboard without the operator
+having to trigger a check by hand:
 
 | Timer                        | Cadence | What it does                                                                                                                           |
 | ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -140,22 +145,27 @@ trigger an Update flow:
 | `nixblitz-check-heavy.timer` | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix eval` + `nvd diff` there. ~125 MB tarball fetch + 30-60s eval.        |
 
 Both run as `User=admin` and write to
-`/var/lib/nixblitz-tui/update-status.json`. The TUI dashboard
-reads this file on every render and shows a banner above the tile
-grid; absence of the file (fresh install) means no banner.
+`/var/lib/nixblitz-tui/update-status.json`. The TUI's node tile
+reads this file on every render and folds the result into the
+`system updates` row + the `<n> to apply` status badge — no
+separate banner, just one count that means "there's stuff to
+deploy."
 
-CLI invocations the timer wraps: `nixblitz check light` and
-`nixblitz check heavy`.
+The CLI verbs the timers wrap are also exposed for ad-hoc use:
+`nixblitz check light` and `nixblitz check heavy`. Inside the TUI,
+**System → Check** runs them inline and refreshes the displayed
+status panel on exit.
 
 ## Templates drift detection
 
 The TUI compares its embedded templates against `~/nixblitz/`
-per-key on launch. When drift is detected, it folds into the
-dashboard's NodeTile `system updates` row alongside any
-flake-input bumps — the operator sees a single "X to apply"
-indicator rather than a separate banner. Apply (`[a]`) and Update
-(`[u]`) both auto-rewrite the drifted files as a preflight before
-running `nixos-rebuild`, so drift never has its own operator-facing
+per-key on launch. When drift is detected, it folds into the node
+tile's `system updates` row alongside any flake-input bumps — the
+operator sees a single "X to apply" indicator rather than a
+separate banner. Every rebuild path on **System → Apply** (Apply
+pending changes, Update TUI only, Update entire system) auto-
+rewrites the drifted files as a preflight before running
+`nixos-rebuild`, so drift never has its own operator-facing
 concept or keybind to learn.
 
 This is intentionally separate from config-schema migrations

@@ -391,41 +391,63 @@ and you land on the **dashboard**.
 
 The header strip shows `NIXBLITZ` on the left, `<lnd alias> | <platform> | <pending status>`
 in the middle (e.g. `MyNode | Pi 5 | all applied`), and the build
-version on the right. Below that:
+version on the right. Below that, the top-menu strip:
 
-| Tile          | What                                                    |
-| ------------- | ------------------------------------------------------- |
-| **System**    | hostname, network, uptime, key services up / down state |
-| **Hardware**  | memory + disk usage from `/proc`                        |
-| **Bitcoin**   | sync %, block height, peer count, mempool size          |
-| **Lightning** | alias, pubkey, peer + channel counts, balances          |
+```
+[Dashboard]  Configure  System  Debug                  [?] Help  [q] Quit
+```
 
-Installed plugins can add their own tiles. None ship out of the
-box; you opt in via `nixblitz plugin add ...`.
+`←`/`→` (or `h`/`l`) cycle the strip and switch view immediately.
+The active entry is bracketed and accent-colored.
 
-Footer hints show shortcuts. Some only appear when relevant:
+Below the menu, the tile grid. Two tiles are bundled:
 
-- `[c]` Configure — open the typed-options editor
-- `[a]` Apply — review pending changes + commit + rebuild
-  (only shown when there are pending changes)
-- `[u]` Update — pull TUI + plugin + flake updates
-- `[r]` Refresh templates — only shown when the binary's
-  embedded templates differ from `~/nixblitz/templates/`
+| Tile         | What                                                            |
+| ------------ | --------------------------------------------------------------- |
+| **System**   | uptime + per-service active/inactive (blitz-api, nginx, redis…) |
+| **Hardware** | memory + disk usage from `/proc`                                |
+
+A separate **node tile** above the grid summarizes node identity:
+hostname, uptime, last apply timestamp, and an `<n> to apply`
+status badge that counts both pending config edits and pending
+upstream input bumps.
+
+Bitcoin / Lightning tiles come from the **bitcoind** / **lnd** (or
+**cln**) plugins the wizard installed — they're not built into the
+binary. Removing those plugins removes their tiles; additional
+plugins (tailscale, lnbits, …) added later via
+`nixblitz plugin add …` register their own tiles the same way.
+
+Global hotkeys work from any view (equivalents to picking a top-menu
+entry):
+
+- `[c]` Configure — typed-options editor with a sidebar of
+  per-service sections
+- `[a]` Apply / `[u]` Update — both land on **System**, which
+  splits read-only **Check** probes from the destructive **Apply**
+  rebuild on a left sidebar
 - `[D]` Debug — service health, log tail, regtest helpers
 - `[?]` Help
+- `[q]` Quit
 
-Walk through Configure for a moment. Tab through the service
-sections; toggle a value; hit Esc to return. The dashboard now
-shows an orange `1 pending change` banner. Press `[a]` to review
-the diff. The Apply view shows the unified `git diff` against
-`~/nixblitz/config.json`. Commit + rebuild with `[a]` again.
+Walk through Configure for a moment. Use `j`/`k` (or `↑`/`↓`) to move
+through the sidebar's sections; `Enter` (or `l` / `→`) focuses the
+content pane; toggle a value; `Esc` returns to the sidebar, then to
+the dashboard. The node tile's status badge now reads
+`1 to apply`. Press `[a]` — that lands on **System → Apply**,
+which auto-rewrites any drifted templates as a preflight, then
+shows the unified `git diff` against `~/nixblitz/`. Commit + rebuild
+from there.
 
 That's the loop: edit → diff → apply.
 
-A second banner may also appear above the tiles after a few hours:
-**`updates available: nixpkgs, … — checked Xh ago`**. This is the
-periodic update-check service. Run **`nixblitz check light`** or
-**`nixblitz check heavy`** at any shell to trigger them on demand.
+After a few hours the node tile's `system updates` row populates
+once the periodic check timer (`nixblitz-check-light.timer`) has
+run. The status badge folds that count into the same `<n> to apply`
+indicator — there's nothing else to learn. Trigger a check on
+demand from inside the TUI via **System → Check → Simple check**
+(or **Heavy check** for the full `nvd diff`), or from any shell
+with `nixblitz check light` / `nixblitz check heavy`.
 
 ## 7. Access the running node
 
