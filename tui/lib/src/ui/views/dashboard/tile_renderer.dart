@@ -9,6 +9,20 @@ import '../../widgets/tile.dart';
 /// Default accent used when the manifest does not specify one.
 const _defaultAccent = Color.fromRGB(100, 180, 255);
 
+/// Width hints for a tile's three-column grid:
+/// [label column] [flex middle column] [value column].
+///
+/// `label` and `value` are character widths derived from the
+/// widest rendered string in their respective columns; the
+/// middle column is Flex / Expanded and absorbs the rest. Bars
+/// live in the middle column so they stretch to fill it without
+/// disturbing label / value alignment.
+class _GridWidths {
+  final int label;
+  final int value;
+  const _GridWidths({required this.label, required this.value});
+}
+
 Color _accent(TileManifest m) {
   if (m.accentColor == null) return _defaultAccent;
   return parseHex(m.accentColor!) ?? _defaultAccent;
@@ -33,8 +47,18 @@ class TileRenderer extends StatelessComponent {
     final data = snapshot.data;
     final primitiveWidgets = <Component>[];
 
+    // Pre-render pass: compute the widest label and the widest
+    // rendered value string across every row-like primitive in the
+    // tile. These drive the three-column grid so labels left-align
+    // in their column, values right-align in theirs, and the
+    // middle column (where ProgressBars live) stretches to fill
+    // the rest.
+    final grid = _computeGridWidths(manifest.layout, data);
+
     for (final p in manifest.layout) {
-      primitiveWidgets.add(_buildPrimitive(p, data, accent, indent: 0));
+      primitiveWidgets.add(
+        _buildPrimitive(p, data, accent, indent: 0, grid: grid),
+      );
     }
 
     // Footer resolution
@@ -58,11 +82,56 @@ class TileRenderer extends StatelessComponent {
     );
   }
 
+  /// Walk Row / StatusRow / ProgressBar primitives (recursing
+  /// into Sections) and compute the widest label and widest
+  /// rendered value text. Indent contributes to the label width
+  /// so a Section's nested labels still fit their column.
+  /// ProgressBar pcts max out at 4 chars ("100%").
+  static _GridWidths _computeGridWidths(
+    List<dsl.Primitive> layout,
+    Map<String, dynamic> data, {
+    int indent = 0,
+  }) {
+    var maxLabel = 0;
+    var maxValue = 0;
+
+    void countLabel(String? label) {
+      final l = indent + (label?.length ?? 0);
+      if (l > maxLabel) maxLabel = l;
+    }
+
+    void countValue(int w) {
+      if (w > maxValue) maxValue = w;
+    }
+
+    for (final p in layout) {
+      switch (p) {
+        case dsl.Row():
+          countLabel(p.label);
+          countValue('${resolveValue(p.value, data)}'.length);
+        case dsl.StatusRow():
+          countLabel(p.label);
+          countValue('${resolveValue(p.value, data)}'.length);
+        case dsl.ProgressBar():
+          countLabel(p.label);
+          countValue(4); // max "100%"
+        case dsl.Section():
+          final sub = _computeGridWidths(p.children, data, indent: indent + 2);
+          if (sub.label > maxLabel) maxLabel = sub.label;
+          if (sub.value > maxValue) maxValue = sub.value;
+        default:
+          break;
+      }
+    }
+    return _GridWidths(label: maxLabel, value: maxValue);
+  }
+
   Component _buildPrimitive(
     dsl.Primitive p,
     Map<String, dynamic> data,
     Color accent, {
     required int indent,
+    required _GridWidths grid,
   }) {
     final prefix = ' ' * indent;
     switch (p) {
@@ -71,20 +140,14 @@ class TileRenderer extends StatelessComponent {
         final color = p.valueColor != null
             ? resolveTileColor(p.valueColor, accent: accent)
             : null;
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '$prefix${p.label}',
-              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-            ),
-            Text(
-              '$val',
-              style: TextStyle(
-                color: color ?? const Color.fromRGB(220, 220, 220),
-              ),
-            ),
-          ],
+        return _gridRow(
+          prefix: prefix,
+          label: p.label,
+          labelWidth: grid.label,
+          valueText: '$val',
+          valueWidth: grid.value,
+          valueColor: color ?? const Color.fromRGB(220, 220, 220),
+          middle: const SizedBox.shrink(),
         );
 
       case dsl.StatusRow():
@@ -94,15 +157,14 @@ class TileRenderer extends StatelessComponent {
           colorName is String ? colorName : null,
           accent: accent,
         );
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '$prefix${p.label}',
-              style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
-            ),
-            Text('$val', style: TextStyle(color: color)),
-          ],
+        return _gridRow(
+          prefix: prefix,
+          label: p.label,
+          labelWidth: grid.label,
+          valueText: '$val',
+          valueWidth: grid.value,
+          valueColor: color,
+          middle: const SizedBox.shrink(),
         );
 
       case dsl.ProgressBar():
@@ -115,29 +177,31 @@ class TileRenderer extends StatelessComponent {
         // Default progress bar fill is muted (not the bright default text color)
         // so the wide filled portion doesn't dominate the tile visually.
         final barColor = resolveTileColor(p.color ?? 'muted', accent: accent);
-        return Row(
-          children: [
-            if (p.label != null) ...[
-              Text(
-                '$prefix${p.label}',
-                style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+        return _gridRow(
+          prefix: prefix,
+          label: p.label,
+          labelWidth: grid.label,
+          valueText: pctText,
+          valueWidth: grid.value,
+          valueColor: const Color.fromRGB(220, 220, 220),
+          // Bar lives in the middle (flex) column — stretches to
+          // fill whatever space is between the label and value
+          // columns, padded by 1 char on each side for visual
+          // breathing room.
+          middle: Row(
+            children: [
+              const SizedBox(width: 1),
+              Expanded(
+                child: ProgressBar(
+                  value: pct,
+                  valueColor: barColor,
+                  fillCharacter: '█',
+                  emptyCharacter: '░',
+                ),
               ),
-              const SizedBox(width: 2),
+              const SizedBox(width: 1),
             ],
-            Expanded(
-              child: ProgressBar(
-                value: pct,
-                valueColor: barColor,
-                fillCharacter: '█',
-                emptyCharacter: '░',
-              ),
-            ),
-            const SizedBox(width: 1),
-            Text(
-              pctText,
-              style: const TextStyle(color: Color.fromRGB(220, 220, 220)),
-            ),
-          ],
+          ),
         );
 
       case dsl.Section():
@@ -148,7 +212,13 @@ class TileRenderer extends StatelessComponent {
               style: TextStyle(color: accent, fontWeight: FontWeight.bold),
             ),
           ...p.children.map(
-            (c) => _buildPrimitive(c, data, accent, indent: indent + 2),
+            (c) => _buildPrimitive(
+              c,
+              data,
+              accent,
+              indent: indent + 2,
+              grid: grid,
+            ),
           ),
         ];
         return Column(
@@ -168,6 +238,37 @@ class TileRenderer extends StatelessComponent {
         );
         return Text('$text', style: TextStyle(color: color));
     }
+  }
+
+  /// Renders one row of the tile's three-column grid:
+  ///
+  ///   [label-padded to labelWidth][middle (flex)][value-padded to valueWidth]
+  ///
+  /// `middle` is either a [Spacer] (plain Row / StatusRow) or a
+  /// flex Component containing a [ProgressBar] (ProgressBar row).
+  /// Padding the label / value to their column widths makes labels
+  /// and values column-aligned across every row in the tile.
+  Component _gridRow({
+    required String prefix,
+    required String? label,
+    required int labelWidth,
+    required String valueText,
+    required int valueWidth,
+    required Color valueColor,
+    required Component middle,
+  }) {
+    final paddedLabel = '$prefix${label ?? ""}'.padRight(labelWidth);
+    final paddedValue = valueText.padLeft(valueWidth);
+    return Row(
+      children: [
+        Text(
+          paddedLabel,
+          style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+        ),
+        Expanded(child: middle),
+        Text(paddedValue, style: TextStyle(color: valueColor)),
+      ],
+    );
   }
 
   (String, Color)? _resolveFooterWidget(
