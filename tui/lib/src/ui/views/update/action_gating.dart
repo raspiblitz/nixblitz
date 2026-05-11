@@ -92,7 +92,7 @@ UpdateActionStates computeUpdateActionStates(
   } else if (!heavy.ok) {
     entire = ActionState(
       enabled: true,
-      subtitle: 'last full check failed: ${heavy.error ?? "unknown"}',
+      subtitle: 'last full check failed: ${_briefError(heavy.error)}',
     );
   } else if (heavy.noChanges ||
       isHeavyDiffStale(status, liveInputsAhead: liveInputsAhead)) {
@@ -121,6 +121,46 @@ UpdateActionStates computeUpdateActionStates(
   }
 
   return UpdateActionStates(tuiOnly: tuiOnly, entireSystem: entire);
+}
+
+/// Condense a heavy-check error blob into a single short line for
+/// the action subtitle. The raw error is the full stderr from
+/// `nix flake update` (or wherever) — multi-line, full of retry
+/// warnings, stack traces, store paths. Useful for the log file,
+/// awful in a one-line menu subtitle.
+///
+/// Strategy: scan lines, prefer one that looks like a concrete
+/// "Could not resolve host" / "404" / "permission denied" tail,
+/// otherwise the first non-empty line. Clip to a width that won't
+/// wrap most terminals. Full error stays on `HeavyCheck.error` for
+/// log-driven diagnosis.
+String _briefError(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return 'unknown';
+  final lines = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+  if (lines.isEmpty) return 'unknown';
+
+  // Network-flavored summary takes precedence over the framing
+  // line ("nix flake update failed (exit 1): warning: error: …")
+  // because the framing tells you what tool failed, not what went
+  // wrong.
+  for (final l in lines) {
+    if (l.contains('Could not resolve host')) {
+      return 'no network (DNS resolution failed)';
+    }
+    if (l.contains('Network is unreachable') ||
+        l.contains('Connection refused') ||
+        l.contains('Connection timed out')) {
+      return 'no network';
+    }
+  }
+
+  final first = lines.first;
+  const maxLen = 100;
+  return first.length <= maxLen ? first : '${first.substring(0, maxLen - 1)}…';
 }
 
 /// Counts `[U./A./R.]` lines — same heuristic as the inline diff
