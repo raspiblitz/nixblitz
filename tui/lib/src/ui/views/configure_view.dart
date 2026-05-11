@@ -691,8 +691,11 @@ class ConfigureView extends StatelessComponent {
         p.pluginId,
     };
 
-    // Compute column widths from the actual data.
-    final idWidth = manifests.map((m) => m.id.length).fold<int>(6, _max);
+    // Compute column widths from the actual data. Show display
+    // name (e.g. "Bitcoin Core") rather than the directory id —
+    // friendlier to read and consistent with the per-plugin
+    // configure tabs at the top of the screen.
+    final nameWidth = manifests.map((m) => m.name.length).fold<int>(6, _max);
     final branchWidth = markers.values
         .map((m) => (m?.branch ?? '').length)
         .fold<int>(6, _max);
@@ -702,7 +705,7 @@ class ConfigureView extends StatelessComponent {
 
     final rows = <Component>[
       Text(
-        '  ${'PLUGIN'.padRight(idWidth)}  ${'BRANCH'.padRight(branchWidth)}  REV       SIG       STATUS',
+        '  ${'PLUGIN'.padRight(nameWidth)}  ${'BRANCH'.padRight(branchWidth)}  REV       SIG       STATUS',
         style: const TextStyle(color: dim),
       ),
     ];
@@ -712,7 +715,7 @@ class ConfigureView extends StatelessComponent {
       final marker = markers[m.id];
       final focused = selectedIndex == i;
 
-      final id = m.id.padRight(idWidth);
+      final name = m.name.padRight(nameWidth);
       final branch = (marker?.branch ?? '?').padRight(branchWidth);
       final rev = marker == null
           ? '?       '
@@ -740,7 +743,7 @@ class ConfigureView extends StatelessComponent {
 
       rows.add(
         Text(
-          '${focused ? "> " : "  "}$id  $branch  $rev  $sig  $status',
+          '${focused ? "> " : "  "}$name  $branch  $rev  $sig  $status',
           style: TextStyle(color: focused ? focusedColor : normal),
         ),
       );
