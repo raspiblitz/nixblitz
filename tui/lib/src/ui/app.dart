@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
-import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import 'views/dashboard_view.dart';
 import 'views/apply_view.dart';
@@ -20,7 +19,10 @@ import 'widgets/top_menu.dart';
 import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
 
-final _helpVisibleProvider = StateProvider<bool>((ref) => false);
+// helpVisibleProvider and modalActiveProvider live in
+// ui_state_provider.dart so widgets without a back-import to
+// `app.dart` (ScrollableLog, the views' own Focusables) can read
+// them.
 
 /// Detect whether we're running inside a NixOS installer image —
 /// the x86 minimal ISO, the Pi 5 SD-image installer, etc. These
@@ -320,7 +322,7 @@ class _Shell extends StatelessComponent {
     // ProviderScope's lifetime.
     context.read(configWatcherProvider);
 
-    final helpVisible = context.watch(_helpVisibleProvider);
+    final helpVisible = context.watch(helpVisibleProvider);
     final sudoPromptVisible = context.watch(pendingSudoPromptProvider) != null;
 
     return Stack(
@@ -334,7 +336,7 @@ class _Shell extends StatelessComponent {
                 return true;
               }
               if (event.logicalKey == LogicalKey.question) {
-                context.read(_helpVisibleProvider.notifier).state = true;
+                context.read(helpVisibleProvider.notifier).state = true;
                 return true;
               }
               final currentView = context.read(currentViewProvider);
@@ -563,7 +565,7 @@ class _Shell extends StatelessComponent {
         if (helpVisible)
           HelpPopup(
             onClose: () {
-              context.read(_helpVisibleProvider.notifier).state = false;
+              context.read(helpVisibleProvider.notifier).state = false;
             },
           ),
         // Sudo password modal — full-screen overlay; takes focus

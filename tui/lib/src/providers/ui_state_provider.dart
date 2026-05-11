@@ -1,5 +1,6 @@
 import 'package:common/common.dart';
 import 'package:riverpod/legacy.dart';
+import 'package:riverpod/riverpod.dart';
 
 enum AppView {
   install,
@@ -43,3 +44,19 @@ final selectedServiceIndexProvider = StateProvider<int>((ref) => 0);
 final templatesDriftProvider = StateProvider<TemplatesDrift>(
   (ref) => TemplatesDrift.inSync,
 );
+
+/// True while the help popup is visible (toggled by `?`). Lives in
+/// the shared provider file so widgets like [ScrollableLog] can read
+/// it without circular imports back to `app.dart`.
+final helpVisibleProvider = StateProvider<bool>((ref) => false);
+
+/// True while any modal popup is on top of the view tree (help or
+/// sudo prompt). Widgets that hold an interactive [Focusable] should
+/// set `focused: !modalActive` so a stray keystroke can't bubble
+/// into the underlying view while a modal is up — independent of
+/// nocterm's BlockFocus dispatch behavior.
+final modalActiveProvider = Provider<bool>((ref) {
+  final help = ref.watch(helpVisibleProvider);
+  final sudo = ref.watch(pendingSudoPromptProvider);
+  return help || sudo != null;
+});

@@ -232,6 +232,8 @@ class ConfigureView extends StatelessComponent {
     final statusMessage = context.watch(_statusMessageProvider);
     final editingPluginDir = context.watch(_editingPluginDirNameProvider);
     final editingField = context.watch(_editingFieldProvider);
+    // Yield focus while a modal popup is up — sudo / help.
+    final modalActive = context.watch(modalActiveProvider);
     final registry = context.watch(appManifestRegistryProvider);
 
     // Build the manifest-driven menu: System + all apps + Plugins.
@@ -312,7 +314,7 @@ class ConfigureView extends StatelessComponent {
             menuEntries.map((e) => e.label.length).fold<int>(8, _max) + 8;
 
         return Focusable(
-          focused: true,
+          focused: !modalActive,
           onKeyEvent: (event) {
             try {
               // Clear status message on any key press.

@@ -208,7 +208,7 @@ class _DashboardViewState extends State<DashboardView> {
                       ...pluginTiles,
                     ];
                     return Focusable(
-                      focused: true,
+                      focused: !context.watch(modalActiveProvider),
                       onKeyEvent: _handleScrollKey,
                       child: SingleChildScrollView(
                         controller: _scroll,

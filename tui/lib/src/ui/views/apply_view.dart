@@ -407,7 +407,7 @@ class _ApplyViewState extends State<ApplyView> {
     // wrap in a plain Focusable just to catch Esc.
     if (hasChanges) return body;
     return Focusable(
-      focused: true,
+      focused: !context.watch(modalActiveProvider),
       onKeyEvent: _handleReviewNonScrollKey,
       child: body,
     );
@@ -443,9 +443,10 @@ class _ApplyViewState extends State<ApplyView> {
     final exitCode = context.watch(_applyExitCodeProvider);
     final binaryUpdated = context.watch(_applyBinaryUpdatedProvider);
     final result = RebuildResult.classify(outputLines, exitCode ?? 1);
+    final modalActive = context.watch(modalActiveProvider);
 
     return Focusable(
-      focused: true,
+      focused: !modalActive,
       onKeyEvent: (event) {
         try {
           if (binaryUpdated && event.logicalKey == LogicalKey.keyR) {

@@ -1,4 +1,7 @@
 import 'package:nocterm/nocterm.dart';
+import 'package:nocterm_riverpod/nocterm_riverpod.dart';
+
+import '../../providers/ui_state_provider.dart';
 
 /// A scrollable log display that auto-scrolls to the bottom when new lines
 /// arrive, unless the user has scrolled up manually.
@@ -225,10 +228,16 @@ class _ScrollableLogState extends State<ScrollableLog> {
 
     if (!comp.focused) return listView;
 
+    // Yield focus while a modal popup (sudo prompt / help) is up —
+    // the streaming-output panes that wrap us during nixos-rebuild
+    // would otherwise eat the keystrokes meant for the password
+    // input.
+    final modalActive = context.watch(modalActiveProvider);
+
     final showStatus = _composing || _query.isNotEmpty;
 
     return Focusable(
-      focused: true,
+      focused: !modalActive,
       onKeyEvent: (event) {
         if (_handleSearchKey(event, rows.length)) return true;
         if (_handleScrollKey(event)) return true;

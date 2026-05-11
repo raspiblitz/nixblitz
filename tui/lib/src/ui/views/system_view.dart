@@ -57,8 +57,11 @@ class SystemView extends StatelessComponent {
     final actions = _actionsFor(section);
     final selected = actionIndex.clamp(0, actions.length - 1);
 
+    // Yield focus while a modal popup (help / sudo prompt) is up so
+    // stray keys can't fire view-local handlers underneath.
+    final modalActive = context.watch(modalActiveProvider);
     return Focusable(
-      focused: true,
+      focused: !modalActive,
       onKeyEvent: (event) {
         try {
           // Vertical nav within the focused column.

@@ -628,7 +628,7 @@ class _UpdateViewState extends State<UpdateView> {
     ];
 
     return Focusable(
-      focused: true,
+      focused: !context.watch(modalActiveProvider),
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.keyJ ||
