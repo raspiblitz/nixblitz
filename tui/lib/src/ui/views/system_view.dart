@@ -6,6 +6,7 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 
 import '../format.dart';
+import '../layout.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 
@@ -453,10 +454,8 @@ class _SystemSidebar extends StatelessComponent {
     const borderActive = Color.fromRGB(140, 140, 180);
     const borderIdle = Color.fromRGB(50, 50, 70);
 
-    final width = 5 + 8;
-
     return Container(
-      width: width.toDouble(),
+      width: kSidebarWidth.toDouble(),
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
       decoration: BoxDecoration(
         border: BoxBorder.all(color: focused ? borderActive : borderIdle),
@@ -494,7 +493,7 @@ class _SystemSidebar extends StatelessComponent {
     final prefix = showCursor ? '> ' : '  ';
     final color = focused ? (isActive ? accent : idle) : dim;
     return Text(
-      '$prefix$label',
+      '$prefix${truncateSidebarLabel(label)}',
       style: TextStyle(
         color: color,
         fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,

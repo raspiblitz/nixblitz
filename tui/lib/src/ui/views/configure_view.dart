@@ -7,6 +7,7 @@ import 'package:common/common.dart';
 import '../widgets/option_editor.dart';
 import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
+import '../layout.dart';
 import 'configure/field_editor.dart';
 import 'plugin_config_view.dart';
 import 'plugin_install_view.dart';
@@ -303,15 +304,6 @@ class ConfigureView extends StatelessComponent {
           pendingKeys: pendingKeys,
         );
         final focusedColumn = context.watch(_focusedColumnProvider);
-        // Width = widest label
-        //       + 2 ("> " cursor prefix)
-        //       + 4 (EdgeInsets.symmetric horizontal: 2 each side)
-        //       + 2 (border deflate — nocterm's DecoratedBox does
-        //            constraints.deflate(EdgeInsets.all(1)) for ANY
-        //            non-empty border, so a right-only BorderSide
-        //            still costs one column on the left as well).
-        final sidebarWidth =
-            menuEntries.map((e) => e.label.length).fold<int>(8, _max) + 8;
 
         return Focusable(
           focused: !modalActive,
@@ -433,7 +425,6 @@ class ConfigureView extends StatelessComponent {
                         menuEntries.length - 1,
                       ),
                       focused: focusedColumn == _ConfigureColumn.sidebar,
-                      width: sidebarWidth,
                     ),
                     Expanded(
                       child: Container(
@@ -928,13 +919,11 @@ class _ConfigureSidebar extends StatelessComponent {
   final List<_MenuEntry> entries;
   final int selectedIndex;
   final bool focused;
-  final int width;
 
   const _ConfigureSidebar({
     required this.entries,
     required this.selectedIndex,
     required this.focused,
-    required this.width,
   });
 
   @override
@@ -951,7 +940,7 @@ class _ConfigureSidebar extends StatelessComponent {
     const borderIdle = Color.fromRGB(50, 50, 70);
 
     return Container(
-      width: width.toDouble(),
+      width: kSidebarWidth.toDouble(),
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
       decoration: BoxDecoration(
         border: BoxBorder.all(color: focused ? borderActive : borderIdle),
@@ -966,7 +955,7 @@ class _ConfigureSidebar extends StatelessComponent {
               final prefix = showCursor ? '> ' : '  ';
               final color = focused ? (isActive ? accent : idle) : dim;
               return Text(
-                '$prefix${entries[i].label}',
+                '$prefix${truncateSidebarLabel(entries[i].label)}',
                 style: TextStyle(
                   color: color,
                   fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
