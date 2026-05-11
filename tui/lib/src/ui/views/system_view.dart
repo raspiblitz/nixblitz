@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -9,6 +7,7 @@ import '../format.dart';
 import '../layout.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
+import '../../services/check_runner.dart';
 
 // ---------------------------------------------------------------------------
 // System view — sidebar: [Check, Apply].
@@ -38,16 +37,6 @@ final _systemColumnProvider = StateProvider<_SystemColumn>(
   (ref) => _SystemColumn.sidebar,
 );
 final _systemActionIndexProvider = StateProvider<int>((ref) => 0);
-
-/// The check subprocess currently in flight, by mode (`light` / `heavy`).
-/// `null` when nothing is running. Drives the inline spinner + prevents
-/// re-trigger spam while a check is mid-flight.
-final _runningCheckProvider = StateProvider<String?>((ref) => null);
-
-/// Bumps each time a check subprocess exits. Watched by the status
-/// panel so it re-reads `update-status.json` after a check writes
-/// fresh data.
-final _checkRefreshTickProvider = StateProvider<int>((ref) => 0);
 
 /// A row in the body's action list. Each action has a short, action-y
 /// label + a longer description rendered below it in dim text.
@@ -213,7 +202,7 @@ class SystemView extends StatelessComponent {
             'Polls each flake input + each installed plugin against '
             'its pinned rev (HTTP only, no rebuild). Daily timer '
             'runs this in the background. ~5s.',
-        run: (ctx) => _runCheck(ctx, 'light'),
+        run: (ctx) => runCheckSubprocess(ctx, 'light'),
       ),
       _SystemAction(
         label: 'Heavy check',
@@ -222,7 +211,7 @@ class SystemView extends StatelessComponent {
             'diff so you can preview every package change before '
             'committing. Slow — several minutes — and CPU-heavy. '
             'Weekly timer runs this in the background.',
-        run: (ctx) => _runCheck(ctx, 'heavy'),
+        run: (ctx) => runCheckSubprocess(ctx, 'heavy'),
       ),
       _SystemAction(
         label: 'Plugins check',
@@ -231,7 +220,7 @@ class SystemView extends StatelessComponent {
             'only — useful right after pushing a plugin update '
             'when you want the ↑ marker to reflect upstream right '
             'now without waiting for the daily timer.',
-        run: (ctx) => _runCheck(ctx, 'light'),
+        run: (ctx) => runCheckSubprocess(ctx, 'light'),
       ),
     ],
     _SystemSection.apply => [
@@ -279,35 +268,6 @@ class SystemView extends StatelessComponent {
       ),
     ],
   };
-
-  /// Fire `nixblitz check <mode>` as a subprocess. Updates
-  /// [_runningCheckProvider] while in flight + bumps
-  /// [_checkRefreshTickProvider] on exit so the status panel
-  /// re-reads update-status.json.
-  static void _runCheck(BuildContext ctx, String mode) {
-    if (ctx.read(_runningCheckProvider) != null) return;
-    ctx.read(_runningCheckProvider.notifier).state = mode;
-    LogService.info('System check started: nixblitz check $mode');
-
-    Process.start('nixblitz', ['check', mode])
-        .then((proc) async {
-          // Drain stdout / stderr so they don't backpressure the
-          // subprocess. The cached update-status.json is what we
-          // read after — actual stdout content isn't shown inline
-          // (terminal real estate is precious; the operator can tail
-          // `journalctl -u nixblitz-check-heavy` if they want detail).
-          proc.stdout.drain<void>();
-          proc.stderr.drain<void>();
-          final code = await proc.exitCode;
-          LogService.info('System check exited: $mode (code $code)');
-          ctx.read(_runningCheckProvider.notifier).state = null;
-          ctx.read(_checkRefreshTickProvider.notifier).state++;
-        })
-        .catchError((Object e, StackTrace st) {
-          LogService.error('System check failed to start: $mode', e, st);
-          ctx.read(_runningCheckProvider.notifier).state = null;
-        });
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -318,8 +278,10 @@ class _CheckStatusPanel extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     // Trigger a rebuild after each check subprocess exits.
-    context.watch(_checkRefreshTickProvider);
-    final running = context.watch(_runningCheckProvider);
+    context.watch(checkRefreshTickProvider);
+    final running = context.watch(runningCheckProvider);
+    final baseDir = context.watch(baseDirProvider);
+    final binaryMatchesLock = tuiBinaryMatchesLock(baseDir);
     final status = readUpdateStatus();
     final light = status.lightweight;
     final heavy = status.heavy;
@@ -369,11 +331,17 @@ class _CheckStatusPanel extends StatelessComponent {
       );
     }
 
-    // TUI binary row — only the TUI input.
+    // TUI binary row — only the TUI input. When the running binary's
+    // commit matches the locked rev, override any stale "ahead" claim
+    // — the rebuild already happened, the daily check just hasn't
+    // re-run yet (handled at startup, but a fresh install or a
+    // network glitch can still leave the cache lagging).
     if (light == null || !light.ok) {
       rows.add(_row('TUI binary', 'no check yet', '—', dim));
     } else {
-      final tuiAhead = light.inputsAhead.any((i) => i.name == tuiInput);
+      final tuiAhead =
+          light.inputsAhead.any((i) => i.name == tuiInput) &&
+          !binaryMatchesLock;
       rows.add(
         _row(
           'TUI binary',

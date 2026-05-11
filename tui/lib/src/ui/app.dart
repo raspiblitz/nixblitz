@@ -18,6 +18,7 @@ import 'widgets/password_overlay.dart';
 import 'widgets/top_menu.dart';
 import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
+import '../services/check_runner.dart';
 
 // helpVisibleProvider and modalActiveProvider live in
 // ui_state_provider.dart so widgets without a back-import to
@@ -324,6 +325,15 @@ class _Shell extends StatelessComponent {
 
     final helpVisible = context.watch(helpVisibleProvider);
     final sudoPromptVisible = context.watch(pendingSudoPromptProvider) != null;
+
+    // Fire-and-forget light check at startup if the cached status is
+    // stale (>30 min). Guarded by a per-process flag inside the
+    // helper so _Shell rebuilds don't re-trigger. Lifecycle wizards
+    // (install / setup) skip — there's no flake.lock yet on the
+    // installer ISO, and update-status only matters post-dashboard.
+    if (!_isLifecycleView(context.read(currentViewProvider))) {
+      maybeAutoStartupCheck(context);
+    }
 
     return Stack(
       children: [
