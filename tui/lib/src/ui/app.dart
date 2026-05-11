@@ -15,6 +15,7 @@ import 'views/update_view.dart';
 import 'shutdown.dart';
 import 'widgets/help_popup.dart';
 import 'widgets/password_overlay.dart';
+import 'widgets/top_menu.dart';
 import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
 
@@ -136,30 +137,14 @@ List<({String text, Color color})> _headerSegments(
   return segs;
 }
 
-/// Footer text for the current view. Dashboard omits `[a]:
-/// Apply` when the working tree is clean — there's nothing to
-/// apply otherwise, so advertising the shortcut is noise.
-String _footerHint(AppView view, {required bool hasPending}) {
-  return switch (view) {
-    AppView.install => '[↑/↓]: Navigate  [Enter]: Select  [?]: Help',
-    AppView.setup => 'Setting up...  [?]: Help',
-    AppView.dashboard => [
-      '[c]: Configure',
-      if (hasPending) '[a]: Apply',
-      '[u]: Update',
-      '[D]: Debug',
-      '[?]: Help',
-      '[q]: Quit',
-    ].join('  '),
-    AppView.configure =>
-      '[↑/↓]: Navigate  [Enter]: Edit  [Esc]: Back  [?]: Help',
-    AppView.apply => '[a]: Apply  [d]: Discard  [Esc]: Back  [?]: Help',
-    AppView.debug => '[↑/↓]: Navigate  [Enter]: Run  [Esc]: Back  [?]: Help',
-    AppView.configTooNew => '[c]: Continue anyway  [q]: Quit',
-    AppView.update =>
-      '[↑/↓]: Navigate  [Enter]: Select  [Esc]: Back  [?]: Help',
-  };
-}
+/// True when the current view is one of the lifecycle wizards
+/// (install / setup / configTooNew). The top menu hides during
+/// these because the operator is on a forced linear path with no
+/// menu navigation to offer.
+bool _isLifecycleView(AppView view) =>
+    view == AppView.install ||
+    view == AppView.setup ||
+    view == AppView.configTooNew;
 
 /// Run when the on-disk config is older than this TUI expects:
 /// migrate `config.json` to [currentConfigVersion] and leave
@@ -352,31 +337,65 @@ class _Shell extends StatelessComponent {
                 return true;
               }
               final currentView = context.read(currentViewProvider);
-              if (currentView == AppView.dashboard) {
-                if (event.logicalKey == LogicalKey.keyC) {
+
+              // Top-menu navigation: ←/→/h/l cycle through the
+              // strip's entries and switch view immediately. Only
+              // fires outside lifecycle wizards (install / setup /
+              // configTooNew), where the menu is hidden anyway.
+              if (!_isLifecycleView(currentView)) {
+                final menuIdx = topMenuIndexForView(currentView);
+                if (event.logicalKey == LogicalKey.arrowLeft ||
+                    event.logicalKey == LogicalKey.keyH) {
+                  final prev = menuIdx <= 0
+                      ? kTopMenuEntries.length - 1
+                      : menuIdx - 1;
                   context.read(currentViewProvider.notifier).state =
-                      AppView.configure;
+                      kTopMenuEntries[prev].view;
                   return true;
                 }
-                if (event.logicalKey == LogicalKey.keyA) {
+                if (event.logicalKey == LogicalKey.arrowRight ||
+                    event.logicalKey == LogicalKey.keyL) {
+                  final next =
+                      menuIdx < 0 || menuIdx >= kTopMenuEntries.length - 1
+                      ? 0
+                      : menuIdx + 1;
                   context.read(currentViewProvider.notifier).state =
-                      AppView.apply;
+                      kTopMenuEntries[next].view;
                   return true;
                 }
-                if (event.logicalKey == LogicalKey.keyU) {
-                  context.read(currentViewProvider.notifier).state =
-                      AppView.update;
-                  return true;
-                }
-                if (event.matches(LogicalKey.keyD, shift: true)) {
-                  context.read(currentViewProvider.notifier).state =
-                      AppView.debug;
-                  return true;
-                }
-                if (event.logicalKey == LogicalKey.keyQ) {
-                  shutdownWithTerminalRestore();
-                  return true;
-                }
+              }
+
+              // Hotkey shortcuts — run globally (only fire if the
+              // focused view didn't consume the key first via its
+              // own Focusable). Apply's `[a]`, Update's `[c]/[C]`,
+              // and text-edit overlays all swallow these before
+              // they reach the shell, so view-local meanings still
+              // win on the views that need them. Anywhere else
+              // (Configure list, Debug, Dashboard, …) the shell
+              // catches the key and switches view.
+              if (event.logicalKey == LogicalKey.keyC) {
+                context.read(currentViewProvider.notifier).state =
+                    AppView.configure;
+                return true;
+              }
+              if (event.logicalKey == LogicalKey.keyA) {
+                context.read(currentViewProvider.notifier).state =
+                    AppView.apply;
+                return true;
+              }
+              if (event.logicalKey == LogicalKey.keyU) {
+                context.read(currentViewProvider.notifier).state =
+                    AppView.update;
+                return true;
+              }
+              if (event.matches(LogicalKey.keyD, shift: true)) {
+                context.read(currentViewProvider.notifier).state =
+                    AppView.debug;
+                return true;
+              }
+              if (event.logicalKey == LogicalKey.keyQ) {
+                shutdownWithTerminalRestore();
+                return true;
               }
               return false;
             } catch (e, st) {
@@ -384,154 +403,159 @@ class _Shell extends StatelessComponent {
               return true;
             }
           },
-          child: Container(
-            padding: const EdgeInsets.all(1),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 2,
-                    vertical: 1,
-                  ),
-                  decoration: const BoxDecoration(
-                    border: BoxBorder(
-                      bottom: BorderSide(color: Color.fromRGB(80, 80, 100)),
+          // BlockFocus stops the keystroke dispatcher from descending
+          // into the underlying view's Focusables while a modal
+          // (help / sudo prompt) is on top. Without this, a press of
+          // Esc inside (e.g.) Configure with the help popup open
+          // would fire Configure's Esc handler first (depth-first
+          // dispatch in nocterm) and only close help on the second
+          // press. Blocking when modal-active routes the keystroke
+          // straight to the popup's Focusable.
+          child: BlockFocus(
+            blocking: helpVisible || sudoPromptVisible,
+            child: Container(
+              padding: const EdgeInsets.all(1),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 0,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text(
-                        'NIXBLITZ',
-                        style: TextStyle(
-                          color: Color.fromRGB(247, 147, 26),
-                          fontWeight: FontWeight.bold,
-                        ),
+                    // Header as its own (non-interactive) pane —
+                    // matches the zellij idiom where every region
+                    // is a bordered rectangle. Idle border color
+                    // because there's no focus distinction here:
+                    // the header never receives keys.
+                    decoration: const BoxDecoration(
+                      border: BoxBorder(
+                        top: BorderSide(color: Color.fromRGB(80, 80, 100)),
+                        right: BorderSide(color: Color.fromRGB(80, 80, 100)),
+                        bottom: BorderSide(color: Color.fromRGB(80, 80, 100)),
+                        left: BorderSide(color: Color.fromRGB(80, 80, 100)),
                       ),
-                      Expanded(
-                        child: Center(
-                          child: () {
-                            // Header pulls from three providers:
-                            // config (alias fallback / platform),
-                            // tileDataCache (live LN alias from
-                            // lightning snapshot), and
-                            // pendingChangeKeysProvider (the
-                            // count of dotted-path keys differing
-                            // from HEAD).
-                            final cfg = context
-                                .watch(configProvider)
-                                .maybeWhen(data: (c) => c, orElse: () => null);
-                            if (cfg == null) return const Text('');
-                            // Synchronous Provider — direct read,
-                            // no AsyncValue unwrap. The header
-                            // status updates in the same frame as
-                            // the configProvider tick that
-                            // triggered it (no flicker through a
-                            // loading state).
-                            final lnData = context
-                                .watch(tileDataCacheProvider)
-                                .snapshotFor('lightning')
-                                .data;
-                            final liveAlias = lnData['alias'] is String
-                                ? lnData['alias'] as String
-                                : '';
-                            final pendingCount = context
-                                .watch(pendingChangeKeysProvider)
-                                .length;
-                            final segs = _headerSegments(
-                              cfg,
-                              liveAlias,
-                              pendingCount,
-                              context.watch(currentViewProvider),
-                            );
-                            // Render as a Row of segment + " | "
-                            // separator + segment, each in its
-                            // own colour. The separator stays in
-                            // the same dim grey as the other
-                            // segments — only the pending status
-                            // is yellow when count > 0.
-                            const sepColor = Color.fromRGB(180, 180, 200);
-                            final children = <Component>[];
-                            for (var i = 0; i < segs.length; i++) {
-                              if (i > 0) {
+                    ),
+                    child: Row(
+                      children: [
+                        const Text(
+                          'NIXBLITZ',
+                          style: TextStyle(
+                            color: Color.fromRGB(247, 147, 26),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Expanded(
+                          child: Center(
+                            child: () {
+                              // Header pulls from three providers:
+                              // config (alias fallback / platform),
+                              // tileDataCache (live LN alias from
+                              // lightning snapshot), and
+                              // pendingChangeKeysProvider (the
+                              // count of dotted-path keys differing
+                              // from HEAD).
+                              final cfg = context
+                                  .watch(configProvider)
+                                  .maybeWhen(
+                                    data: (c) => c,
+                                    orElse: () => null,
+                                  );
+                              if (cfg == null) return const Text('');
+                              // Synchronous Provider — direct read,
+                              // no AsyncValue unwrap. The header
+                              // status updates in the same frame as
+                              // the configProvider tick that
+                              // triggered it (no flicker through a
+                              // loading state).
+                              final lnData = context
+                                  .watch(tileDataCacheProvider)
+                                  .snapshotFor('lightning')
+                                  .data;
+                              final liveAlias = lnData['alias'] is String
+                                  ? lnData['alias'] as String
+                                  : '';
+                              final pendingCount = context
+                                  .watch(pendingChangeKeysProvider)
+                                  .length;
+                              final segs = _headerSegments(
+                                cfg,
+                                liveAlias,
+                                pendingCount,
+                                context.watch(currentViewProvider),
+                              );
+                              // Render as a Row of segment + " | "
+                              // separator + segment, each in its
+                              // own colour. The separator stays in
+                              // the same dim grey as the other
+                              // segments — only the pending status
+                              // is yellow when count > 0.
+                              const sepColor = Color.fromRGB(180, 180, 200);
+                              final children = <Component>[];
+                              for (var i = 0; i < segs.length; i++) {
+                                if (i > 0) {
+                                  children.add(
+                                    const Text(
+                                      ' | ',
+                                      style: TextStyle(color: sepColor),
+                                    ),
+                                  );
+                                }
                                 children.add(
-                                  const Text(
-                                    ' | ',
-                                    style: TextStyle(color: sepColor),
+                                  Text(
+                                    segs[i].text,
+                                    style: TextStyle(color: segs[i].color),
                                   ),
                                 );
                               }
-                              children.add(
-                                Text(
-                                  segs[i].text,
-                                  style: TextStyle(color: segs[i].color),
-                                ),
+                              // mainAxisSize.min — without it the
+                              // Row stretches to fill the Center's
+                              // width and Center has nothing to
+                              // actually center, so the segments
+                              // butt up against the NIXBLITZ logo
+                              // on the left.
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: children,
                               );
-                            }
-                            // mainAxisSize.min — without it the
-                            // Row stretches to fill the Center's
-                            // width and Center has nothing to
-                            // actually center, so the segments
-                            // butt up against the NIXBLITZ logo
-                            // on the left.
-                            return Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: children,
-                            );
-                          }(),
-                        ),
-                      ),
-                      Text(
-                        buildVersionString,
-                        style: const TextStyle(
-                          color: Color.fromRGB(150, 150, 180),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 1),
-                // Wrap the view swap in a stable SizedBox.expand so the
-                // flex parent data applied by Expanded stays anchored to
-                // one render object across view (and internal step)
-                // changes. Without this, views that swap their root
-                // widget type between steps (install, setup, update…)
-                // lose the flex data and crash when they contain an
-                // inner Expanded(ScrollableLog).
-                Expanded(
-                  child: SizedBox.expand(
-                    child: switch (context.watch(currentViewProvider)) {
-                      AppView.install => const InstallView(),
-                      AppView.setup => const SetupView(),
-                      AppView.dashboard => const DashboardView(),
-                      AppView.configure => const ConfigureView(),
-                      AppView.apply => const ApplyView(),
-                      AppView.update => const UpdateView(),
-                      AppView.debug => const DebugView(),
-                      AppView.configTooNew => const ConfigTooNewView(),
-                    },
-                  ),
-                ),
-                const Divider(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(
-                    _footerHint(
-                      context.watch(currentViewProvider),
-                      hasPending: context
-                          .watch(pendingChangesProvider)
-                          .maybeWhen(
-                            data: (lines) => lines.isNotEmpty,
-                            orElse: () => false,
+                            }(),
                           ),
-                    ),
-                    style: const TextStyle(
-                      color: Color.fromRGB(247, 147, 26),
-                      fontWeight: FontWeight.bold,
+                        ),
+                        Text(
+                          buildVersionString,
+                          style: const TextStyle(
+                            color: Color.fromRGB(150, 150, 180),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                  if (!_isLifecycleView(context.watch(currentViewProvider)))
+                    TopMenu(activeView: context.watch(currentViewProvider)),
+                  const SizedBox(height: 1),
+                  // Wrap the view swap in a stable SizedBox.expand so the
+                  // flex parent data applied by Expanded stays anchored to
+                  // one render object across view (and internal step)
+                  // changes. Without this, views that swap their root
+                  // widget type between steps (install, setup, update…)
+                  // lose the flex data and crash when they contain an
+                  // inner Expanded(ScrollableLog).
+                  Expanded(
+                    child: SizedBox.expand(
+                      child: switch (context.watch(currentViewProvider)) {
+                        AppView.install => const InstallView(),
+                        AppView.setup => const SetupView(),
+                        AppView.dashboard => const DashboardView(),
+                        AppView.configure => const ConfigureView(),
+                        AppView.apply => const ApplyView(),
+                        AppView.update => const UpdateView(),
+                        AppView.debug => const DebugView(),
+                        AppView.configTooNew => const ConfigTooNewView(),
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

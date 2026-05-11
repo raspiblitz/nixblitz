@@ -7,11 +7,20 @@ class ActionState {
   final String subtitle;
 }
 
-/// Computed state for the two gated actions in `_buildSelectMode`.
+/// Computed state for the gated actions in `_buildSelectMode`.
 class UpdateActionStates {
-  const UpdateActionStates({required this.tuiOnly, required this.entireSystem});
+  const UpdateActionStates({
+    required this.tuiOnly,
+    required this.entireSystem,
+    required this.refreshPlugins,
+  });
   final ActionState tuiOnly;
   final ActionState entireSystem;
+
+  /// "Refresh plugins" — enabled when the last lightweight check
+  /// found at least one plugin behind upstream. Subtitle reflects
+  /// the count.
+  final ActionState refreshPlugins;
 }
 
 /// Returns true when [status.heavy]'s `diffText` should be treated
@@ -120,7 +129,38 @@ UpdateActionStates computeUpdateActionStates(
     );
   }
 
-  return UpdateActionStates(tuiOnly: tuiOnly, entireSystem: entire);
+  // ── refreshPlugins ─────────────────────────────────────────
+  final ActionState refreshPlugins;
+  if (light == null || !light.ok) {
+    // Without a successful light check we don't know which plugins
+    // are behind. Still allow the action so the operator can force
+    // a refresh-all even before the first check runs.
+    refreshPlugins = const ActionState(
+      enabled: true,
+      subtitle: 'no light check yet — refresh anyway',
+    );
+  } else {
+    final ahead = light.pluginsAhead.length;
+    if (ahead == 0) {
+      refreshPlugins = const ActionState(
+        enabled: false,
+        subtitle: 'plugins up to date',
+      );
+    } else {
+      refreshPlugins = ActionState(
+        enabled: true,
+        subtitle: ahead == 1
+            ? '1 plugin update available'
+            : '$ahead plugin updates available',
+      );
+    }
+  }
+
+  return UpdateActionStates(
+    tuiOnly: tuiOnly,
+    entireSystem: entire,
+    refreshPlugins: refreshPlugins,
+  );
 }
 
 /// Condense a heavy-check error blob into a single short line for

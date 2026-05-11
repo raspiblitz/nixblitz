@@ -93,6 +93,27 @@ final _refreshingPluginProvider = StateProvider<String?>((ref) => null);
 /// tab and reset when the refresh-all view dismisses.
 final _refreshingAllPluginsProvider = StateProvider<bool>((ref) => false);
 
+/// Which column of Configure's two-column layout currently has the
+/// keyboard focus. `sidebar` is the section picker on the left;
+/// `content` is the section's field / row list on the right.
+///
+/// Keys dispatch off this:
+///   - `j` / `k` / `↑` / `↓`: navigate within the focused column.
+///   - `→`: sidebar → content (drill in).
+///   - `←` / `Esc`: content → sidebar (back out). From sidebar,
+///     `Esc` exits Configure to the dashboard.
+///   - `Enter`: sidebar → focus shifts to content; content →
+///     existing per-row action (edit field / cycle bool / drill
+///     into plugin).
+///
+/// `h` / `l` are deliberately NOT consumed here — the top menu
+/// in `_Shell` claims them globally for view switching.
+enum _ConfigureColumn { sidebar, content }
+
+final _focusedColumnProvider = StateProvider<_ConfigureColumn>(
+  (ref) => _ConfigureColumn.sidebar,
+);
+
 // ---------------------------------------------------------------------------
 // ConfigureView
 // ---------------------------------------------------------------------------
@@ -222,27 +243,14 @@ class ConfigureView extends StatelessComponent {
       loading: () => const Center(child: Text('Loading...')),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (config) {
-        // Plugin form takes over the whole view when the user has
-        // drilled into one — bypasses the tab grid key handling.
+        // If the editingPluginDir references a plugin that's been
+        // uninstalled out-of-band, clear the stale id so the
+        // Plugins section's right pane falls back to preview mode.
         if (editingPluginDir != null) {
-          // The drilled-in plugin is identified by its id; look up the
-          // manifest from installedPluginsProvider. If it's gone (the
-          // operator removed it in a parallel session), drop the
-          // selection and fall back to the tab grid below.
           final manifests = context.watch(installedPluginsProvider);
-          final manifest = manifests
-              .where((m) => m.id == editingPluginDir)
-              .firstOrNull;
-          if (manifest == null) {
-            // Stale selection (plugin removed in a race). Drop it.
+          final stillThere = manifests.any((m) => m.id == editingPluginDir);
+          if (!stillThere) {
             context.read(_editingPluginDirNameProvider.notifier).state = null;
-          } else {
-            return PluginConfigView(
-              pluginId: manifest.id,
-              onDismiss: () =>
-                  context.read(_editingPluginDirNameProvider.notifier).state =
-                      null,
-            );
           }
         }
 
@@ -290,6 +298,16 @@ class ConfigureView extends StatelessComponent {
           selectedOption,
           pendingKeys: pendingKeys,
         );
+        final focusedColumn = context.watch(_focusedColumnProvider);
+        // Width = widest label
+        //       + 2 ("> " cursor prefix)
+        //       + 4 (EdgeInsets.symmetric horizontal: 2 each side)
+        //       + 2 (border deflate — nocterm's DecoratedBox does
+        //            constraints.deflate(EdgeInsets.all(1)) for ANY
+        //            non-empty border, so a right-only BorderSide
+        //            still costs one column on the left as well).
+        final sidebarWidth =
+            menuEntries.map((e) => e.label.length).fold<int>(8, _max) + 8;
 
         return Focusable(
           focused: true,
@@ -300,60 +318,80 @@ class ConfigureView extends StatelessComponent {
                 context.read(_statusMessageProvider.notifier).state = '';
               }
 
+              // Vertical nav: dispatch based on which column is focused.
+              // Sidebar: walk sections; content: walk rows within section.
               if (event.logicalKey == LogicalKey.keyJ ||
                   event.logicalKey == LogicalKey.arrowDown) {
-                final max = options.length - 1;
-                if (selectedOption < max) {
-                  context.read(_selectedOptionProvider.notifier).state =
-                      selectedOption + 1;
+                if (focusedColumn == _ConfigureColumn.sidebar) {
+                  if (serviceIndex < menuEntries.length - 1) {
+                    context.read(selectedServiceIndexProvider.notifier).state =
+                        serviceIndex + 1;
+                    context.read(_selectedOptionProvider.notifier).state = 0;
+                  }
+                } else {
+                  final max = options.length - 1;
+                  if (selectedOption < max) {
+                    context.read(_selectedOptionProvider.notifier).state =
+                        selectedOption + 1;
+                  }
                 }
                 return true;
               }
               if (event.logicalKey == LogicalKey.keyK ||
                   event.logicalKey == LogicalKey.arrowUp) {
-                if (selectedOption > 0) {
-                  context.read(_selectedOptionProvider.notifier).state =
-                      selectedOption - 1;
+                if (focusedColumn == _ConfigureColumn.sidebar) {
+                  if (serviceIndex > 0) {
+                    context.read(selectedServiceIndexProvider.notifier).state =
+                        serviceIndex - 1;
+                    context.read(_selectedOptionProvider.notifier).state = 0;
+                  }
+                } else {
+                  if (selectedOption > 0) {
+                    context.read(_selectedOptionProvider.notifier).state =
+                        selectedOption - 1;
+                  }
                 }
                 return true;
               }
-              if (event.logicalKey == LogicalKey.keyH ||
-                  event.logicalKey == LogicalKey.arrowLeft) {
-                if (serviceIndex > 0) {
-                  context.read(selectedServiceIndexProvider.notifier).state =
-                      serviceIndex - 1;
-                  context.read(_selectedOptionProvider.notifier).state = 0;
+
+              // Right arrow: sidebar → content. (Not `l` — that's
+              // claimed by the global top menu for view switching.)
+              if (event.logicalKey == LogicalKey.arrowRight) {
+                if (focusedColumn == _ConfigureColumn.sidebar) {
+                  context.read(_focusedColumnProvider.notifier).state =
+                      _ConfigureColumn.content;
+                  return true;
                 }
-                return true;
               }
-              if (event.logicalKey == LogicalKey.keyL ||
-                  event.logicalKey == LogicalKey.arrowRight) {
-                if (serviceIndex < menuEntries.length - 1) {
-                  context.read(selectedServiceIndexProvider.notifier).state =
-                      serviceIndex + 1;
-                  context.read(_selectedOptionProvider.notifier).state = 0;
-                }
-                return true;
-              }
+
+              // Enter / Space: sidebar → focus content; content →
+              // existing drill-in (edit field, cycle bool, drill plugin).
               if (event.logicalKey == LogicalKey.enter ||
                   event.logicalKey == LogicalKey.space) {
-                _handleEnter(context, config, currentEntry, selectedOption);
+                if (focusedColumn == _ConfigureColumn.sidebar) {
+                  context.read(_focusedColumnProvider.notifier).state =
+                      _ConfigureColumn.content;
+                } else {
+                  _handleEnter(context, config, currentEntry, selectedOption);
+                }
                 return true;
               }
-              // [i] on the Plugins tab opens the install wizard.
-              // Gated to _PluginsEntry so it doesn't shadow text-edit
-              // intent on other tabs.
+
+              // [i] on the Plugins section opens the install wizard.
+              // Gated to content focus + _PluginsEntry so it doesn't
+              // shadow other intents.
               if (event.logicalKey == LogicalKey.keyI &&
-                  currentEntry is _PluginsEntry) {
+                  currentEntry is _PluginsEntry &&
+                  focusedColumn == _ConfigureColumn.content) {
                 context.read(_installingPluginProvider.notifier).state = true;
                 return true;
               }
-              // [r] / [R] on the Plugins tab — refresh single / all.
+              // [r] / [R] on the Plugins section — refresh single / all.
               // Distinguishing case: shift-r (capital R) is bulk;
-              // plain r refreshes only the highlighted row. Same gate
-              // as [i] — Plugins tab only, no other-tab interference.
+              // plain r refreshes only the highlighted row.
               if (event.logicalKey == LogicalKey.keyR &&
-                  currentEntry is _PluginsEntry) {
+                  currentEntry is _PluginsEntry &&
+                  focusedColumn == _ConfigureColumn.content) {
                 final shifted = event.character == 'R';
                 if (shifted) {
                   context.read(_refreshingAllPluginsProvider.notifier).state =
@@ -367,9 +405,25 @@ class ConfigureView extends StatelessComponent {
                 }
                 return true;
               }
+
+              // Left arrow / Esc: content → sidebar. From sidebar,
+              // Esc returns to the dashboard. (`h` is the global
+              // top-menu key and is intentionally not consumed here.)
+              if (event.logicalKey == LogicalKey.arrowLeft) {
+                if (focusedColumn == _ConfigureColumn.content) {
+                  context.read(_focusedColumnProvider.notifier).state =
+                      _ConfigureColumn.sidebar;
+                  return true;
+                }
+              }
               if (event.logicalKey == LogicalKey.escape) {
-                context.read(currentViewProvider.notifier).state =
-                    AppView.dashboard;
+                if (focusedColumn == _ConfigureColumn.content) {
+                  context.read(_focusedColumnProvider.notifier).state =
+                      _ConfigureColumn.sidebar;
+                } else {
+                  context.read(currentViewProvider.notifier).state =
+                      AppView.dashboard;
+                }
                 return true;
               }
               return false;
@@ -379,54 +433,54 @@ class ConfigureView extends StatelessComponent {
             }
           },
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
+              Expanded(
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Configure: ',
-                      style: const TextStyle(
-                        color: Color.fromRGB(247, 147, 26),
-                        fontWeight: FontWeight.bold,
+                    _ConfigureSidebar(
+                      entries: menuEntries,
+                      selectedIndex: serviceIndex.clamp(
+                        0,
+                        menuEntries.length - 1,
+                      ),
+                      focused: focusedColumn == _ConfigureColumn.sidebar,
+                      width: sidebarWidth,
+                    ),
+                    Expanded(
+                      child: Container(
+                        // Right pane gets its own full-rectangle border
+                        // so focus is conveyed via border color (same
+                        // idiom as the sidebar). Adjacent sidebar+content
+                        // borders sit side-by-side at the seam — slight
+                        // visual heaviness but unambiguous: whichever
+                        // rectangle glows is where j/k goes.
+                        decoration: BoxDecoration(
+                          border: BoxBorder.all(
+                            color: focusedColumn == _ConfigureColumn.content
+                                ? const Color.fromRGB(140, 140, 180)
+                                : const Color.fromRGB(50, 50, 70),
+                          ),
+                        ),
+                        child: currentEntry is _PluginsEntry
+                            ? _buildPluginsContent(
+                                context,
+                                selectedOption,
+                                editingPluginDir,
+                              )
+                            : Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 2,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: options,
+                                ),
+                              ),
                       ),
                     ),
-                    // Service tabs (manifest-driven)
-                    ...List.generate(menuEntries.length, (i) {
-                      final isActive = i == serviceIndex;
-                      return Row(
-                        children: [
-                          Text(
-                            menuEntries[i].label,
-                            style: TextStyle(
-                              color: isActive
-                                  ? const Color.fromRGB(247, 147, 26)
-                                  : const Color.fromRGB(120, 120, 140),
-                              fontWeight: isActive
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                          ),
-                          if (i < menuEntries.length - 1)
-                            Text(
-                              ' | ',
-                              style: const TextStyle(
-                                color: Color.fromRGB(80, 80, 100),
-                              ),
-                            ),
-                        ],
-                      );
-                    }),
                   ],
-                ),
-              ),
-              const SizedBox(height: 1),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: options,
                 ),
               ),
               if (statusMessage.isNotEmpty) ...[
@@ -569,7 +623,11 @@ class ConfigureView extends StatelessComponent {
         selectedIndex,
         isPending,
       ),
-      _PluginsEntry() => _buildPluginsOptions(ctx, selectedIndex),
+      // Plugins entry is handled by `_buildPluginsContent` higher up
+      // in the layout (two-column inline). _buildOptions's caller
+      // never reaches this branch for Plugins; the empty list keeps
+      // the switch exhaustive.
+      _PluginsEntry() => const <Component>[],
     };
   }
 
@@ -636,123 +694,175 @@ class ConfigureView extends StatelessComponent {
     ];
   }
 
-  // ---------- Plugins ----------
+  // ---------- Plugins (two-column inline layout) ----------
 
-  List<Component> _buildPluginsOptions(
+  /// Right-pane renderer for the Plugins section. Splits the
+  /// available width into:
+  ///
+  ///   [plugin name list]  │  [config preview / inline form]
+  ///
+  /// The name list is always visible. The right subcolumn shows a
+  /// read-only preview of the highlighted plugin's config while
+  /// [editingPluginDir] is null; once the operator hits Enter the
+  /// provider is set and the right subcolumn swaps in the full
+  /// [PluginConfigView] (which owns its own Focusable + key
+  /// handling). Dismissing the form clears the provider and the
+  /// preview returns.
+  Component _buildPluginsContent(
     BuildContext context,
     int selectedIndex,
+    String? editingPluginDir,
   ) {
-    const dim = Color.fromRGB(140, 140, 150);
-    const hintRow = Text(
-      '[i] install   [r] refresh   [R] refresh all   [Enter] configure',
-      style: TextStyle(color: dim),
-    );
-
     final manifests = context.watch(installedPluginsProvider);
     if (manifests.isEmpty) {
-      return const [
-        Text(
-          '(no plugins installed)',
-          style: TextStyle(color: Color.fromRGB(150, 150, 170)),
-        ),
-        SizedBox(height: 1),
-        hintRow,
-      ];
-    }
-
-    // Join each manifest with its on-disk marker so the operator
-    // sees branch / rev / status at a glance. The markers live at
-    // <baseDir>/plugins/<id>/.nixblitz-installed.json — fs read is
-    // synchronous + cheap, fine for a render-time call.
-    final baseDir = context.read(baseDirProvider);
-    final pluginsRoot = '$baseDir/plugins';
-    final markers = {
-      for (final m in manifests) m.id: readMarker('$pluginsRoot/${m.id}'),
-    };
-
-    // Resolved config — used to surface the operator's per-plugin
-    // `app_configs[id].enabled` toggle in the STATUS column. Distinct
-    // from `marker.disabled` (which controls plugins.list inclusion):
-    // a plugin can be in plugins.list (NixOS evaluates its module)
-    // but have `enabled: false`, in which case the module shouldn't
-    // start its service.
-    final configAsync = context.watch(configProvider);
-    final config = configAsync.value;
-
-    // Set of plugin ids the daily update check found behind upstream.
-    // Read synchronously each rebuild (cheap; the check writes a
-    // small JSON file). Prefixes the STATUS column with "↑" so the
-    // operator sees at a glance which rows have a refresh available.
-    // pluginsAhead lives on the lightweight (daily) check; if it
-    // hasn't run or didn't succeed the set is empty (no false alarms).
-    final updateStatus = readUpdateStatus();
-    final pluginsBehind = {
-      for (final p in updateStatus.lightweight?.pluginsAhead ?? const [])
-        p.pluginId,
-    };
-
-    // Compute column widths from the actual data. Show display
-    // name (e.g. "Bitcoin Core") rather than the directory id —
-    // friendlier to read and consistent with the per-plugin
-    // configure tabs at the top of the screen.
-    final nameWidth = manifests.map((m) => m.name.length).fold<int>(6, _max);
-    final branchWidth = markers.values
-        .map((m) => (m?.branch ?? '').length)
-        .fold<int>(6, _max);
-
-    const focusedColor = Color.fromRGB(247, 147, 26);
-    const normal = Color.fromRGB(200, 200, 200);
-
-    final rows = <Component>[
-      Text(
-        '  ${'PLUGIN'.padRight(nameWidth)}  ${'BRANCH'.padRight(branchWidth)}  REV       SIG       STATUS',
-        style: const TextStyle(color: dim),
-      ),
-    ];
-
-    for (var i = 0; i < manifests.length; i++) {
-      final m = manifests[i];
-      final marker = markers[m.id];
-      final focused = selectedIndex == i;
-
-      final name = m.name.padRight(nameWidth);
-      final branch = (marker?.branch ?? '?').padRight(branchWidth);
-      final rev = marker == null
-          ? '?       '
-          : (marker.rev.length >= 8
-                ? marker.rev.substring(0, 8)
-                : marker.rev.padRight(8));
-
-      // SIG: the fingerprint we pinned at install time, or "(unsigned)"
-      // if the operator consented to an unsigned commit. Short-form so
-      // the column stays narrow; the install consent prompt + the
-      // refresh-mismatch screen show the full fingerprint.
-      final sig = pluginSigShort(marker);
-
-      // STATUS surfaces three independent operator-visible bits:
-      //   - marker present? (system-level: plugin is registered)
-      //   - marker.disabled? (operator excluded it from plugins.list)
-      //   - app_configs[id].enabled? (the plugin's own start/stop gate)
-      //
-      // See [pluginStatusLabel] for the resolution rules. A leading
-      // "↑ " prefix marks plugins where the upstream rev is ahead of
-      // the pinned rev — the operator can hit [r] on the row to refresh.
-      final cfgEnabled = config?.isAppEnabled(m.id) ?? false;
-      final base = pluginStatusLabel(marker: marker, cfgEnabled: cfgEnabled);
-      final status = pluginsBehind.contains(m.id) ? '↑ $base' : base;
-
-      rows.add(
-        Text(
-          '${focused ? "> " : "  "}$name  $branch  $rev  $sig  $status',
-          style: TextStyle(color: focused ? focusedColor : normal),
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '(no plugins installed)',
+              style: TextStyle(color: Color.fromRGB(150, 150, 170)),
+            ),
+            SizedBox(height: 1),
+            Text(
+              '[i] install',
+              style: TextStyle(color: Color.fromRGB(140, 140, 150)),
+            ),
+          ],
         ),
       );
     }
 
-    rows.add(const SizedBox(height: 1));
-    rows.add(hintRow);
+    final clamped = selectedIndex.clamp(0, manifests.length - 1);
+    final selected = manifests[clamped];
 
-    return rows;
+    // Widest plugin name + 2 ("> " cursor prefix)
+    //                    + 4 (EdgeInsets.symmetric horizontal: 2 each side)
+    //                    + 2 (nocterm border deflate — see the
+    //                         outer sidebar's width comment).
+    final nameColWidth =
+        manifests.map((m) => m.name.length).fold<int>(8, _max) + 8;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: nameColWidth.toDouble(),
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+          // Plugin list = its own bordered pane inside the Plugins
+          // section's right column. Idle color — the OUTER content
+          // pane's border is the one that intensifies on focus,
+          // so we don't double-light the seam here.
+          decoration: const BoxDecoration(
+            border: BoxBorder(
+              top: BorderSide(color: Color.fromRGB(50, 50, 70)),
+              right: BorderSide(color: Color.fromRGB(50, 50, 70)),
+              bottom: BorderSide(color: Color.fromRGB(50, 50, 70)),
+              left: BorderSide(color: Color.fromRGB(50, 50, 70)),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < manifests.length; i++)
+                Text(
+                  '${i == clamped ? "> " : "  "}${manifests[i].name}',
+                  style: TextStyle(
+                    color: i == clamped
+                        ? const Color.fromRGB(247, 147, 26)
+                        : const Color.fromRGB(150, 150, 180),
+                    fontWeight: i == clamped
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+              const SizedBox(height: 1),
+              const Text(
+                '[i] install',
+                style: TextStyle(color: Color.fromRGB(120, 120, 140)),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: editingPluginDir != null
+              ? PluginConfigView(
+                  // Keyed on the plugin id so swapping plugins
+                  // resets internal state (selected row, editing
+                  // overlay…) instead of leaking it across plugins.
+                  key: ValueKey('plugin-config-$editingPluginDir'),
+                  pluginId: editingPluginDir,
+                  onDismiss: () =>
+                      context
+                              .read(_editingPluginDirNameProvider.notifier)
+                              .state =
+                          null,
+                )
+              : _buildPluginPreview(context, selected),
+        ),
+      ],
+    );
+  }
+
+  /// Read-only preview of [manifest]'s current config. Rendered in
+  /// the right subcolumn when no plugin form is active. Mirrors the
+  /// label/value layout of the full form so the operator can scan
+  /// values before drilling in.
+  Component _buildPluginPreview(BuildContext context, PluginManifest manifest) {
+    final config = context.watch(configProvider).value;
+    final appCfg = config?.appConfig(manifest.id) ?? const {};
+    final fields = manifest.configSchema?.fields ?? const [];
+
+    final baseDir = context.read(baseDirProvider);
+    final marker = readMarker('$baseDir/plugins/${manifest.id}');
+    final cfgEnabled = config?.isAppEnabled(manifest.id) ?? false;
+    final statusLabel = pluginStatusLabel(
+      marker: marker,
+      cfgEnabled: cfgEnabled,
+    );
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            manifest.name,
+            style: const TextStyle(
+              color: Color.fromRGB(247, 147, 26),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          if (manifest.description.isNotEmpty)
+            Text(
+              manifest.description,
+              style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+            ),
+          Text(
+            'status: $statusLabel',
+            style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
+          ),
+          const SizedBox(height: 1),
+          if (fields.isEmpty)
+            const Text(
+              '(no configurable fields)',
+              style: TextStyle(color: Color.fromRGB(150, 150, 170)),
+            )
+          else
+            for (final f in fields)
+              Text(
+                '${f.label}: ${appCfg[f.name] ?? "(default)"}',
+                style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+          const SizedBox(height: 1),
+          const Text(
+            '[Enter] edit',
+            style: TextStyle(color: Color.fromRGB(120, 120, 140)),
+          ),
+        ],
+      ),
+    );
   }
 
   static int _max(int a, int b) => a > b ? a : b;
@@ -817,6 +927,69 @@ String pluginSigShort(PluginMarker? marker) {
   final colon = fp.indexOf(':');
   final body = colon >= 0 ? fp.substring(colon + 1) : fp;
   return body.length >= 8 ? body.substring(0, 8) : body.padRight(8);
+}
+
+// ---------------------------------------------------------------------------
+// _ConfigureSidebar — left-column section picker
+//
+// Renders the manifest-driven menu (System + each app + Plugins) as a
+// vertical list. Stateless — selection + focus come in as props; the
+// parent's onKeyEvent owns navigation.
+// ---------------------------------------------------------------------------
+
+class _ConfigureSidebar extends StatelessComponent {
+  final List<_MenuEntry> entries;
+  final int selectedIndex;
+  final bool focused;
+  final int width;
+
+  const _ConfigureSidebar({
+    required this.entries,
+    required this.selectedIndex,
+    required this.focused,
+    required this.width,
+  });
+
+  @override
+  Component build(BuildContext context) {
+    // Focus is conveyed via text-contrast: focused column = active
+    // row in accent+bold with `> ` cursor, others in normal idle.
+    // Unfocused column = everything drops to dim grey so the eye is
+    // pulled to the other side. The right-edge border is a
+    // secondary cue (brighter on the focused column).
+    const accent = Color.fromRGB(247, 147, 26);
+    const idle = Color.fromRGB(180, 180, 200);
+    const dim = Color.fromRGB(85, 85, 105);
+    const borderActive = Color.fromRGB(140, 140, 180);
+    const borderIdle = Color.fromRGB(50, 50, 70);
+
+    return Container(
+      width: width.toDouble(),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+      decoration: BoxDecoration(
+        border: BoxBorder.all(color: focused ? borderActive : borderIdle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < entries.length; i++)
+            () {
+              final isActive = i == selectedIndex;
+              final showCursor = isActive && focused;
+              final prefix = showCursor ? '> ' : '  ';
+              final color = focused ? (isActive ? accent : idle) : dim;
+              return Text(
+                '$prefix${entries[i].label}',
+                style: TextStyle(
+                  color: color,
+                  fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
+                ),
+              );
+            }(),
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

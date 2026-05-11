@@ -11,7 +11,15 @@ import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
+import 'plugin_refresh_all_view.dart';
 import 'update/action_gating.dart';
+
+/// True while the Update view is delegating to [PluginRefreshAllView]
+/// (the bulk plugin refresh flow). Toggled by the "Refresh plugins"
+/// action and reset when the refresh-all view dismisses. Lives
+/// alongside the other Update-view state so the entire flow stays
+/// in one file.
+final _refreshingPluginsProvider = StateProvider<bool>((ref) => false);
 
 /// Update flow state machine:
 ///
@@ -527,6 +535,18 @@ class _UpdateViewState extends State<UpdateView> {
 
   @override
   Component build(BuildContext context) {
+    // Plugin refresh-all takeover — shown when the operator picks
+    // "Refresh plugins" from the action panel. Self-contained
+    // PluginRefreshAllView owns its own keys and dismisses back
+    // here when done.
+    if (context.watch(_refreshingPluginsProvider)) {
+      return PluginRefreshAllView(
+        pluginService: context.read(pluginServiceProvider),
+        onDismiss: () =>
+            context.read(_refreshingPluginsProvider.notifier).state = false,
+      );
+    }
+
     final mode = context.watch(_updateModeProvider);
 
     return switch (mode) {
@@ -592,6 +612,13 @@ class _UpdateViewState extends State<UpdateView> {
         runAction: () => _startUpdate(false),
       ),
       _Option(
+        label: 'Refresh plugins',
+        state: actionStates.refreshPlugins,
+        runAction: () {
+          context.read(_refreshingPluginsProvider.notifier).state = true;
+        },
+      ),
+      _Option(
         label: 'Cancel',
         state: const ActionState(enabled: true, subtitle: ''),
         runAction: () {
@@ -634,19 +661,6 @@ class _UpdateViewState extends State<UpdateView> {
           }
           if (event.logicalKey == LogicalKey.keyC && !event.modifiers.shift) {
             _onLightCheckRequested();
-            return true;
-          }
-          if (event.logicalKey == LogicalKey.keyP) {
-            // Deep-link to the configure view with the plugins
-            // service pre-selected. There is no standalone
-            // AppView.plugins; plugins live inside configure_view's
-            // service list at index 6 (see configure_view.dart's
-            // `services` array). Setting the index BEFORE the view
-            // mutation ensures the configure view's first build
-            // already reads the right index.
-            context.read(selectedServiceIndexProvider.notifier).state = 6;
-            context.read(currentViewProvider.notifier).state =
-                AppView.configure;
             return true;
           }
           if (event.logicalKey == LogicalKey.enter) {
@@ -935,18 +949,8 @@ class _UpdateViewState extends State<UpdateView> {
         ),
       );
 
-      // Plugin pointer row — only when pluginsAhead non-empty.
-      if (light.pluginsAhead.isNotEmpty) {
-        final n = light.pluginsAhead.length;
-        children.add(const SizedBox(height: 1));
-        children.add(
-          Text(
-            '  ! $n plugin update${n == 1 ? "" : "s"} available — '
-            'open [p] plugins menu',
-            style: const TextStyle(color: Color.fromRGB(247, 147, 26)),
-          ),
-        );
-      }
+      // Plugin updates surface as the gating subtitle on the
+      // "Refresh plugins" action below — no separate pointer row.
     }
 
     if (hasHeavy) {
