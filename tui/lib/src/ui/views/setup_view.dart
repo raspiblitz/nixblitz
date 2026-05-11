@@ -24,6 +24,7 @@ const _kLndSeedPath = '/mnt/data/lnd/lnd-seed-mnemonic';
 
 enum SetupStep {
   setPassword,
+  selectBitcoinNetwork,
   installBitcoindPlugin,
   selectLightningBackend,
   setLightningAlias,
@@ -64,6 +65,12 @@ final _lightningBackendIdxProvider = StateProvider<int>((ref) => 0);
 /// null while the picker is still showing; set to "lnd"/"cln"/"none"
 /// once the operator picks. Drives the install-status overlay.
 final _lightningBackendChoiceProvider = StateProvider<String?>((ref) => null);
+
+/// Selected index in the Bitcoin network picker. 0 = mainnet
+/// (default), 1 = regtest. Kept narrow on purpose — testnet /
+/// signet aren't useful for a self-hosted node and would just
+/// muddy the picker.
+final _bitcoinNetworkIdxProvider = StateProvider<int>((ref) => 0);
 
 class SetupView extends StatefulComponent {
   const SetupView({super.key});
@@ -244,17 +251,16 @@ class _SetupViewState extends State<SetupView> {
           if (!mounted) return;
           LogService.info('installBitcoindPlugin: success (rev=${marker.rev})');
 
-          // Seed app_configs.bitcoind from defaults if absent. The plugin
-          // ships a config_schema with sane defaults; we want them on the
-          // operator's config.json so subsequent steps see "bitcoind
-          // enabled".
+          // Seed app_configs.bitcoind. The prior selectBitcoinNetwork
+          // step already wrote `network` to the config; the spread
+          // below preserves it (and any other operator-set keys) and
+          // only fills in the rest of the schema defaults.
           final configService = context.read(configServiceProvider);
           final cfg = context.read(configProvider).value;
           if (cfg != null) {
             final apps = Map<String, Map<String, dynamic>>.from(cfg.appConfigs);
             apps['bitcoind'] = {
               'enabled': true,
-              'network': 'mainnet',
               'pruned': true,
               'prune_size_gb': 550,
               ...?apps['bitcoind'],
@@ -334,6 +340,53 @@ class _SetupViewState extends State<SetupView> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Persist the operator's network choice into
+  /// `app_configs.bitcoind.network` and advance to the bitcoind
+  /// install step. installBitcoindPlugin's seed uses
+  /// spread-existing-wins, so writing the network first means the
+  /// install preserves the choice.
+  void _persistBitcoinNetworkAndAdvance(String network) {
+    final configService = context.read(configServiceProvider);
+    final cfg = context.read(configProvider).value;
+    if (cfg != null) {
+      final apps = Map<String, Map<String, dynamic>>.from(cfg.appConfigs);
+      apps['bitcoind'] = {...?apps['bitcoind'], 'network': network};
+      final updated = cfg.copyWith(appConfigs: apps);
+      configService.writeConfigSync(updated);
+      context.read(configProvider.notifier).updateConfig(updated);
+    }
+    LogService.info('selectBitcoinNetwork: operator chose $network');
+    _markStepCompleted(SetupStep.selectBitcoinNetwork);
+    context.read(_setupStepProvider.notifier).state =
+        SetupStep.installBitcoindPlugin;
+  }
+
+  Component _buildSelectBitcoinNetwork() {
+    final idx = context.watch(_bitcoinNetworkIdxProvider);
+
+    // Parallel arrays: index 0 → 'mainnet', 1 → 'regtest'.
+    const networkValues = ['mainnet', 'regtest'];
+    const networkLabels = [
+      'Mainnet — production Bitcoin network',
+      'Regtest — local-only test network for development',
+    ];
+
+    return SelectPopup(
+      title: 'Choose Bitcoin network',
+      options: networkLabels,
+      selectedIndex: idx,
+      onHighlight: (i) =>
+          context.read(_bitcoinNetworkIdxProvider.notifier).state = i,
+      onConfirm: (i) => _persistBitcoinNetworkAndAdvance(networkValues[i]),
+      onCancel: () {
+        // Operator can't really cancel out of the wizard mid-flow;
+        // treat Esc as "fall back to mainnet" (the production default)
+        // so they always have a way to proceed.
+        _persistBitcoinNetworkAndAdvance('mainnet');
+      },
     );
   }
 
@@ -674,6 +727,7 @@ class _SetupViewState extends State<SetupView> {
 
     return switch (step) {
       SetupStep.setPassword => _buildSetPassword(),
+      SetupStep.selectBitcoinNetwork => _buildSelectBitcoinNetwork(),
       SetupStep.installBitcoindPlugin => _buildInstallBitcoindPlugin(),
       SetupStep.selectLightningBackend => _buildSelectLightningBackend(),
       SetupStep.setLightningAlias => _buildSetLightningAlias(),
@@ -736,7 +790,7 @@ class _SetupViewState extends State<SetupView> {
           LogService.info('Password set successfully');
           _markStepCompleted(SetupStep.setPassword);
           context.read(_setupStepProvider.notifier).state =
-              SetupStep.installBitcoindPlugin;
+              SetupStep.selectBitcoinNetwork;
         });
       },
     );
