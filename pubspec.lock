@@ -606,8 +606,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "."
-      ref: "6f6f5a51d337c3b5744e82c01c0fd4576bc64192"
-      resolved-ref: "6f6f5a51d337c3b5744e82c01c0fd4576bc64192"
+      ref: "2412584224bae49814c720bab1f0a86bfdc94b8e"
+      resolved-ref: "2412584224bae49814c720bab1f0a86bfdc94b8e"
       url: "https://forge.f44.fyi/f44/nocterm"
     source: git
     version: "0.6.0"
@@ -615,8 +615,8 @@ packages:
     dependency: transitive
     description:
       path: "packages/nocterm_riverpod"
-      ref: "6f6f5a51d337c3b5744e82c01c0fd4576bc64192"
-      resolved-ref: "6f6f5a51d337c3b5744e82c01c0fd4576bc64192"
+      ref: "2412584224bae49814c720bab1f0a86bfdc94b8e"
+      resolved-ref: "2412584224bae49814c720bab1f0a86bfdc94b8e"
       url: "https://forge.f44.fyi/f44/nocterm"
     source: git
     version: "0.0.1"

@@ -97,17 +97,19 @@ final _refreshingAllPluginsProvider = StateProvider<bool>((ref) => false);
 /// keyboard focus. `sidebar` is the section picker on the left;
 /// `content` is the section's field / row list on the right.
 ///
-/// Keys dispatch off this:
+/// Key model (Enter to descend, Esc to ascend — `←/→/h/l` are
+/// reserved globally for top-menu navigation):
 ///   - `j` / `k` / `↑` / `↓`: navigate within the focused column.
-///   - `→`: sidebar → content (drill in).
-///   - `←` / `Esc`: content → sidebar (back out). From sidebar,
-///     `Esc` exits Configure to the dashboard.
-///   - `Enter`: sidebar → focus shifts to content; content →
-///     existing per-row action (edit field / cycle bool / drill
-///     into plugin).
+///   - `Enter`: from sidebar → focus shifts to content;
+///              from content → existing per-row action
+///              (edit field / cycle bool / drill into plugin).
+///   - `Esc`: from content → focus returns to sidebar;
+///            from sidebar → exit Configure to the dashboard.
 ///
-/// `h` / `l` are deliberately NOT consumed here — the top menu
-/// in `_Shell` claims them globally for view switching.
+/// `h` / `l` / `←` / `→` are deliberately NOT consumed here —
+/// the top menu in `_Shell` claims them globally for view
+/// switching. Predictable nav: arrow keys leave the view, Enter
+/// drills in, Esc backs out.
 enum _ConfigureColumn { sidebar, content }
 
 final _focusedColumnProvider = StateProvider<_ConfigureColumn>(
@@ -354,16 +356,6 @@ class ConfigureView extends StatelessComponent {
                 return true;
               }
 
-              // Right arrow: sidebar → content. (Not `l` — that's
-              // claimed by the global top menu for view switching.)
-              if (event.logicalKey == LogicalKey.arrowRight) {
-                if (focusedColumn == _ConfigureColumn.sidebar) {
-                  context.read(_focusedColumnProvider.notifier).state =
-                      _ConfigureColumn.content;
-                  return true;
-                }
-              }
-
               // Enter / Space: sidebar → focus content; content →
               // existing drill-in (edit field, cycle bool, drill plugin).
               if (event.logicalKey == LogicalKey.enter ||
@@ -406,16 +398,9 @@ class ConfigureView extends StatelessComponent {
                 return true;
               }
 
-              // Left arrow / Esc: content → sidebar. From sidebar,
-              // Esc returns to the dashboard. (`h` is the global
-              // top-menu key and is intentionally not consumed here.)
-              if (event.logicalKey == LogicalKey.arrowLeft) {
-                if (focusedColumn == _ConfigureColumn.content) {
-                  context.read(_focusedColumnProvider.notifier).state =
-                      _ConfigureColumn.sidebar;
-                  return true;
-                }
-              }
+              // Esc: content → sidebar, sidebar → dashboard. The
+              // arrow keys (`←/→/h/l`) are reserved for the top
+              // menu and intentionally bubble past this handler.
               if (event.logicalKey == LogicalKey.escape) {
                 if (focusedColumn == _ConfigureColumn.content) {
                   context.read(_focusedColumnProvider.notifier).state =

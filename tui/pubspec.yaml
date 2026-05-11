@@ -19,12 +19,12 @@ dependencies:
   nocterm:
     git:
       url: https://forge.f44.fyi/f44/nocterm
-      ref: 6f6f5a51d337c3b5744e82c01c0fd4576bc64192
+      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
   nocterm_riverpod:
     git:
       url: https://forge.f44.fyi/f44/nocterm
       path: packages/nocterm_riverpod
-      ref: 6f6f5a51d337c3b5744e82c01c0fd4576bc64192
+      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
   common:
     path: ../common
 
@@ -41,4 +41,4 @@ dependency_overrides:
   nocterm:
     git:
       url: https://forge.f44.fyi/f44/nocterm
-      ref: 6f6f5a51d337c3b5744e82c01c0fd4576bc64192
+      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
