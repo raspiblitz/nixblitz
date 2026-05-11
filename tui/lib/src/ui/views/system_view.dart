@@ -1,8 +1,12 @@
+import 'dart:io';
+
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 
+import '../format.dart';
+import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 
 // ---------------------------------------------------------------------------
@@ -10,12 +14,14 @@ import '../../providers/ui_state_provider.dart';
 //
 // Combines what used to be two top-level views (Apply, Update) into one
 // place. The sidebar splits intent: read-only probes (Check) live next to
-// destructive rebuilds (Apply). Each section's body is a description+button
-// list — the operator can see what every action does before pressing Enter.
+// destructive rebuilds (Apply). Each section's body shows the relevant
+// status + actions; the operator stays inside System rather than getting
+// teleported to a separate Update screen.
 //
-// For v0 the action runners live in the pre-existing ApplyView /
-// UpdateView state machines. Picking an action transitions to one of those
-// views (now non-top-menu); they hand control back to System on Esc.
+// Apply actions still navigate to the pre-existing ApplyView / UpdateView
+// state machines for the rebuild streaming UX (heavy refactor to fold them
+// in is a follow-up). Check actions run inline via `nixblitz check ...`
+// subprocesses and refresh the status panel on exit.
 // ---------------------------------------------------------------------------
 
 /// Which sidebar section is selected.
@@ -31,6 +37,16 @@ final _systemColumnProvider = StateProvider<_SystemColumn>(
   (ref) => _SystemColumn.sidebar,
 );
 final _systemActionIndexProvider = StateProvider<int>((ref) => 0);
+
+/// The check subprocess currently in flight, by mode (`light` / `heavy`).
+/// `null` when nothing is running. Drives the inline spinner + prevents
+/// re-trigger spam while a check is mid-flight.
+final _runningCheckProvider = StateProvider<String?>((ref) => null);
+
+/// Bumps each time a check subprocess exits. Watched by the status
+/// panel so it re-reads `update-status.json` after a check writes
+/// fresh data.
+final _checkRefreshTickProvider = StateProvider<int>((ref) => 0);
 
 /// A row in the body's action list. Each action has a short, action-y
 /// label + a longer description rendered below it in dim text.
@@ -53,13 +69,11 @@ class SystemView extends StatelessComponent {
     final section = context.watch(_systemSectionProvider);
     final column = context.watch(_systemColumnProvider);
     final actionIndex = context.watch(_systemActionIndexProvider);
+    final modalActive = context.watch(modalActiveProvider);
 
     final actions = _actionsFor(section);
     final selected = actionIndex.clamp(0, actions.length - 1);
 
-    // Yield focus while a modal popup (help / sudo prompt) is up so
-    // stray keys can't fire view-local handlers underneath.
-    final modalActive = context.watch(modalActiveProvider);
     return Focusable(
       focused: !modalActive,
       onKeyEvent: (event) {
@@ -162,6 +176,10 @@ class SystemView extends StatelessComponent {
                           ),
                         ),
                         const SizedBox(height: 1),
+                        if (section == _SystemSection.check) ...[
+                          _CheckStatusPanel(),
+                          const SizedBox(height: 1),
+                        ],
                         for (var i = 0; i < actions.length; i++) ...[
                           _ActionRow(
                             action: actions[i],
@@ -194,11 +212,7 @@ class SystemView extends StatelessComponent {
             'Polls each flake input + each installed plugin against '
             'its pinned rev (HTTP only, no rebuild). Daily timer '
             'runs this in the background. ~5s.',
-        run: (ctx) {
-          // Route to the Update view; user presses [c] there.
-          // Auto-trigger is a follow-up.
-          ctx.read(currentViewProvider.notifier).state = AppView.update;
-        },
+        run: (ctx) => _runCheck(ctx, 'light'),
       ),
       _SystemAction(
         label: 'Heavy check',
@@ -207,9 +221,7 @@ class SystemView extends StatelessComponent {
             'diff so you can preview every package change before '
             'committing. Slow — several minutes — and CPU-heavy. '
             'Weekly timer runs this in the background.',
-        run: (ctx) {
-          ctx.read(currentViewProvider.notifier).state = AppView.update;
-        },
+        run: (ctx) => _runCheck(ctx, 'heavy'),
       ),
       _SystemAction(
         label: 'Plugins check',
@@ -218,9 +230,7 @@ class SystemView extends StatelessComponent {
             'only — useful right after pushing a plugin update '
             'when you want the ↑ marker to reflect upstream right '
             'now without waiting for the daily timer.',
-        run: (ctx) {
-          ctx.read(currentViewProvider.notifier).state = AppView.update;
-        },
+        run: (ctx) => _runCheck(ctx, 'light'),
       ),
     ],
     _SystemSection.apply => [
@@ -268,6 +278,161 @@ class SystemView extends StatelessComponent {
       ),
     ],
   };
+
+  /// Fire `nixblitz check <mode>` as a subprocess. Updates
+  /// [_runningCheckProvider] while in flight + bumps
+  /// [_checkRefreshTickProvider] on exit so the status panel
+  /// re-reads update-status.json.
+  static void _runCheck(BuildContext ctx, String mode) {
+    if (ctx.read(_runningCheckProvider) != null) return;
+    ctx.read(_runningCheckProvider.notifier).state = mode;
+    LogService.info('System check started: nixblitz check $mode');
+
+    Process.start('nixblitz', ['check', mode])
+        .then((proc) async {
+          // Drain stdout / stderr so they don't backpressure the
+          // subprocess. The cached update-status.json is what we
+          // read after — actual stdout content isn't shown inline
+          // (terminal real estate is precious; the operator can tail
+          // `journalctl -u nixblitz-check-heavy` if they want detail).
+          proc.stdout.drain<void>();
+          proc.stderr.drain<void>();
+          final code = await proc.exitCode;
+          LogService.info('System check exited: $mode (code $code)');
+          ctx.read(_runningCheckProvider.notifier).state = null;
+          ctx.read(_checkRefreshTickProvider.notifier).state++;
+        })
+        .catchError((Object e, StackTrace st) {
+          LogService.error('System check failed to start: $mode', e, st);
+          ctx.read(_runningCheckProvider.notifier).state = null;
+        });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _CheckStatusPanel — last-check summary embedded in the Check section
+// ---------------------------------------------------------------------------
+
+class _CheckStatusPanel extends StatelessComponent {
+  @override
+  Component build(BuildContext context) {
+    // Trigger a rebuild after each check subprocess exits.
+    context.watch(_checkRefreshTickProvider);
+    final running = context.watch(_runningCheckProvider);
+    final status = readUpdateStatus();
+    final light = status.lightweight;
+    final heavy = status.heavy;
+
+    const dim = Color.fromRGB(140, 140, 150);
+    const normal = Color.fromRGB(200, 200, 200);
+
+    final rows = <Component>[
+      const Text(
+        'Last check',
+        style: TextStyle(
+          color: Color.fromRGB(150, 150, 180),
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ];
+
+    if (running != null) {
+      rows.add(const SizedBox(height: 1));
+      rows.add(
+        Row(
+          children: [
+            Spinner(
+              label: running == 'heavy'
+                  ? 'Running heavy check…'
+                  : 'Running simple check…',
+            ),
+          ],
+        ),
+      );
+    }
+
+    rows.add(const SizedBox(height: 1));
+
+    // flake inputs row — anything other than the TUI input pinned ahead.
+    final tuiInput = 'nixblitz';
+    if (light == null || !light.ok) {
+      rows.add(_row('flake inputs', 'no check yet', '—', dim));
+    } else {
+      final ahead = light.inputsAhead.where((i) => i.name != tuiInput).toList();
+      final value = ahead.isEmpty
+          ? 'up to date'
+          : ahead.map((i) => i.name).take(3).join(', ') +
+                (ahead.length > 3 ? ' (+${ahead.length - 3} more)' : '');
+      rows.add(
+        _row('flake inputs', value, humanizeAge(light.checkedAt), normal),
+      );
+    }
+
+    // TUI binary row — only the TUI input.
+    if (light == null || !light.ok) {
+      rows.add(_row('TUI binary', 'no check yet', '—', dim));
+    } else {
+      final tuiAhead = light.inputsAhead.any((i) => i.name == tuiInput);
+      rows.add(
+        _row(
+          'TUI binary',
+          tuiAhead ? 'ahead — pull and rebuild' : 'up to date',
+          humanizeAge(light.checkedAt),
+          normal,
+        ),
+      );
+    }
+
+    // plugins row.
+    if (light == null || !light.ok) {
+      rows.add(_row('plugins', 'no check yet', '—', dim));
+    } else {
+      final n = light.pluginsAhead.length;
+      rows.add(
+        _row(
+          'plugins',
+          n == 0 ? 'up to date' : '$n update${n == 1 ? "" : "s"} available',
+          humanizeAge(light.checkedAt),
+          normal,
+        ),
+      );
+    }
+
+    // system closure (heavy) row.
+    if (heavy == null || !heavy.ok) {
+      rows.add(_row('system closure', 'no full check yet', '—', dim));
+    } else {
+      final value = heavy.noChanges || heavy.diffText.trim().isEmpty
+          ? 'no system changes'
+          : 'changes pending';
+      rows.add(
+        _row('system closure', value, humanizeAge(heavy.checkedAt), normal),
+      );
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
+  }
+
+  Component _row(String label, String value, String age, Color valueColor) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 18,
+          child: Text(
+            '  $label',
+            style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+          ),
+        ),
+        Expanded(
+          child: Text(value, style: TextStyle(color: valueColor)),
+        ),
+        Text(
+          '($age)',
+          style: const TextStyle(color: Color.fromRGB(120, 120, 140)),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -288,8 +453,6 @@ class _SystemSidebar extends StatelessComponent {
     const borderActive = Color.fromRGB(140, 140, 180);
     const borderIdle = Color.fromRGB(50, 50, 70);
 
-    // Widest label = "Check" / "Apply" → 5 chars, plus the standard
-    // sidebar overhead (cursor + padding + nocterm border deflate).
     final width = 5 + 8;
 
     return Container(

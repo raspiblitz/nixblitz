@@ -148,11 +148,12 @@ Not all nocterm widgets support `const` constructors (e.g., `Expanded`, `Center`
 
 nocterm dispatches keys depth-first through the element tree. When a
 modal popup sits as a `Stack` sibling above the view tree, the
-underlying view's own `Focusable`s get visited *first*. If any of
+underlying view's own `Focusable`s get visited _first_. If any of
 them returns `true` (a view that handles `Esc`, for example), the
 modal never sees the key.
 
 **Do NOT** "fix" this with structural workarounds:
+
 - `BlockFocus` / `FocusScope` to halt descent into the view subtree
 - Conditional rendering that dismounts the view tree while a modal is up
 - Custom dispatch overrides in nocterm itself
