@@ -144,6 +144,42 @@ try {
 
 Not all nocterm widgets support `const` constructors (e.g., `Expanded`, `Center`). If you get a `const_with_non_const` error, remove the `const` keyword.
 
+### 6. Modal popup focus — gate at the Focusable, not at the tree
+
+nocterm dispatches keys depth-first through the element tree. When a
+modal popup sits as a `Stack` sibling above the view tree, the
+underlying view's own `Focusable`s get visited *first*. If any of
+them returns `true` (a view that handles `Esc`, for example), the
+modal never sees the key.
+
+**Do NOT** "fix" this with structural workarounds:
+- `BlockFocus` / `FocusScope` to halt descent into the view subtree
+- Conditional rendering that dismounts the view tree while a modal is up
+- Custom dispatch overrides in nocterm itself
+
+These look reasonable but trade subtle bugs (sibling iteration
+short-circuits, focus state desync, view state loss on dismount) for
+the original problem.
+
+**Do** wire a `modalActiveProvider` (`helpVisible || sudo != null`) and
+have every view's outer `Focusable` set `focused: !modalActive`. When
+the modal is up, the view's outer Focusable yields focus → the
+dispatcher's visit returns `false` from every Focusable in the view
+subtree → the Stack iterator continues to the modal sibling →
+modal's Focusable handles the key. Same dispatch path the original
+code used; just makes the "I don't claim keys right now" state
+explicit and per-view.
+
+Inner sub-overlays in a view (e.g. an edit-field popup) only render
+during specific states that can't coexist with a modal popup, so
+they don't need the gating — but if a view turns out to swallow
+modal keys, the fix is to add `focused: !modalActive` on the
+specific Focusable, not to restructure the tree.
+
+`ScrollableLog`'s internal Focusable also reads `modalActive` so
+streaming-output panes during a rebuild don't eat the sudo prompt's
+keys.
+
 ## Nix Build
 
 Requires a custom nixpkgs fork (`github:fusion44/nixpkgs/dart-workspace-member-filter`) for Dart workspace support. After changing Dart dependencies: `just gen-locks`.

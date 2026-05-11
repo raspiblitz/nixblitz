@@ -405,160 +405,146 @@ class _Shell extends StatelessComponent {
               return true;
             }
           },
-          // BlockFocus stops the keystroke dispatcher from descending
-          // into the underlying view's Focusables while a modal
-          // (help / sudo prompt) is on top. Without this, a press of
-          // Esc inside (e.g.) Configure with the help popup open
-          // would fire Configure's Esc handler first (depth-first
-          // dispatch in nocterm) and only close help on the second
-          // press. Blocking when modal-active routes the keystroke
-          // straight to the popup's Focusable.
-          child: BlockFocus(
-            blocking: helpVisible || sudoPromptVisible,
-            child: Container(
-              padding: const EdgeInsets.all(1),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 2,
-                      vertical: 0,
+          child: Container(
+            padding: const EdgeInsets.all(1),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 0,
+                  ),
+                  // Header as its own (non-interactive) pane —
+                  // matches the zellij idiom where every region
+                  // is a bordered rectangle. Idle border color
+                  // because there's no focus distinction here:
+                  // the header never receives keys.
+                  decoration: const BoxDecoration(
+                    border: BoxBorder(
+                      top: BorderSide(color: Color.fromRGB(80, 80, 100)),
+                      right: BorderSide(color: Color.fromRGB(80, 80, 100)),
+                      bottom: BorderSide(color: Color.fromRGB(80, 80, 100)),
+                      left: BorderSide(color: Color.fromRGB(80, 80, 100)),
                     ),
-                    // Header as its own (non-interactive) pane —
-                    // matches the zellij idiom where every region
-                    // is a bordered rectangle. Idle border color
-                    // because there's no focus distinction here:
-                    // the header never receives keys.
-                    decoration: const BoxDecoration(
-                      border: BoxBorder(
-                        top: BorderSide(color: Color.fromRGB(80, 80, 100)),
-                        right: BorderSide(color: Color.fromRGB(80, 80, 100)),
-                        bottom: BorderSide(color: Color.fromRGB(80, 80, 100)),
-                        left: BorderSide(color: Color.fromRGB(80, 80, 100)),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Text(
-                          'NIXBLITZ',
-                          style: TextStyle(
-                            color: Color.fromRGB(247, 147, 26),
-                            fontWeight: FontWeight.bold,
-                          ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Text(
+                        'NIXBLITZ',
+                        style: TextStyle(
+                          color: Color.fromRGB(247, 147, 26),
+                          fontWeight: FontWeight.bold,
                         ),
-                        Expanded(
-                          child: Center(
-                            child: () {
-                              // Header pulls from three providers:
-                              // config (alias fallback / platform),
-                              // tileDataCache (live LN alias from
-                              // lightning snapshot), and
-                              // pendingChangeKeysProvider (the
-                              // count of dotted-path keys differing
-                              // from HEAD).
-                              final cfg = context
-                                  .watch(configProvider)
-                                  .maybeWhen(
-                                    data: (c) => c,
-                                    orElse: () => null,
-                                  );
-                              if (cfg == null) return const Text('');
-                              // Synchronous Provider — direct read,
-                              // no AsyncValue unwrap. The header
-                              // status updates in the same frame as
-                              // the configProvider tick that
-                              // triggered it (no flicker through a
-                              // loading state).
-                              final lnData = context
-                                  .watch(tileDataCacheProvider)
-                                  .snapshotFor('lightning')
-                                  .data;
-                              final liveAlias = lnData['alias'] is String
-                                  ? lnData['alias'] as String
-                                  : '';
-                              final pendingCount = context
-                                  .watch(pendingChangeKeysProvider)
-                                  .length;
-                              final segs = _headerSegments(
-                                cfg,
-                                liveAlias,
-                                pendingCount,
-                                context.watch(currentViewProvider),
-                              );
-                              // Render as a Row of segment + " | "
-                              // separator + segment, each in its
-                              // own colour. The separator stays in
-                              // the same dim grey as the other
-                              // segments — only the pending status
-                              // is yellow when count > 0.
-                              const sepColor = Color.fromRGB(180, 180, 200);
-                              final children = <Component>[];
-                              for (var i = 0; i < segs.length; i++) {
-                                if (i > 0) {
-                                  children.add(
-                                    const Text(
-                                      ' | ',
-                                      style: TextStyle(color: sepColor),
-                                    ),
-                                  );
-                                }
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: () {
+                            // Header pulls from three providers:
+                            // config (alias fallback / platform),
+                            // tileDataCache (live LN alias from
+                            // lightning snapshot), and
+                            // pendingChangeKeysProvider (the
+                            // count of dotted-path keys differing
+                            // from HEAD).
+                            final cfg = context
+                                .watch(configProvider)
+                                .maybeWhen(data: (c) => c, orElse: () => null);
+                            if (cfg == null) return const Text('');
+                            // Synchronous Provider — direct read,
+                            // no AsyncValue unwrap. The header
+                            // status updates in the same frame as
+                            // the configProvider tick that
+                            // triggered it (no flicker through a
+                            // loading state).
+                            final lnData = context
+                                .watch(tileDataCacheProvider)
+                                .snapshotFor('lightning')
+                                .data;
+                            final liveAlias = lnData['alias'] is String
+                                ? lnData['alias'] as String
+                                : '';
+                            final pendingCount = context
+                                .watch(pendingChangeKeysProvider)
+                                .length;
+                            final segs = _headerSegments(
+                              cfg,
+                              liveAlias,
+                              pendingCount,
+                              context.watch(currentViewProvider),
+                            );
+                            // Render as a Row of segment + " | "
+                            // separator + segment, each in its
+                            // own colour. The separator stays in
+                            // the same dim grey as the other
+                            // segments — only the pending status
+                            // is yellow when count > 0.
+                            const sepColor = Color.fromRGB(180, 180, 200);
+                            final children = <Component>[];
+                            for (var i = 0; i < segs.length; i++) {
+                              if (i > 0) {
                                 children.add(
-                                  Text(
-                                    segs[i].text,
-                                    style: TextStyle(color: segs[i].color),
+                                  const Text(
+                                    ' | ',
+                                    style: TextStyle(color: sepColor),
                                   ),
                                 );
                               }
-                              // mainAxisSize.min — without it the
-                              // Row stretches to fill the Center's
-                              // width and Center has nothing to
-                              // actually center, so the segments
-                              // butt up against the NIXBLITZ logo
-                              // on the left.
-                              return Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: children,
+                              children.add(
+                                Text(
+                                  segs[i].text,
+                                  style: TextStyle(color: segs[i].color),
+                                ),
                               );
-                            }(),
-                          ),
+                            }
+                            // mainAxisSize.min — without it the
+                            // Row stretches to fill the Center's
+                            // width and Center has nothing to
+                            // actually center, so the segments
+                            // butt up against the NIXBLITZ logo
+                            // on the left.
+                            return Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: children,
+                            );
+                          }(),
                         ),
-                        Text(
-                          buildVersionString,
-                          style: const TextStyle(
-                            color: Color.fromRGB(150, 150, 180),
-                          ),
+                      ),
+                      Text(
+                        buildVersionString,
+                        style: const TextStyle(
+                          color: Color.fromRGB(150, 150, 180),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  if (!_isLifecycleView(context.watch(currentViewProvider)))
-                    TopMenu(activeView: context.watch(currentViewProvider)),
-                  const SizedBox(height: 1),
-                  // Wrap the view swap in a stable SizedBox.expand so the
-                  // flex parent data applied by Expanded stays anchored to
-                  // one render object across view (and internal step)
-                  // changes. Without this, views that swap their root
-                  // widget type between steps (install, setup, update…)
-                  // lose the flex data and crash when they contain an
-                  // inner Expanded(ScrollableLog).
-                  Expanded(
-                    child: SizedBox.expand(
-                      child: switch (context.watch(currentViewProvider)) {
-                        AppView.install => const InstallView(),
-                        AppView.setup => const SetupView(),
-                        AppView.dashboard => const DashboardView(),
-                        AppView.configure => const ConfigureView(),
-                        AppView.system => const SystemView(),
-                        AppView.apply => const ApplyView(),
-                        AppView.update => const UpdateView(),
-                        AppView.debug => const DebugView(),
-                        AppView.configTooNew => const ConfigTooNewView(),
-                      },
-                    ),
+                ),
+                if (!_isLifecycleView(context.watch(currentViewProvider)))
+                  TopMenu(activeView: context.watch(currentViewProvider)),
+                const SizedBox(height: 1),
+                // Wrap the view swap in a stable SizedBox.expand so the
+                // flex parent data applied by Expanded stays anchored to
+                // one render object across view (and internal step)
+                // changes. Without this, views that swap their root
+                // widget type between steps (install, setup, update…)
+                // lose the flex data and crash when they contain an
+                // inner Expanded(ScrollableLog).
+                Expanded(
+                  child: SizedBox.expand(
+                    child: switch (context.watch(currentViewProvider)) {
+                      AppView.install => const InstallView(),
+                      AppView.setup => const SetupView(),
+                      AppView.dashboard => const DashboardView(),
+                      AppView.configure => const ConfigureView(),
+                      AppView.system => const SystemView(),
+                      AppView.apply => const ApplyView(),
+                      AppView.update => const UpdateView(),
+                      AppView.debug => const DebugView(),
+                      AppView.configTooNew => const ConfigTooNewView(),
+                    },
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
