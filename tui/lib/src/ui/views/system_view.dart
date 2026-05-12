@@ -223,67 +223,13 @@ class SystemView extends StatelessComponent {
       current: section,
       focused: column == SystemColumn.sidebar,
     );
-    final content = Container(
-      decoration: BoxDecoration(
-        border: BoxBorder.all(
-          color: column == SystemColumn.content
-              ? const Color.fromRGB(140, 140, 180)
-              : const Color.fromRGB(50, 50, 70),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _headingFor(section),
-            style: TextStyle(
-              // Bold + bright when this column owns focus; bold +
-              // dim grey otherwise, so the eye is pulled toward
-              // the sidebar when that's where j/k is going.
-              color: column == SystemColumn.content
-                  ? const Color.fromRGB(200, 200, 220)
-                  : const Color.fromRGB(110, 110, 130),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 1),
-          if (section == SystemSection.check) ...[
-            _CheckStatusPanel(),
-            const SizedBox(height: 1),
-          ],
-          for (var i = 0; i < actions.length; i++) ...[
-            Tappable(
-              onTap: () {
-                // Tap = select + run, same as keyboard Enter. Two-
-                // press confirmation for destructive Power actions
-                // still works — the first tap arms (action.run sets
-                // the armed-flag), the second tap confirms.
-                context.read(_systemActionIndexProvider.notifier).state = i;
-                context.read(systemColumnProvider.notifier).state =
-                    SystemColumn.content;
-                actions[i].run(context);
-              },
-              child: _ActionRow(
-                action: actions[i],
-                selected: i == selected,
-                columnFocused: column == SystemColumn.content,
-              ),
-            ),
-            if (i < actions.length - 1) const SizedBox(height: 1),
-          ],
-          if (section == SystemSection.power && powerStatus != null) ...[
-            const SizedBox(height: 1),
-            Text(
-              powerStatus,
-              style: const TextStyle(
-                color: Color.fromRGB(220, 180, 100),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ],
-      ),
+    final content = _SystemContentPane(
+      section: section,
+      column: column,
+      actions: actions,
+      selected: selected,
+      powerStatus: powerStatus,
+      headingFor: _headingFor,
     );
 
     if (!compact) {
@@ -767,6 +713,161 @@ class _CompactSystemBackHeader extends StatelessComponent {
 }
 
 // ---------------------------------------------------------------------------
+// _SystemContentPane — scrollable right column with heading + actions
+//
+// Stateful so it can own a [ScrollController] and call `ensureVisible`
+// whenever the selected action changes (keyboard j/k or tap). Without
+// auto-scroll, on a compact viewport the operator's selection drifts
+// off-screen below the actions they pulled up to navigate.
+//
+// Row-height estimate: compact mode collapses every action to a 1-row
+// label + a 1-row blank separator. We pre-compute the header offset
+// (heading + status panel) per section so `ensureVisible` is roughly
+// accurate. The estimate over-budgets the status panel a bit so the
+// selected row lands slightly inside the viewport rather than at the
+// edge.
+// ---------------------------------------------------------------------------
+
+class _SystemContentPane extends StatefulComponent {
+  final SystemSection section;
+  final SystemColumn column;
+  final List<_SystemAction> actions;
+  final int selected;
+  final String? powerStatus;
+  final String Function(SystemSection) headingFor;
+
+  const _SystemContentPane({
+    required this.section,
+    required this.column,
+    required this.actions,
+    required this.selected,
+    required this.powerStatus,
+    required this.headingFor,
+  });
+
+  @override
+  State<_SystemContentPane> createState() => _SystemContentPaneState();
+}
+
+class _SystemContentPaneState extends State<_SystemContentPane> {
+  final ScrollController _scroll = ScrollController();
+  int? _lastSelected;
+
+  // Rough header-row budget per section. Counts heading (1) + blank
+  // (1) + the Check section's status panel (~10 rows on 40-col due
+  // to wrapping — slightly over-estimated to push the selected row
+  // a bit inside the viewport rather than at the very top).
+  int _headerOffset() => switch (component.section) {
+    SystemSection.check => 12,
+    SystemSection.apply => 2,
+    SystemSection.power => 2,
+  };
+
+  // Each action in compact mode is 1 row (label) + 1 row spacer.
+  static const int _rowsPerAction = 2;
+
+  void _maybeScrollToSelected() {
+    if (_lastSelected == component.selected) return;
+    _lastSelected = component.selected;
+    final offset = _headerOffset() + component.selected * _rowsPerAction;
+    // Microtask defer so the scroll happens AFTER the new content
+    // layout has settled — otherwise viewportDimension may still
+    // reflect the previous frame.
+    Future.microtask(() {
+      if (!mounted) return;
+      _scroll.ensureVisible(itemOffset: offset.toDouble(), itemExtent: 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Component build(BuildContext context) {
+    _maybeScrollToSelected();
+
+    final section = component.section;
+    final column = component.column;
+    final actions = component.actions;
+    final selected = component.selected;
+    final powerStatus = component.powerStatus;
+
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          component.headingFor(section),
+          style: TextStyle(
+            color: column == SystemColumn.content
+                ? const Color.fromRGB(200, 200, 220)
+                : const Color.fromRGB(110, 110, 130),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 1),
+        if (section == SystemSection.check) ...[
+          _CheckStatusPanel(),
+          const SizedBox(height: 1),
+        ],
+        for (var i = 0; i < actions.length; i++) ...[
+          Tappable(
+            onTap: () {
+              context.read(_systemActionIndexProvider.notifier).state = i;
+              context.read(systemColumnProvider.notifier).state =
+                  SystemColumn.content;
+              actions[i].run(context);
+            },
+            child: _ActionRow(
+              action: actions[i],
+              selected: i == selected,
+              columnFocused: column == SystemColumn.content,
+            ),
+          ),
+          if (i < actions.length - 1) const SizedBox(height: 1),
+        ],
+        if (section == SystemSection.power && powerStatus != null) ...[
+          const SizedBox(height: 1),
+          Text(
+            powerStatus,
+            style: const TextStyle(
+              color: Color.fromRGB(220, 180, 100),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ],
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        border: BoxBorder.all(
+          color: column == SystemColumn.content
+              ? const Color.fromRGB(140, 140, 180)
+              : const Color.fromRGB(50, 50, 70),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+      child: MouseRegion(
+        // Mouse-wheel + two-finger scroll over the content. Wheel
+        // events fire onHover with button == wheelUp / wheelDown,
+        // not motion — same trick ScrollableLog uses.
+        onHover: (event) {
+          if (event.button == MouseButton.wheelUp) {
+            _scroll.scrollUp();
+          } else if (event.button == MouseButton.wheelDown) {
+            _scroll.scrollDown();
+          }
+        },
+        child: SingleChildScrollView(controller: _scroll, child: body),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _SystemSidebar — left column with Check / Apply
 // ---------------------------------------------------------------------------
 
@@ -902,6 +1003,18 @@ class _ActionRow extends StatelessComponent {
       descColor = columnFocused ? dim : inactive;
     }
 
+    // Drop the long description when the terminal is short —
+    // labels are self-explanatory ("Simple check" / "Reboot" /
+    // etc.) and the extra wrapped lines push the selected row
+    // off-screen on a phone with the on-screen keyboard up. Gate
+    // on HEIGHT (`viewportShortProvider`), not width — a wide-but-
+    // short terminal has the same problem. Danger rows always
+    // keep the warning so the operator sees "Press Enter again to
+    // power off" — that confirmation message isn't redundant with
+    // the label.
+    final short = context.watch(viewportShortProvider);
+    final showDescription = !short || action.danger;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -914,7 +1027,8 @@ class _ActionRow extends StatelessComponent {
                 : FontWeight.normal,
           ),
         ),
-        Text('    ${action.description}', style: TextStyle(color: descColor)),
+        if (showDescription)
+          Text('    ${action.description}', style: TextStyle(color: descColor)),
       ],
     );
   }

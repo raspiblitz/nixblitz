@@ -46,3 +46,22 @@ final viewportClassProvider = Provider<ViewportClass>((ref) {
   final s = ref.watch(viewportSizeProvider);
   return s.width < 60 ? ViewportClass.compact : ViewportClass.wide;
 });
+
+/// True when the terminal is "vertically short" — usable content
+/// height is tight enough that verbose row descriptions push the
+/// selected target off-screen even after scrolling helps.
+///
+/// Phone SSH clients with the on-screen keyboard up report ~10–12
+/// rows total regardless of orientation; the 20-row cutoff catches
+/// that while keeping standard desktop / tablet terminals showing
+/// the full descriptions. Width is irrelevant here — a wide-but-
+/// short terminal (long laptop session with terminal squeezed
+/// vertically) gets the same compact-content treatment.
+///
+/// Orthogonal to [viewportClassProvider] on purpose: layout
+/// decisions (sidebar+content → single-pane) gate on width;
+/// content-verbosity decisions (drop descriptions / hints) gate
+/// on height.
+final viewportShortProvider = Provider<bool>((ref) {
+  return ref.watch(viewportSizeProvider).height < 20;
+});

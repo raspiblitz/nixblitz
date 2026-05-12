@@ -534,6 +534,20 @@ class ConfigureView extends StatelessComponent {
       selectedIndex: serviceIndex.clamp(0, menuEntries.length - 1),
       focused: focusedColumn == ConfigureColumn.sidebar,
     );
+    final innerBody = currentEntry is _PluginsEntry
+        ? _buildPluginsContent(
+            context,
+            selectedOption,
+            focusedColumn == ConfigureColumn.content,
+          )
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: options,
+            ),
+          );
+
     final content = Container(
       // Right pane gets its own full-rectangle border so focus is
       // conveyed via border color (same idiom as the sidebar).
@@ -544,19 +558,10 @@ class ConfigureView extends StatelessComponent {
               : const Color.fromRGB(50, 50, 70),
         ),
       ),
-      child: currentEntry is _PluginsEntry
-          ? _buildPluginsContent(
-              context,
-              selectedOption,
-              focusedColumn == ConfigureColumn.content,
-            )
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: options,
-              ),
-            ),
+      child: _ConfigureContentScroll(
+        selectedOption: selectedOption,
+        child: innerBody,
+      ),
     );
 
     if (!compact) {
@@ -730,6 +735,14 @@ class ConfigureView extends StatelessComponent {
       const SizedBox(height: 1),
     ];
 
+    // Drop long descriptions when the terminal is vertically
+    // short — phone SSH clients with the keyboard up report ~10-12
+    // rows regardless of orientation. Names like "LNBits" /
+    // "Tailscale" / "Electrs" are familiar enough that the
+    // operator doesn't need a paragraph per row eating their
+    // already-cramped screen height.
+    final short = context.watch(viewportShortProvider);
+
     for (var i = 0; i < available.length; i++) {
       final isActive = i == clamped;
       final showCursor = isActive && contentFocused;
@@ -749,7 +762,8 @@ class ConfigureView extends StatelessComponent {
                 fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
               ),
             ),
-            Text('    ${p.description}', style: TextStyle(color: descColor)),
+            if (!short)
+              Text('    ${p.description}', style: TextStyle(color: descColor)),
           ],
         ),
       );
@@ -774,10 +788,11 @@ class ConfigureView extends StatelessComponent {
               fontWeight: urlCursor ? FontWeight.bold : FontWeight.normal,
             ),
           ),
-          Text(
-            '    Paste a github: / forgejo: / https:// plugin URL.',
-            style: TextStyle(color: urlDescColor),
-          ),
+          if (!short)
+            Text(
+              '    Paste a github: / forgejo: / https:// plugin URL.',
+              style: TextStyle(color: urlDescColor),
+            ),
         ],
       ),
     );
@@ -935,6 +950,79 @@ class _ConfigureSidebar extends StatelessComponent {
             }(),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _ConfigureContentScroll — vertical scroll wrapper for the content pane
+//
+// Owns a [ScrollController] and listens for changes to the
+// `_selectedOptionProvider`; calls `ensureVisible` on the
+// estimated row offset so the active option stays in the viewport
+// as the operator walks the list. Wheel events route into the
+// same controller for touch / desktop-mouse scroll.
+//
+// Row-height estimate: every option row is 1 row tall (the editor
+// renders `label: [value]` on one line). Plugin catalog rows in
+// compact mode are also 1 row (description hidden) + 1 spacer.
+// Header offset before the rows is 0 — the content pane has no
+// status panel like System → Check does.
+// ---------------------------------------------------------------------------
+
+class _ConfigureContentScroll extends StatefulComponent {
+  final int selectedOption;
+  final Component child;
+
+  const _ConfigureContentScroll({
+    required this.selectedOption,
+    required this.child,
+  });
+
+  @override
+  State<_ConfigureContentScroll> createState() =>
+      _ConfigureContentScrollState();
+}
+
+class _ConfigureContentScrollState extends State<_ConfigureContentScroll> {
+  final ScrollController _scroll = ScrollController();
+  int? _lastSelected;
+
+  // Per-row estimate: 1 row of label + 1 row spacer (the plugin
+  // catalog renders Column children with a SizedBox(height: 1)
+  // between rows; manifest fields don't have the spacer but the
+  // wider gap is fine — over-estimation just makes ensureVisible
+  // scroll a hair more aggressively).
+  static const int _rowsPerOption = 2;
+
+  void _maybeScrollToSelected() {
+    if (_lastSelected == component.selectedOption) return;
+    _lastSelected = component.selectedOption;
+    final offset = component.selectedOption * _rowsPerOption;
+    Future.microtask(() {
+      if (!mounted) return;
+      _scroll.ensureVisible(itemOffset: offset.toDouble(), itemExtent: 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Component build(BuildContext context) {
+    _maybeScrollToSelected();
+    return MouseRegion(
+      onHover: (event) {
+        if (event.button == MouseButton.wheelUp) {
+          _scroll.scrollUp();
+        } else if (event.button == MouseButton.wheelDown) {
+          _scroll.scrollDown();
+        }
+      },
+      child: SingleChildScrollView(controller: _scroll, child: component.child),
     );
   }
 }
