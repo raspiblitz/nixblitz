@@ -378,9 +378,10 @@ class _ApplyViewState extends State<ApplyView> {
           const SizedBox(height: 1),
           if (diff == null)
             const Text('Loading diff...')
-          else if (!hasChanges)
-            const Text('No pending changes — press [Esc] to return.')
-          else
+          else if (!hasChanges) ...[
+            const Text('No pending changes — press [Esc] to return.'),
+            ..._noPendingHint(context),
+          ] else
             Expanded(
               child: ScrollableLog(
                 lines: lines,
@@ -490,5 +491,46 @@ class _ApplyViewState extends State<ApplyView> {
         ),
       ),
     );
+  }
+
+  /// Contextual hint rendered under "No pending changes" when the
+  /// operator actually has something to deploy — it's just not a
+  /// working-tree edit. Catches the common confusion where Simple
+  /// Check flagged the TUI / nixpkgs / plugins as upstream-ahead
+  /// and the operator reached for "Apply config edits" expecting
+  /// the upstream commits to come along.
+  ///
+  /// Empty list when nothing's ahead — keeps the screen clean.
+  List<Component> _noPendingHint(BuildContext context) {
+    final status = readUpdateStatus();
+    final light = status.lightweight;
+    if (light == null || !light.ok) return const [];
+    final stillAhead = UpdateCheckService.filterStillAhead(
+      light.inputsAhead,
+      flakePath: context.read(baseDirProvider),
+    );
+    final tuiAhead = stillAhead.any((i) => i.name == kTuiInputName);
+    final otherAhead = stillAhead.any((i) => i.name != kTuiInputName);
+    final pluginsAhead = light.pluginsAhead.isNotEmpty;
+    if (!tuiAhead && !otherAhead && !pluginsAhead) return const [];
+
+    final hints = <String>[];
+    if (otherAhead) {
+      hints.add('"Update entire system" (pulls all flake inputs)');
+    } else if (tuiAhead) {
+      hints.add('"Update TUI only" (pulls the new nixblitz commit)');
+    }
+    if (pluginsAhead) {
+      hints.add('"Refresh plugins" (pulls plugin upstreams)');
+    }
+
+    return [
+      const SizedBox(height: 1),
+      Text(
+        'Upstream commits available — back to System → Apply and '
+        'pick ${hints.join(" or ")}.',
+        style: const TextStyle(color: Color.fromRGB(220, 180, 100)),
+      ),
+    ];
   }
 }

@@ -22,6 +22,27 @@ import 'update/action_gating.dart';
 /// in one file.
 final _refreshingPluginsProvider = StateProvider<bool>((ref) => false);
 
+/// What [UpdateView] should auto-run on mount, set by the System →
+/// Apply action that navigated here. `null` = show the select-mode
+/// menu (legacy path, kept for `[u]` hotkey landings).
+///
+/// Consumed once: [UpdateView]'s `initState` reads + clears it so a
+/// subsequent navigation to the view defaults back to select mode.
+enum UpdateActionIntent {
+  /// `nix flake update --update-input nixblitz` + rebuild.
+  tuiOnly,
+
+  /// `nix flake update` (all inputs) + rebuild.
+  entireSystem,
+
+  /// Delegate to [PluginRefreshAllView]'s bulk refresh.
+  refreshPlugins,
+}
+
+final pendingUpdateIntentProvider = StateProvider<UpdateActionIntent?>(
+  (ref) => null,
+);
+
 /// Update flow state machine:
 ///
 /// - `selectMode` — user picks `TUI only` / `entire system` / `refresh templates`.
@@ -85,6 +106,39 @@ class _UpdateViewState extends State<UpdateView> {
   /// re-reads update-status.json on every rebuild after the
   /// subprocess exits.
   bool _lightCheckRunning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-run if the caller pre-selected an action (System →
+    // Apply → Update TUI only / Update entire system / Refresh
+    // plugins). Without this, the operator would land on
+    // selectMode and have to pick the SAME action a second time.
+    // Consume the intent so a subsequent navigation (e.g.
+    // landing here from a future hotkey or menu) sees a clean
+    // selectMode.
+    final intent = context.read(pendingUpdateIntentProvider);
+    if (intent == null) return;
+    context.read(pendingUpdateIntentProvider.notifier).state = null;
+
+    // Defer to a microtask so we don't transition state mid-
+    // mount (mirrors the pattern in PluginInstallView.initState).
+    Future.microtask(() {
+      if (!mounted) return;
+      // selectMode resets to selectMode at mount time per the
+      // StateProvider default; bring it back so we cleanly run
+      // through `running → previewing → applying → done`.
+      context.read(_updateModeProvider.notifier).state = _UpdateMode.selectMode;
+      switch (intent) {
+        case UpdateActionIntent.tuiOnly:
+          _startUpdate(true);
+        case UpdateActionIntent.entireSystem:
+          _startUpdate(false);
+        case UpdateActionIntent.refreshPlugins:
+          context.read(_refreshingPluginsProvider.notifier).state = true;
+      }
+    });
+  }
 
   @override
   void dispose() {

@@ -9,6 +9,7 @@ import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 import '../../services/check_runner.dart';
 import 'update/action_gating.dart';
+import 'update_view.dart' show pendingUpdateIntentProvider, UpdateActionIntent;
 
 // ---------------------------------------------------------------------------
 // System view — sidebar: [Check, Apply].
@@ -267,12 +268,14 @@ class SystemView extends StatelessComponent {
     ],
     SystemSection.apply => [
       _SystemAction(
-        label: 'Apply pending changes',
+        label: 'Apply config edits',
         description:
             'Runs nixos-rebuild switch against the current '
             'config.json so unsaved edits in Configure flip from '
             '"pending" to "applied" on the running system. The '
-            'flake.lock is left as-is.',
+            'flake.lock is left as-is — for upstream commits, '
+            'pick "Update TUI only" or "Update entire system" '
+            'below.',
         run: (ctx) {
           ctx.read(currentViewProvider.notifier).state = AppView.apply;
         },
@@ -284,6 +287,8 @@ class SystemView extends StatelessComponent {
             'new binary replaces the running TUI on the next '
             'launch; other services stay on their pinned versions.',
         run: (ctx) {
+          ctx.read(pendingUpdateIntentProvider.notifier).state =
+              UpdateActionIntent.tuiOnly;
           ctx.read(currentViewProvider.notifier).state = AppView.update;
         },
       ),
@@ -294,6 +299,8 @@ class SystemView extends StatelessComponent {
             'nvd preview, then rebuilds + activates. The full path '
             "everyone calls 'an update' on RaspiBlitz.",
         run: (ctx) {
+          ctx.read(pendingUpdateIntentProvider.notifier).state =
+              UpdateActionIntent.entireSystem;
           ctx.read(currentViewProvider.notifier).state = AppView.update;
         },
       ),
@@ -302,9 +309,11 @@ class SystemView extends StatelessComponent {
         description:
             'For every installed plugin whose upstream is ahead of '
             'its pinned rev, pull the new rev to disk. Combine '
-            'with Apply pending changes (or Update entire system) '
+            'with Apply config edits (or Update entire system) '
             'to activate the new plugin versions.',
         run: (ctx) {
+          ctx.read(pendingUpdateIntentProvider.notifier).state =
+              UpdateActionIntent.refreshPlugins;
           ctx.read(currentViewProvider.notifier).state = AppView.update;
         },
       ),
