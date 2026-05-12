@@ -9,10 +9,8 @@ import '../widgets/password_input.dart';
 import '../../providers/ui_state_provider.dart';
 import '../layout.dart';
 import 'configure/field_editor.dart';
-import 'plugin_config_view.dart';
+import 'configure/plugin_catalog.dart';
 import 'plugin_install_view.dart';
-import 'plugin_refresh_all_view.dart';
-import 'plugin_refresh_view.dart';
 
 // ---------------------------------------------------------------------------
 // _MenuEntry — sealed sum type for the Configure tab bar
@@ -74,25 +72,17 @@ final _editingSystemFieldProvider = StateProvider<_SystemTextField?>(
   (ref) => null,
 );
 
-/// When non-null, the Configure view delegates to [PluginConfigView]
-/// for the plugin with this `dirName`. `null` means the main tabbed
-/// view is showing.
-final _editingPluginDirNameProvider = StateProvider<String?>((ref) => null);
-
 /// When true, the Configure view delegates to [PluginInstallView] —
-/// the consent-driven install wizard. Toggled by `i` on the Plugins
-/// tab and reset when the install view dismisses.
+/// the consent-driven install wizard. Set when the operator picks a
+/// row in the Plugins section (catalog entry or "Install from
+/// URL…"); reset when the install view dismisses.
 final _installingPluginProvider = StateProvider<bool>((ref) => false);
 
-/// Non-null while the Configure view is delegating to [PluginRefreshView]
-/// for the named plugin id. Set by `r` on the Plugins tab and reset
-/// when the refresh view dismisses.
-final _refreshingPluginProvider = StateProvider<String?>((ref) => null);
-
-/// True while the Configure view is delegating to [PluginRefreshAllView]
-/// (the bulk refresh flow). Toggled by `R` (shift-r) on the Plugins
-/// tab and reset when the refresh-all view dismisses.
-final _refreshingAllPluginsProvider = StateProvider<bool>((ref) => false);
+/// URL to seed [PluginInstallView] with — non-null for one-tap
+/// installs from the catalog, `null` for the URL-input flow. Read
+/// once when the install view mounts; reset alongside
+/// [_installingPluginProvider].
+final _pendingInstallUrlProvider = StateProvider<String?>((ref) => null);
 
 /// Which column of Configure's two-column layout currently has the
 /// keyboard focus. `sidebar` is the section picker on the left;
@@ -198,31 +188,14 @@ class ConfigureView extends StatelessComponent {
     // ── Plugin install wizard takeover ───────────────────────────────
     final installingPlugin = context.watch(_installingPluginProvider);
     if (installingPlugin) {
+      final presetUrl = context.read(_pendingInstallUrlProvider);
       return PluginInstallView(
         pluginService: context.read(pluginServiceProvider),
-        onDismiss: () =>
-            context.read(_installingPluginProvider.notifier).state = false,
-      );
-    }
-
-    // ── Plugin refresh takeover ──────────────────────────────────────
-    final refreshingPluginId = context.watch(_refreshingPluginProvider);
-    if (refreshingPluginId != null) {
-      return PluginRefreshView(
-        pluginService: context.read(pluginServiceProvider),
-        pluginId: refreshingPluginId,
-        onDismiss: () =>
-            context.read(_refreshingPluginProvider.notifier).state = null,
-      );
-    }
-
-    // ── Plugin refresh-all takeover ──────────────────────────────────
-    final refreshingAll = context.watch(_refreshingAllPluginsProvider);
-    if (refreshingAll) {
-      return PluginRefreshAllView(
-        pluginService: context.read(pluginServiceProvider),
-        onDismiss: () =>
-            context.read(_refreshingAllPluginsProvider.notifier).state = false,
+        presetUrl: presetUrl,
+        onDismiss: () {
+          context.read(_installingPluginProvider.notifier).state = false;
+          context.read(_pendingInstallUrlProvider.notifier).state = null;
+        },
       );
     }
 
@@ -231,7 +204,6 @@ class ConfigureView extends StatelessComponent {
     final serviceIndex = context.watch(selectedServiceIndexProvider);
     final selectedOption = context.watch(_selectedOptionProvider);
     final statusMessage = context.watch(_statusMessageProvider);
-    final editingPluginDir = context.watch(_editingPluginDirNameProvider);
     final editingField = context.watch(_editingFieldProvider);
     // Yield focus while a modal popup is up — sudo / help.
     final modalActive = context.watch(modalActiveProvider);
@@ -248,17 +220,6 @@ class ConfigureView extends StatelessComponent {
       loading: () => const Center(child: Text('Loading...')),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (config) {
-        // If the editingPluginDir references a plugin that's been
-        // uninstalled out-of-band, clear the stale id so the
-        // Plugins section's right pane falls back to preview mode.
-        if (editingPluginDir != null) {
-          final manifests = context.watch(installedPluginsProvider);
-          final stillThere = manifests.any((m) => m.id == editingPluginDir);
-          if (!stillThere) {
-            context.read(_editingPluginDirNameProvider.notifier).state = null;
-          }
-        }
-
         final currentEntry =
             menuEntries[serviceIndex.clamp(0, menuEntries.length - 1)];
 
@@ -312,6 +273,25 @@ class ConfigureView extends StatelessComponent {
           pendingKeys: pendingKeys,
         );
 
+        // Number of navigable rows for j/k in the content column.
+        // System / Manifest entries: options.length. Plugins: catalog
+        // entries not yet installed + 1 (the "Install from URL…" row).
+        // _buildOptions returns an empty list for Plugins because its
+        // body is rendered separately via _buildPluginsContent.
+        final int contentRowCount;
+        if (currentEntry is _PluginsEntry) {
+          final installedIds = context
+              .read(installedPluginsProvider)
+              .map((m) => m.id)
+              .toSet();
+          final availableCount = officialPluginCatalog
+              .where((p) => !installedIds.contains(p.id))
+              .length;
+          contentRowCount = availableCount + 1;
+        } else {
+          contentRowCount = options.length;
+        }
+
         return Focusable(
           focused: !modalActive,
           onKeyEvent: (event) {
@@ -332,7 +312,7 @@ class ConfigureView extends StatelessComponent {
                     context.read(_selectedOptionProvider.notifier).state = 0;
                   }
                 } else {
-                  final max = options.length - 1;
+                  final max = contentRowCount - 1;
                   if (selectedOption < max) {
                     context.read(_selectedOptionProvider.notifier).state =
                         selectedOption + 1;
@@ -370,34 +350,9 @@ class ConfigureView extends StatelessComponent {
                 return true;
               }
 
-              // [i] on the Plugins section opens the install wizard.
-              // Gated to content focus + _PluginsEntry so it doesn't
-              // shadow other intents.
-              if (event.logicalKey == LogicalKey.keyI &&
-                  currentEntry is _PluginsEntry &&
-                  focusedColumn == _ConfigureColumn.content) {
-                context.read(_installingPluginProvider.notifier).state = true;
-                return true;
-              }
-              // [r] / [R] on the Plugins section — refresh single / all.
-              // Distinguishing case: shift-r (capital R) is bulk;
-              // plain r refreshes only the highlighted row.
-              if (event.logicalKey == LogicalKey.keyR &&
-                  currentEntry is _PluginsEntry &&
-                  focusedColumn == _ConfigureColumn.content) {
-                final shifted = event.character == 'R';
-                if (shifted) {
-                  context.read(_refreshingAllPluginsProvider.notifier).state =
-                      true;
-                } else {
-                  final manifests = context.read(installedPluginsProvider);
-                  if (selectedOption < manifests.length) {
-                    context.read(_refreshingPluginProvider.notifier).state =
-                        manifests[selectedOption].id;
-                  }
-                }
-                return true;
-              }
+              // Plugins section: Enter on a row drives install (see
+              // _handleEnter); refresh/remove live in System → Apply
+              // and the `nixblitz plugin` CLI respectively.
 
               // Esc: content → sidebar, sidebar → dashboard. The
               // arrow keys (`←/→/h/l`) are reserved for the top
@@ -452,7 +407,7 @@ class ConfigureView extends StatelessComponent {
                             ? _buildPluginsContent(
                                 context,
                                 selectedOption,
-                                editingPluginDir,
+                                focusedColumn == _ConfigureColumn.content,
                               )
                             : Container(
                                 padding: const EdgeInsets.symmetric(
@@ -505,16 +460,27 @@ class ConfigureView extends StatelessComponent {
       return;
     }
 
-    // Plugins tab: drill into selected plugin's config form.
-    // installedPluginsProvider sorts by id, so the index here matches
-    // the row order rendered by `_buildPluginsOptions`. The header row
-    // it draws is purely visual — selectedOption indexes the data list,
-    // not the rendered widget list.
+    // Plugins tab: rows are install targets — catalog entries +
+    // a trailing "Install from URL…" row. Row order matches
+    // `_buildPluginsContent`. Configuring an installed plugin
+    // happens via its own sidebar entry (Bitcoin Core, LNBits, …)
+    // — the Plugins section is install-focused.
     if (currentEntry is _PluginsEntry) {
-      final manifests = context.read(installedPluginsProvider);
-      if (selectedOption < manifests.length) {
-        context.read(_editingPluginDirNameProvider.notifier).state =
-            manifests[selectedOption].id;
+      final installed = context
+          .read(installedPluginsProvider)
+          .map((m) => m.id)
+          .toSet();
+      final available = officialPluginCatalog
+          .where((p) => !installed.contains(p.id))
+          .toList();
+      if (selectedOption < available.length) {
+        context.read(_pendingInstallUrlProvider.notifier).state =
+            available[selectedOption].url;
+        context.read(_installingPluginProvider.notifier).state = true;
+      } else if (selectedOption == available.length) {
+        // "Install from URL…" — open the wizard's URL-input phase.
+        context.read(_pendingInstallUrlProvider.notifier).state = null;
+        context.read(_installingPluginProvider.notifier).state = true;
       }
       return;
     }
@@ -679,178 +645,130 @@ class ConfigureView extends StatelessComponent {
     ];
   }
 
-  // ---------- Plugins (two-column inline layout) ----------
+  // ---------- Plugins (install catalog) ----------
 
-  /// Right-pane renderer for the Plugins section. Splits the
-  /// available width into:
-  ///
-  ///   [plugin name list]  │  [config preview / inline form]
-  ///
-  /// The name list is always visible. The right subcolumn shows a
-  /// read-only preview of the highlighted plugin's config while
-  /// [editingPluginDir] is null; once the operator hits Enter the
-  /// provider is set and the right subcolumn swaps in the full
-  /// [PluginConfigView] (which owns its own Focusable + key
-  /// handling). Dismissing the form clears the provider and the
-  /// preview returns.
+  /// Right-pane renderer for the Plugins section. Lists the
+  /// catalog of official plugins not yet installed (one row each)
+  /// plus a trailing "Install from URL…" row. Enter on a row drives
+  /// [PluginInstallView] — catalog rows pass a preset URL so the
+  /// wizard skips the URL-input phase. Configuring an installed
+  /// plugin happens via its own sidebar entry, not here.
   Component _buildPluginsContent(
     BuildContext context,
     int selectedIndex,
-    String? editingPluginDir,
+    bool contentFocused,
   ) {
-    final manifests = context.watch(installedPluginsProvider);
-    if (manifests.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: const Column(
+    final installed = context
+        .watch(installedPluginsProvider)
+        .map((m) => m.id)
+        .toSet();
+    final available = officialPluginCatalog
+        .where((p) => !installed.contains(p.id))
+        .toList();
+
+    const accent = Color.fromRGB(247, 147, 26);
+    const normal = Color.fromRGB(200, 200, 200);
+    const label = Color.fromRGB(150, 150, 180);
+    const dim = Color.fromRGB(140, 140, 150);
+    const inactive = Color.fromRGB(85, 85, 105);
+
+    // selectedOption is shared with other Configure sections; the
+    // Enter handler clamps it. Total row count = catalog rows +
+    // the trailing "Install from URL…" row.
+    final totalRows = available.length + 1;
+    final clamped = selectedIndex.clamp(0, totalRows - 1);
+
+    final children = <Component>[
+      Text(
+        'Install a plugin',
+        style: TextStyle(
+          color: contentFocused ? accent : inactive,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      const SizedBox(height: 1),
+      Text(
+        installed.isEmpty
+            ? 'Pick a plugin to install on this node.'
+            : available.isEmpty
+            ? 'All official plugins are installed. Use the URL '
+                  'option below to install a plugin from any forge.'
+            : 'Catalog of official plugins not yet installed. '
+                  'Enter installs the highlighted row.',
+        style: TextStyle(color: contentFocused ? dim : inactive),
+      ),
+      const SizedBox(height: 1),
+    ];
+
+    for (var i = 0; i < available.length; i++) {
+      final isActive = i == clamped;
+      final showCursor = isActive && contentFocused;
+      final p = available[i];
+      final nameColor = contentFocused
+          ? (isActive ? accent : normal)
+          : inactive;
+      final descColor = contentFocused ? dim : inactive;
+      children.add(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '(no plugins installed)',
-              style: TextStyle(color: Color.fromRGB(150, 150, 170)),
+              '${showCursor ? "> " : "  "}${p.name}',
+              style: TextStyle(
+                color: nameColor,
+                fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
+              ),
             ),
-            SizedBox(height: 1),
-            Text(
-              '[i] install',
-              style: TextStyle(color: Color.fromRGB(140, 140, 150)),
-            ),
+            Text('    ${p.description}', style: TextStyle(color: descColor)),
           ],
         ),
       );
+      children.add(const SizedBox(height: 1));
     }
 
-    final clamped = selectedIndex.clamp(0, manifests.length - 1);
-    final selected = manifests[clamped];
-
-    // Widest plugin name + 2 ("> " cursor prefix)
-    //                    + 4 (EdgeInsets.symmetric horizontal: 2 each side)
-    //                    + 2 (nocterm border deflate — see the
-    //                         outer sidebar's width comment).
-    final nameColWidth =
-        manifests.map((m) => m.name.length).fold<int>(8, _max) + 8;
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: nameColWidth.toDouble(),
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-          // Plugin list = its own bordered pane inside the Plugins
-          // section's right column. Idle color — the OUTER content
-          // pane's border is the one that intensifies on focus,
-          // so we don't double-light the seam here.
-          decoration: const BoxDecoration(
-            border: BoxBorder(
-              top: BorderSide(color: Color.fromRGB(50, 50, 70)),
-              right: BorderSide(color: Color.fromRGB(50, 50, 70)),
-              bottom: BorderSide(color: Color.fromRGB(50, 50, 70)),
-              left: BorderSide(color: Color.fromRGB(50, 50, 70)),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < manifests.length; i++)
-                Text(
-                  '${i == clamped ? "> " : "  "}${manifests[i].name}',
-                  style: TextStyle(
-                    color: i == clamped
-                        ? const Color.fromRGB(247, 147, 26)
-                        : const Color.fromRGB(150, 150, 180),
-                    fontWeight: i == clamped
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  ),
-                ),
-              const SizedBox(height: 1),
-              const Text(
-                '[i] install',
-                style: TextStyle(color: Color.fromRGB(120, 120, 140)),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: editingPluginDir != null
-              ? PluginConfigView(
-                  // Keyed on the plugin id so swapping plugins
-                  // resets internal state (selected row, editing
-                  // overlay…) instead of leaking it across plugins.
-                  key: ValueKey('plugin-config-$editingPluginDir'),
-                  pluginId: editingPluginDir,
-                  onDismiss: () =>
-                      context
-                              .read(_editingPluginDirNameProvider.notifier)
-                              .state =
-                          null,
-                )
-              : _buildPluginPreview(context, selected),
-        ),
-      ],
-    );
-  }
-
-  /// Read-only preview of [manifest]'s current config. Rendered in
-  /// the right subcolumn when no plugin form is active. Mirrors the
-  /// label/value layout of the full form so the operator can scan
-  /// values before drilling in.
-  Component _buildPluginPreview(BuildContext context, PluginManifest manifest) {
-    final config = context.watch(configProvider).value;
-    final appCfg = config?.appConfig(manifest.id) ?? const {};
-    final fields = manifest.configSchema?.fields ?? const [];
-
-    final baseDir = context.read(baseDirProvider);
-    final marker = readMarker('$baseDir/plugins/${manifest.id}');
-    final cfgEnabled = config?.isAppEnabled(manifest.id) ?? false;
-    final statusLabel = pluginStatusLabel(
-      marker: marker,
-      cfgEnabled: cfgEnabled,
-    );
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-      child: Column(
+    // Trailing "Install from URL…" row — index == available.length.
+    final urlIsActive = clamped == available.length;
+    final urlCursor = urlIsActive && contentFocused;
+    final urlNameColor = contentFocused
+        ? (urlIsActive ? accent : normal)
+        : inactive;
+    final urlDescColor = contentFocused ? dim : inactive;
+    children.add(
+      Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            manifest.name,
-            style: const TextStyle(
-              color: Color.fromRGB(247, 147, 26),
-              fontWeight: FontWeight.bold,
+            '${urlCursor ? "> " : "  "}Install from URL…',
+            style: TextStyle(
+              color: urlNameColor,
+              fontWeight: urlCursor ? FontWeight.bold : FontWeight.normal,
             ),
           ),
-          if (manifest.description.isNotEmpty)
-            Text(
-              manifest.description,
-              style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
-            ),
           Text(
-            'status: $statusLabel',
-            style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
-          ),
-          const SizedBox(height: 1),
-          if (fields.isEmpty)
-            const Text(
-              '(no configurable fields)',
-              style: TextStyle(color: Color.fromRGB(150, 150, 170)),
-            )
-          else
-            for (final f in fields)
-              Text(
-                '${f.label}: ${appCfg[f.name] ?? "(default)"}',
-                style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
-              ),
-          const SizedBox(height: 1),
-          const Text(
-            '[Enter] edit',
-            style: TextStyle(color: Color.fromRGB(120, 120, 140)),
+            '    Paste a github: / forgejo: / https:// plugin URL.',
+            style: TextStyle(color: urlDescColor),
           ),
         ],
       ),
     );
-  }
 
-  static int _max(int a, int b) => a > b ? a : b;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...children,
+          if (installed.isNotEmpty) ...[
+            const SizedBox(height: 1),
+            Text(
+              'Already installed: ${installed.toList().join(", ")}',
+              style: TextStyle(color: contentFocused ? label : inactive),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

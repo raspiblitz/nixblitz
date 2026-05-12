@@ -24,10 +24,17 @@ class PluginInstallView extends StatefulComponent {
   final PluginService pluginService;
   final VoidCallback onDismiss;
 
+  /// Pre-filled URL — when non-null, the view skips the input phase
+  /// and jumps straight to `_Phase.cloning`. Set by the catalog rows
+  /// in Configure → Plugins (one-tap installs of known plugins);
+  /// `null` for the URL-input flow.
+  final String? presetUrl;
+
   const PluginInstallView({
     super.key,
     required this.pluginService,
     required this.onDismiss,
+    this.presetUrl,
   });
 
   @override
@@ -48,6 +55,22 @@ class _PluginInstallViewState extends State<PluginInstallView> {
   /// handlers" — same hazard, same workaround (plain field, not a
   /// provider).
   bool _submitted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Catalog-driven install: caller supplied a URL, skip the
+    // input phase. Microtask defer so we don't mutate state mid-
+    // mount (mirrors the existing `_onUrlSubmit` deferral pattern).
+    final preset = component.presetUrl;
+    if (preset != null && preset.isNotEmpty) {
+      _urlBuffer = preset;
+      Future.microtask(() {
+        if (!mounted) return;
+        _onUrlSubmit();
+      });
+    }
+  }
 
   void _onUrlSubmit() {
     final url = _urlBuffer.trim();
@@ -92,7 +115,13 @@ class _PluginInstallViewState extends State<PluginInstallView> {
             if (!mounted) return;
             setState(() {
               _resultMarker = marker;
-              _resultMessage = 'installed ${marker.id} v${marker.version}';
+              // "configured" not "installed": the plugin's files are
+              // on disk and config.json has its defaults seeded, but
+              // the service it declares isn't running yet — that
+              // takes a nixos-rebuild via System → Apply. New
+              // operators tripped on "installed" and went looking
+              // for a running service that wasn't there.
+              _resultMessage = 'configured ${marker.id} v${marker.version}';
               _phase = _Phase.done;
             });
           });
@@ -350,6 +379,14 @@ class _PluginInstallViewState extends State<PluginInstallView> {
     final isSuccess = _resultMarker != null;
     return [
       Text(msg, style: isSuccess ? _success : _error),
+      if (isSuccess) ...[
+        const SizedBox(height: 1),
+        const Text(
+          'Not yet running — open System → Apply → Apply pending '
+          'changes to activate.',
+          style: _dim,
+        ),
+      ],
       const SizedBox(height: 1),
       const Text('[Enter] back to plugins', style: _dim),
     ];
