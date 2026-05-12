@@ -195,19 +195,21 @@ List<FooterHint> _computeFooterHints(BuildContext context) {
       final section = context.watch(systemSectionProvider);
       if (col == SystemColumn.sidebar) {
         return const [
-          FooterHint(key: '↑/↓', action: 'Check / Apply'),
+          FooterHint(key: '↑/↓', action: 'Check / Apply / Power'),
           FooterHint(key: 'Enter', action: 'pick action'),
           FooterHint(key: 'Esc', action: 'back to dashboard'),
           top,
           help,
         ];
       }
+      final enterLabel = switch (section) {
+        SystemSection.check => 'run check',
+        SystemSection.apply => 'run action',
+        SystemSection.power => 'arm / confirm',
+      };
       return [
         const FooterHint(key: '↑/↓', action: 'pick action'),
-        FooterHint(
-          key: 'Enter',
-          action: section == SystemSection.check ? 'run check' : 'run action',
-        ),
+        FooterHint(key: 'Enter', action: enterLabel),
         const FooterHint(key: 'Esc', action: 'back to sidebar'),
         top,
         help,

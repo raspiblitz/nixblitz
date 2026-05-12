@@ -27,7 +27,7 @@ import 'update_view.dart' show pendingUpdateIntentProvider, UpdateActionIntent;
 // ---------------------------------------------------------------------------
 
 /// Which sidebar section is selected.
-enum SystemSection { check, apply }
+enum SystemSection { check, apply, power }
 
 /// Which column has focus — same idiom as Configure.
 enum SystemColumn { sidebar, content }
@@ -40,16 +40,30 @@ final systemColumnProvider = StateProvider<SystemColumn>(
 );
 final _systemActionIndexProvider = StateProvider<int>((ref) => 0);
 
+/// Label of the Power-section action currently in "press Enter
+/// again to confirm" mode. `null` when nothing is armed. Cleared
+/// by Esc, by switching section, or by changing selection.
+final _armedPowerActionProvider = StateProvider<String?>((ref) => null);
+
+/// Latched status string for Power actions ('Authorizing…' /
+/// 'Rebooting…' / 'Cancelled.'). Null while idle. Drives the
+/// inline status line rendered under the Power actions.
+final _powerStatusProvider = StateProvider<String?>((ref) => null);
+
 /// A row in the body's action list. Each action has a short, action-y
 /// label + a longer description rendered below it in dim text.
+/// [danger] re-tints the row red — used for armed Power actions
+/// ("press Enter again to power off").
 class _SystemAction {
   const _SystemAction({
     required this.label,
     required this.description,
     required this.run,
+    this.danger = false,
   });
   final String label;
   final String description;
+  final bool danger;
   final void Function(BuildContext) run;
 }
 
@@ -83,7 +97,13 @@ class SystemView extends StatelessComponent {
       status,
       liveInputsAhead: liveInputsAhead,
     );
-    final actions = _actionsFor(section, hasCachedDiff: hasCachedDiff);
+    final armedPower = context.watch(_armedPowerActionProvider);
+    final powerStatus = context.watch(_powerStatusProvider);
+    final actions = _actionsFor(
+      section,
+      hasCachedDiff: hasCachedDiff,
+      armedPower: armedPower,
+    );
     final selected = actionIndex.clamp(0, actions.length - 1);
 
     return Focusable(
@@ -94,15 +114,21 @@ class SystemView extends StatelessComponent {
           if (event.logicalKey == LogicalKey.keyJ ||
               event.logicalKey == LogicalKey.arrowDown) {
             if (column == SystemColumn.sidebar) {
-              if (section == SystemSection.check) {
-                context.read(systemSectionProvider.notifier).state =
-                    SystemSection.apply;
+              final next = switch (section) {
+                SystemSection.check => SystemSection.apply,
+                SystemSection.apply => SystemSection.power,
+                SystemSection.power => null,
+              };
+              if (next != null) {
+                context.read(systemSectionProvider.notifier).state = next;
                 context.read(_systemActionIndexProvider.notifier).state = 0;
+                _disarmPower(context);
               }
             } else {
               if (selected < actions.length - 1) {
                 context.read(_systemActionIndexProvider.notifier).state =
                     selected + 1;
+                _disarmPower(context);
               }
             }
             return true;
@@ -110,15 +136,21 @@ class SystemView extends StatelessComponent {
           if (event.logicalKey == LogicalKey.keyK ||
               event.logicalKey == LogicalKey.arrowUp) {
             if (column == SystemColumn.sidebar) {
-              if (section == SystemSection.apply) {
-                context.read(systemSectionProvider.notifier).state =
-                    SystemSection.check;
+              final prev = switch (section) {
+                SystemSection.power => SystemSection.apply,
+                SystemSection.apply => SystemSection.check,
+                SystemSection.check => null,
+              };
+              if (prev != null) {
+                context.read(systemSectionProvider.notifier).state = prev;
                 context.read(_systemActionIndexProvider.notifier).state = 0;
+                _disarmPower(context);
               }
             } else {
               if (selected > 0) {
                 context.read(_systemActionIndexProvider.notifier).state =
                     selected - 1;
+                _disarmPower(context);
               }
             }
             return true;
@@ -137,7 +169,10 @@ class SystemView extends StatelessComponent {
           }
 
           // Esc: ascend (content → sidebar, sidebar → dashboard).
+          // Always disarms any armed Power action — escaping is a
+          // clear "I changed my mind" signal.
           if (event.logicalKey == LogicalKey.escape) {
+            _disarmPower(context);
             if (column == SystemColumn.content) {
               context.read(systemColumnProvider.notifier).state =
                   SystemColumn.sidebar;
@@ -206,6 +241,17 @@ class SystemView extends StatelessComponent {
                           ),
                           if (i < actions.length - 1) const SizedBox(height: 1),
                         ],
+                        if (section == SystemSection.power &&
+                            powerStatus != null) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            powerStatus,
+                            style: const TextStyle(
+                              color: Color.fromRGB(220, 180, 100),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -221,11 +267,13 @@ class SystemView extends StatelessComponent {
   String _headingFor(SystemSection section) => switch (section) {
     SystemSection.check => 'Check — read-only probes',
     SystemSection.apply => 'Apply — run nixos-rebuild',
+    SystemSection.power => 'Power — shutdown / reboot',
   };
 
   List<_SystemAction> _actionsFor(
     SystemSection section, {
     bool hasCachedDiff = false,
+    String? armedPower,
   }) => switch (section) {
     SystemSection.check => [
       _SystemAction(
@@ -318,7 +366,89 @@ class SystemView extends StatelessComponent {
         },
       ),
     ],
+    SystemSection.power => [
+      _SystemAction(
+        label: 'Shutdown',
+        description: armedPower == 'shutdown'
+            ? 'Press Enter again to power off. Esc to cancel.'
+            : 'Power the node off via `systemctl poweroff`. You '
+                  'will need to power it back on manually.',
+        danger: armedPower == 'shutdown',
+        run: (ctx) {
+          if (ctx.read(_armedPowerActionProvider) == 'shutdown') {
+            _executePower(ctx, 'poweroff', 'Shutting down');
+          } else {
+            ctx.read(_armedPowerActionProvider.notifier).state = 'shutdown';
+          }
+        },
+      ),
+      _SystemAction(
+        label: 'Reboot',
+        description: armedPower == 'reboot'
+            ? 'Press Enter again to reboot. Esc to cancel.'
+            : 'Reboot the node via `systemctl reboot`. The TUI '
+                  'will exit; reconnect once the node is back.',
+        danger: armedPower == 'reboot',
+        run: (ctx) {
+          if (ctx.read(_armedPowerActionProvider) == 'reboot') {
+            _executePower(ctx, 'reboot', 'Rebooting');
+          } else {
+            ctx.read(_armedPowerActionProvider.notifier).state = 'reboot';
+          }
+        },
+      ),
+    ],
   };
+
+  /// Clear any armed Power action + reset the status line. Called on
+  /// Esc, on navigation, on row change — anything that suggests the
+  /// operator's no longer about to confirm.
+  static void _disarmPower(BuildContext ctx) {
+    if (ctx.read(_armedPowerActionProvider) != null) {
+      ctx.read(_armedPowerActionProvider.notifier).state = null;
+    }
+    if (ctx.read(_powerStatusProvider) != null) {
+      ctx.read(_powerStatusProvider.notifier).state = null;
+    }
+  }
+
+  /// Force a fresh sudo prompt (regardless of cached timestamp),
+  /// then dispatch `systemctl <verb>`. The cached timestamp is
+  /// always invalidated first so power actions don't ride a recent
+  /// Apply's auth — shutting down the box is exactly the kind of
+  /// thing where a re-typed password is the right friction.
+  ///
+  /// Best-effort: the system goes down before the runOneShot
+  /// resolves, so nothing depends on its result.
+  static void _executePower(BuildContext ctx, String verb, String label) {
+    final sudo = ctx.read(sudoSessionProvider);
+    ctx.read(_powerStatusProvider.notifier).state = 'Authorizing…';
+    sudo
+        .forget()
+        .then((_) => sudo.ensureFresh())
+        .then((ok) {
+          if (!ok) {
+            ctx.read(_armedPowerActionProvider.notifier).state = null;
+            ctx.read(_powerStatusProvider.notifier).state = 'Cancelled.';
+            return;
+          }
+          ctx.read(_powerStatusProvider.notifier).state = '$label…';
+          // Fire and forget — the system is going down; the
+          // subprocess's resolution doesn't matter to the TUI.
+          sudo.runOneShot(['systemctl', verb]).catchError((
+            Object e,
+            StackTrace st,
+          ) {
+            LogService.error('systemctl $verb failed', e, st);
+            return (exitCode: 1, stdout: '', stderr: '$e');
+          });
+        })
+        .catchError((Object e, StackTrace st) {
+          LogService.error('Power action authorization failed: $verb', e, st);
+          ctx.read(_armedPowerActionProvider.notifier).state = null;
+          ctx.read(_powerStatusProvider.notifier).state = 'Failed: $e';
+        });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +719,13 @@ class _SystemSidebar extends StatelessComponent {
             idle,
             dim,
           ),
+          _sidebarEntry(
+            'Power',
+            current == SystemSection.power,
+            accent,
+            idle,
+            dim,
+          ),
         ],
       ),
     );
@@ -643,14 +780,24 @@ class _ActionRow extends StatelessComponent {
     const normal = Color.fromRGB(200, 200, 200);
     const dim = Color.fromRGB(140, 140, 150);
     const inactive = Color.fromRGB(85, 85, 105);
+    const danger = Color.fromRGB(255, 80, 80);
+    const dangerDim = Color.fromRGB(220, 120, 120);
 
     // Cursor + accent only when this column owns focus. Otherwise the
     // whole pane drops to the same dim grey the sidebar uses for its
     // idle state — no `>`, no bold — so it's visually clear that
-    // j/k is going somewhere else.
+    // j/k is going somewhere else. Armed-Power rows override colour
+    // to red so the "press Enter again" warning stands out.
     final showCursor = selected && columnFocused;
-    final labelColor = columnFocused ? (selected ? accent : normal) : inactive;
-    final descColor = columnFocused ? dim : inactive;
+    final Color labelColor;
+    final Color descColor;
+    if (action.danger) {
+      labelColor = columnFocused ? danger : dangerDim;
+      descColor = columnFocused ? danger : dangerDim;
+    } else {
+      labelColor = columnFocused ? (selected ? accent : normal) : inactive;
+      descColor = columnFocused ? dim : inactive;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -659,7 +806,9 @@ class _ActionRow extends StatelessComponent {
           '${showCursor ? "> " : "  "}${action.label}',
           style: TextStyle(
             color: labelColor,
-            fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
+            fontWeight: showCursor || action.danger
+                ? FontWeight.bold
+                : FontWeight.normal,
           ),
         ),
         Text('    ${action.description}', style: TextStyle(color: descColor)),
