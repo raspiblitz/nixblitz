@@ -12,15 +12,15 @@ class UpdateActionStates {
   const UpdateActionStates({
     required this.tuiOnly,
     required this.entireSystem,
-    required this.refreshPlugins,
+    required this.updatePlugins,
   });
   final ActionState tuiOnly;
   final ActionState entireSystem;
 
-  /// "Refresh plugins" — enabled when the last lightweight check
+  /// "Update plugins" — enabled when the last lightweight check
   /// found at least one plugin behind upstream. Subtitle reflects
   /// the count.
-  final ActionState refreshPlugins;
+  final ActionState updatePlugins;
 }
 
 /// Returns true when [status.heavy]'s `diffText` should be treated
@@ -123,25 +123,25 @@ UpdateActionStates computeUpdateActionStates(
     );
   }
 
-  // ── refreshPlugins ─────────────────────────────────────────
-  final ActionState refreshPlugins;
+  // ── updatePlugins ─────────────────────────────────────────
+  final ActionState updatePlugins;
   if (light == null || !light.ok) {
     // Without a successful light check we don't know which plugins
     // are behind. Still allow the action so the operator can force
     // a refresh-all even before the first check runs.
-    refreshPlugins = const ActionState(
+    updatePlugins = const ActionState(
       enabled: true,
       subtitle: 'no light check yet — refresh anyway',
     );
   } else {
     final ahead = light.pluginsAhead.length;
     if (ahead == 0) {
-      refreshPlugins = const ActionState(
+      updatePlugins = const ActionState(
         enabled: false,
         subtitle: 'plugins up to date',
       );
     } else {
-      refreshPlugins = ActionState(
+      updatePlugins = ActionState(
         enabled: true,
         subtitle: ahead == 1
             ? '1 plugin update available'
@@ -153,7 +153,7 @@ UpdateActionStates computeUpdateActionStates(
   return UpdateActionStates(
     tuiOnly: tuiOnly,
     entireSystem: entire,
-    refreshPlugins: refreshPlugins,
+    updatePlugins: updatePlugins,
   );
 }
 

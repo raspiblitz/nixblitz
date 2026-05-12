@@ -41,7 +41,7 @@ class PluginInstallPreview {
   /// 40-char SHA the clone landed at. Pinning to this rev is what
   /// makes "review the code first" feasible — once pinned, the
   /// plugin tree on disk can't change without a manifest update
-  /// (which goes through `plugin refresh` + a follow-up consent).
+  /// (which goes through `plugin update` + a follow-up consent).
   final String pinnedRev;
 
   /// `manifest.schema_version`. Affects how the loader interprets
@@ -75,7 +75,7 @@ class PluginInstallCancelled implements Exception {
 /// Surfaces as a hard refresh failure so the operator must
 /// explicitly re-consent — typically via `plugin remove <id>` +
 /// `plugin add <url>` — before the new key is accepted. A bare
-/// re-run of `plugin refresh` would just hit the same mismatch
+/// re-run of `plugin update` would just hit the same mismatch
 /// again, which is the intended behaviour.
 class PluginSignatureMismatch implements Exception {
   const PluginSignatureMismatch({

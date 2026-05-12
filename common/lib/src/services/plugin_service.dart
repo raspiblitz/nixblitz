@@ -465,7 +465,7 @@ class PluginService {
   }
 
   /// Mark [id] as `autoUpdate = false`. The next bulk refresh skips
-  /// it. Direct `plugin refresh <id>` ignores the flag and still
+  /// it. Direct `plugin update <id>` ignores the flag and still
   /// works.
   Future<PluginMarker> pin(String id) async => _setAutoUpdate(id, false);
 
@@ -813,7 +813,7 @@ class PluginUrl {
   }) {
     // Canonical URLs for non-github schemes encode the subdir as
     // `?dir=<subdir>` (produced by [_withSubdir]). When we re-parse
-    // a stored marker.url (e.g. during `plugin refresh`), split
+    // a stored marker.url (e.g. during `plugin update`), split
     // that query-string suffix off before handing to the scheme
     // parsers — then fold it back in via [_withSubdir] on the way
     // out. Keeps the round-trip deterministic.

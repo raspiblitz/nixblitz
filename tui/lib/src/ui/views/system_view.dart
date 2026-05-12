@@ -305,15 +305,15 @@ class SystemView extends StatelessComponent {
         },
       ),
       _SystemAction(
-        label: 'Refresh plugins',
+        label: 'Update plugins',
         description:
-            'For every installed plugin whose upstream is ahead of '
-            'its pinned rev, pull the new rev to disk. Combine '
-            'with Apply config edits (or Update entire system) '
-            'to activate the new plugin versions.',
+            'For every installed plugin whose upstream is ahead '
+            'of its pinned rev, pull the new rev + rebuild. Same '
+            'shape as Update TUI only — one click, sudo, '
+            'streamed rebuild output, done.',
         run: (ctx) {
           ctx.read(pendingUpdateIntentProvider.notifier).state =
-              UpdateActionIntent.refreshPlugins;
+              UpdateActionIntent.updatePlugins;
           ctx.read(currentViewProvider.notifier).state = AppView.update;
         },
       ),

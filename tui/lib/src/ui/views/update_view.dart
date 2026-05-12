@@ -35,8 +35,11 @@ enum UpdateActionIntent {
   /// `nix flake update` (all inputs) + rebuild.
   entireSystem,
 
-  /// Delegate to [PluginRefreshAllView]'s bulk refresh.
-  refreshPlugins,
+  /// Pull each plugin's upstream rev + rebuild. Same shape as
+  /// [tuiOnly] and [entireSystem]: one operator click → finished
+  /// system. Implementation runs [PluginService.refreshAll] then
+  /// chains into the standard preview-diff + apply flow.
+  updatePlugins,
 }
 
 final pendingUpdateIntentProvider = StateProvider<UpdateActionIntent?>(
@@ -134,7 +137,7 @@ class _UpdateViewState extends State<UpdateView> {
           _startUpdate(true);
         case UpdateActionIntent.entireSystem:
           _startUpdate(false);
-        case UpdateActionIntent.refreshPlugins:
+        case UpdateActionIntent.updatePlugins:
           context.read(_refreshingPluginsProvider.notifier).state = true;
       }
     });
@@ -147,6 +150,33 @@ class _UpdateViewState extends State<UpdateView> {
   }
 
   // ── Entry points (selectMode → running) ────────────────────────
+
+  /// Continue from "plugin refresh just finished, advanced > 0"
+  /// straight into the rebuild path. Skips the `nix flake update`
+  /// step inside [_previewSystemUpdate] because plugin refresh
+  /// already wrote the new revs (per-plugin commits land via
+  /// PluginService.refreshAll). Goes sudo → preview-diff → apply.
+  void _continueWithRebuild() {
+    if (_started) return;
+    _started = true;
+    try {
+      final baseDirPath = context.read(baseDirProvider);
+      final sudo = context.read(sudoSessionProvider);
+      _resetForRunning();
+      _appendUpdateLine('> sudo -v (authorize)');
+      sudo.ensureFresh().then((ok) {
+        if (!ok) {
+          _appendUpdateLine('Authorization cancelled — aborting rebuild.');
+          _failToDone(1);
+          return;
+        }
+        _runPreviewDiff(baseDirPath);
+      });
+    } catch (e, st) {
+      LogService.error('Failed to continue with rebuild', e, st);
+      _failToDone(1);
+    }
+  }
 
   void _startUpdate(bool nixblitzOnly) {
     if (_started) return;
@@ -591,14 +621,23 @@ class _UpdateViewState extends State<UpdateView> {
   @override
   Component build(BuildContext context) {
     // Plugin refresh-all takeover — shown when the operator picks
-    // "Refresh plugins" from the action panel. Self-contained
-    // PluginRefreshAllView owns its own keys and dismisses back
-    // here when done.
+    // "Update plugins" from the action panel. PluginRefreshAllView
+    // owns its own keys; on done it tells us whether the operator
+    // confirmed (Enter → continue to rebuild) or cancelled (Esc
+    // → back to selectMode without rebuilding). The rebuild chain
+    // is what makes "Update plugins" symmetric with "Update TUI
+    // only" — one click, finished system.
     if (context.watch(_refreshingPluginsProvider)) {
       return PluginRefreshAllView(
         pluginService: context.read(pluginServiceProvider),
-        onDismiss: () =>
-            context.read(_refreshingPluginsProvider.notifier).state = false,
+        onDone: (result, {required confirmed}) {
+          context.read(_refreshingPluginsProvider.notifier).state = false;
+          final shouldRebuild =
+              confirmed && result != null && result.advanced.isNotEmpty;
+          if (shouldRebuild) {
+            _continueWithRebuild();
+          }
+        },
       );
     }
 
@@ -669,8 +708,8 @@ class _UpdateViewState extends State<UpdateView> {
         runAction: () => _startUpdate(false),
       ),
       _Option(
-        label: 'Refresh plugins',
-        state: actionStates.refreshPlugins,
+        label: 'Update plugins',
+        state: actionStates.updatePlugins,
         runAction: () {
           context.read(_refreshingPluginsProvider.notifier).state = true;
         },

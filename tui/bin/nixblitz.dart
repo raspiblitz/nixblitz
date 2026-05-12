@@ -58,7 +58,7 @@ void main(List<String> arguments) async {
         ..addCommand('remove', ArgParser())
         ..addCommand('list', ArgParser()..addFlag('all', negatable: false))
         ..addCommand(
-          'refresh',
+          'update',
           ArgParser()
             ..addFlag('all', negatable: false)
             ..addFlag('insecure', negatable: false),
@@ -139,7 +139,7 @@ void main(List<String> arguments) async {
 void _printHelp(String? topic) {
   if (topic == 'plugin') {
     print(
-      'Usage: nixblitz plugin <add|remove|list|refresh|pin|unpin> [options]\n'
+      'Usage: nixblitz plugin <add|remove|list|update|pin|unpin> [options]\n'
       '\n'
       '  add <url> [--branch X] [--subdir Y] [--yes] [--insecure]\n'
       '      Install a plugin from a git URL.\n'
@@ -147,9 +147,9 @@ void _printHelp(String? topic) {
       '      Soft-delete a plugin (tombstone preserves the pin).\n'
       '  list [--all]\n'
       '      List active plugins; --all also shows tombstones.\n'
-      '  refresh [<id>] [--all] [--insecure]\n'
+      '  update [<id>] [--all] [--insecure]\n'
       '      Pull a plugin\'s upstream into its pinned rev (or all\n'
-      '      auto-update plugins with --all).\n'
+      '      auto-update plugins with --all). Does not rebuild.\n'
       '  pin <id>\n'
       '      Freeze the plugin at its current rev (auto_update=false).\n'
       '  unpin <id>\n'
@@ -183,7 +183,7 @@ void _printHelp(String? topic) {
     '  nixblitz <subcommand> [args]   Run a one-shot subcommand\n'
     '\n'
     'Subcommands:\n'
-    '  plugin    Manage installed plugins (add / remove / list / refresh / pin / unpin)\n'
+    '  plugin    Manage installed plugins (add / remove / list / update / pin / unpin)\n'
     '  check     Run an update check now (light / heavy)\n'
     '\n'
     'The TUI is the default UI; subcommands are one-shot operations\n'

@@ -15,7 +15,9 @@ import '../ui/widgets/signature_label.dart';
 Future<int> runPluginCli(ArgResults pluginArgs, String baseDir) async {
   final sub = pluginArgs.command;
   if (sub == null) {
-    stderr.writeln('Usage: nixblitz plugin <add|remove|list> ...');
+    stderr.writeln(
+      'Usage: nixblitz plugin <add|remove|list|update|pin|unpin> ...',
+    );
     return 2;
   }
 
@@ -29,7 +31,7 @@ Future<int> runPluginCli(ArgResults pluginArgs, String baseDir) async {
         return await _runRemove(pluginService, sub);
       case 'list':
         return await _runList(pluginService, sub);
-      case 'refresh':
+      case 'update':
         return await _runRefresh(pluginService, sub);
       case 'pin':
         return await _runPin(pluginService, sub, pin: true);
@@ -230,8 +232,8 @@ Future<int> _runRefresh(PluginService svc, ArgResults args) async {
 
   if (rest.isEmpty) {
     stderr.writeln(
-      'Usage: nixblitz plugin refresh <id> [--insecure]\n'
-      '       nixblitz plugin refresh --all [--insecure]',
+      'Usage: nixblitz plugin update <id> [--insecure]\n'
+      '       nixblitz plugin update --all [--insecure]',
     );
     return 2;
   }
@@ -273,7 +275,7 @@ void _printSignatureMismatch(PluginSignatureMismatch e) {
   stderr.writeln('  new key:     ${e.actual ?? "(unsigned)"}');
   stderr.writeln();
   stderr.writeln(
-    'A bare `plugin refresh` will keep failing until you re-consent.',
+    'A bare `plugin update` will keep failing until you re-consent.',
   );
   stderr.writeln(
     'If the new key is legitimate (publisher rotated, you trust both):',
@@ -299,7 +301,7 @@ Future<int> _runPin(
     stdout.writeln(
       'pinned ${marker.id}\n'
       '  auto_update is now false; "Update entire system" will skip this '
-      'plugin until you `unpin` or run `plugin refresh ${marker.id}` directly.',
+      'plugin until you `unpin` or run `plugin update ${marker.id}` directly.',
     );
   } else {
     stdout.writeln(

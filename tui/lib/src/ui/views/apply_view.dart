@@ -521,7 +521,7 @@ class _ApplyViewState extends State<ApplyView> {
       hints.add('"Update TUI only" (pulls the new nixblitz commit)');
     }
     if (pluginsAhead) {
-      hints.add('"Refresh plugins" (pulls plugin upstreams)');
+      hints.add('"Update plugins" (pulls plugin upstreams + rebuild)');
     }
 
     return [

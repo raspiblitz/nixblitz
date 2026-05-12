@@ -422,10 +422,10 @@ This pattern is borrowed verbatim from
 
 Two kinds of plugin update:
 
-| Change                                                           | Propagated by                                                            | When applied                        |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------- |
-| Manifest edit (new field, bumped tile poll interval, new action) | `nixblitz plugin refresh <id>` or implicit during `Update entire system` | Immediately after refresh           |
-| `plugin.nix` change (new systemd unit, env var, hardening tweak) | Same — the new file lands on disk during refresh                         | Next `nixos-rebuild switch` (Apply) |
+| Change                                                           | Propagated by                                                           | When applied                        |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------- |
+| Manifest edit (new field, bumped tile poll interval, new action) | `nixblitz plugin update <id>` or implicit during `Update entire system` | Immediately after update            |
+| `plugin.nix` change (new systemd unit, env var, hardening tweak) | Same — the new file lands on disk during refresh                        | Next `nixos-rebuild switch` (Apply) |
 
 Manifest changes affect how the TUI renders the plugin (config
 form, action menu, tile). They take effect as soon as the new

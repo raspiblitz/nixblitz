@@ -14,12 +14,22 @@ enum _Phase { refreshing, done }
 
 class PluginRefreshAllView extends StatefulComponent {
   final PluginService pluginService;
-  final VoidCallback onDismiss;
+
+  /// Called when the view dismisses. [confirmed] is true when the
+  /// operator hit Enter on the done phase (rebuild is wanted) and
+  /// false when they hit Esc (back out without rebuild, or mid-
+  /// refresh cancel). [result] is non-null only when refreshAll
+  /// completed without a top-level throw — caller uses it to
+  /// decide whether to chain into a rebuild (e.g. UpdateView does
+  /// this for the "Update plugins" intent when `confirmed` is
+  /// true and `result.advanced` is non-empty).
+  final void Function(PluginRefreshAllResult? result, {required bool confirmed})
+  onDone;
 
   const PluginRefreshAllView({
     super.key,
     required this.pluginService,
-    required this.onDismiss,
+    required this.onDone,
   });
 
   @override
@@ -74,9 +84,12 @@ class _PluginRefreshAllViewState extends State<PluginRefreshAllView> {
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
-        if (event.logicalKey == LogicalKey.escape ||
-            (event.logicalKey == LogicalKey.enter && _phase == _Phase.done)) {
-          component.onDismiss();
+        if (event.logicalKey == LogicalKey.enter && _phase == _Phase.done) {
+          component.onDone(_result, confirmed: true);
+          return true;
+        }
+        if (event.logicalKey == LogicalKey.escape) {
+          component.onDone(_result, confirmed: false);
           return true;
         }
         return _phase == _Phase.refreshing;
@@ -173,7 +186,7 @@ class _PluginRefreshAllViewState extends State<PluginRefreshAllView> {
       children.add(const SizedBox(height: 1));
       children.add(
         const Text(
-          'Run the Apply view ([a] from the dashboard) to rebuild.',
+          'Press Enter to rebuild + activate the new plugin versions.',
           style: TextStyle(color: Color.fromRGB(150, 150, 180)),
         ),
       );
@@ -181,9 +194,11 @@ class _PluginRefreshAllViewState extends State<PluginRefreshAllView> {
 
     children.add(const SizedBox(height: 1));
     children.add(
-      const Text(
-        '[Enter / Esc] back to plugins',
-        style: TextStyle(color: Color.fromRGB(110, 110, 130)),
+      Text(
+        r.advanced.isEmpty
+            ? '[Enter / Esc] back'
+            : '[Enter] rebuild   [Esc] back without rebuild',
+        style: const TextStyle(color: Color.fromRGB(110, 110, 130)),
       ),
     );
     return children;
