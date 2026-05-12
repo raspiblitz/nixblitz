@@ -1,4 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:nocterm/nocterm.dart';
+import 'package:nocterm_riverpod/nocterm_riverpod.dart';
+
+import '../../providers/viewport_provider.dart';
 
 class HelpPopup extends StatelessComponent {
   final VoidCallback onClose;
@@ -7,6 +12,12 @@ class HelpPopup extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
+    // Shrink to fit narrow terminals — at 40 cols we want a 36-cell
+    // modal, not the canonical 72 spilling 32 cells off the right
+    // edge. Border/padding eats 4 cells (1 border + 2 padding each
+    // side) so we cap at viewport - 4.
+    final viewportWidth = context.watch(viewportSizeProvider).width;
+    final width = math.min(72, math.max(20, viewportWidth - 4));
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
@@ -19,7 +30,7 @@ class HelpPopup extends StatelessComponent {
       },
       child: Center(
         child: Container(
-          width: 72,
+          width: width.toDouble(),
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
           decoration: BoxDecoration(
             border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),

@@ -6,7 +6,9 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/option_editor.dart';
 import '../widgets/password_input.dart';
+import '../widgets/tappable.dart';
 import '../../providers/ui_state_provider.dart';
+import '../../providers/viewport_provider.dart';
 import '../layout.dart';
 import 'configure/field_editor.dart';
 import 'configure/plugin_catalog.dart';
@@ -377,50 +379,17 @@ class ConfigureView extends StatelessComponent {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _ConfigureSidebar(
-                      entries: menuEntries,
-                      selectedIndex: serviceIndex.clamp(
-                        0,
-                        menuEntries.length - 1,
-                      ),
-                      focused: focusedColumn == ConfigureColumn.sidebar,
-                    ),
-                    Expanded(
-                      child: Container(
-                        // Right pane gets its own full-rectangle border
-                        // so focus is conveyed via border color (same
-                        // idiom as the sidebar). Adjacent sidebar+content
-                        // borders sit side-by-side at the seam — slight
-                        // visual heaviness but unambiguous: whichever
-                        // rectangle glows is where j/k goes.
-                        decoration: BoxDecoration(
-                          border: BoxBorder.all(
-                            color: focusedColumn == ConfigureColumn.content
-                                ? const Color.fromRGB(140, 140, 180)
-                                : const Color.fromRGB(50, 50, 70),
-                          ),
-                        ),
-                        child: currentEntry is _PluginsEntry
-                            ? _buildPluginsContent(
-                                context,
-                                selectedOption,
-                                focusedColumn == ConfigureColumn.content,
-                              )
-                            : Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 2,
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: options,
-                                ),
-                              ),
-                      ),
-                    ),
-                  ],
+                child: _buildBody(
+                  context: context,
+                  compact:
+                      context.watch(viewportClassProvider) ==
+                      ViewportClass.compact,
+                  focusedColumn: focusedColumn,
+                  menuEntries: menuEntries,
+                  serviceIndex: serviceIndex,
+                  currentEntry: currentEntry,
+                  selectedOption: selectedOption,
+                  options: options,
                 ),
               ),
               if (statusMessage.isNotEmpty) ...[
@@ -544,6 +513,76 @@ class ConfigureView extends StatelessComponent {
           }
         });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Body layout (wide = sidebar + content row; compact = single pane)
+  // ---------------------------------------------------------------------------
+
+  Component _buildBody({
+    required BuildContext context,
+    required bool compact,
+    required ConfigureColumn focusedColumn,
+    required List<_MenuEntry> menuEntries,
+    required int serviceIndex,
+    required _MenuEntry currentEntry,
+    required int selectedOption,
+    required List<Component> options,
+  }) {
+    final sidebar = _ConfigureSidebar(
+      entries: menuEntries,
+      selectedIndex: serviceIndex.clamp(0, menuEntries.length - 1),
+      focused: focusedColumn == ConfigureColumn.sidebar,
+    );
+    final content = Container(
+      // Right pane gets its own full-rectangle border so focus is
+      // conveyed via border color (same idiom as the sidebar).
+      decoration: BoxDecoration(
+        border: BoxBorder.all(
+          color: focusedColumn == ConfigureColumn.content
+              ? const Color.fromRGB(140, 140, 180)
+              : const Color.fromRGB(50, 50, 70),
+        ),
+      ),
+      child: currentEntry is _PluginsEntry
+          ? _buildPluginsContent(
+              context,
+              selectedOption,
+              focusedColumn == ConfigureColumn.content,
+            )
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: options,
+              ),
+            ),
+    );
+
+    if (!compact) {
+      // Desktop / tablet — both panes side-by-side.
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sidebar,
+          Expanded(child: content),
+        ],
+      );
+    }
+
+    // Phone-over-SSH — single pane at a time. Sidebar fills width
+    // when focused; content fills width otherwise + grows a back
+    // header so the operator knows Esc returns to the section list.
+    if (focusedColumn == ConfigureColumn.sidebar) {
+      return SizedBox.expand(child: sidebar);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CompactBackHeader(label: currentEntry.label),
+        Expanded(child: content),
+      ],
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -875,17 +914,64 @@ class _ConfigureSidebar extends StatelessComponent {
               final color = focused
                   ? (isActive ? accent : idle)
                   : (isActive ? idle : dim);
-              return Text(
-                '$prefix${truncateSidebarLabel(entries[i].label)}',
-                style: TextStyle(
-                  color: color,
-                  fontWeight: isActive && focused
-                      ? FontWeight.bold
-                      : FontWeight.normal,
+              return Tappable(
+                onTap: () {
+                  // Tap = select + focus content. Same as Enter.
+                  context.read(selectedServiceIndexProvider.notifier).state = i;
+                  context.read(_selectedOptionProvider.notifier).state = 0;
+                  context.read(configureFocusedColumnProvider.notifier).state =
+                      ConfigureColumn.content;
+                },
+                child: Text(
+                  '$prefix${truncateSidebarLabel(entries[i].label)}',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: isActive && focused
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
                 ),
               );
             }(),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _CompactBackHeader — single-pane content header for compact mode
+//
+// In compact / mobile layout the sidebar and content are mutually
+// exclusive (only one is on-screen at a time). When the content is
+// showing, this header pins the section name + a `← back` glyph so
+// the operator knows Esc / tap-back returns to the sidebar.
+// Pure visual today; the Tappable wiring lands in a follow-up.
+// ---------------------------------------------------------------------------
+
+class _CompactBackHeader extends StatelessComponent {
+  final String label;
+  const _CompactBackHeader({required this.label});
+
+  @override
+  Component build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+      decoration: const BoxDecoration(
+        border: BoxBorder(bottom: BorderSide(color: Color.fromRGB(50, 50, 70))),
+      ),
+      child: Tappable(
+        // Tap = back to the section sidebar. Same as Esc.
+        onTap: () =>
+            context.read(configureFocusedColumnProvider.notifier).state =
+                ConfigureColumn.sidebar,
+        child: Text(
+          '◀ $label',
+          style: const TextStyle(
+            color: Color.fromRGB(180, 180, 200),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
     );
   }

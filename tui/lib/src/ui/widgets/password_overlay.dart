@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
+import '../../providers/viewport_provider.dart';
 import 'password_input.dart';
 
 /// Watches [pendingSudoPromptProvider] and renders a centered,
@@ -22,9 +24,14 @@ class PasswordOverlay extends StatelessComponent {
     final pending = context.watch(pendingSudoPromptProvider);
     if (pending == null) return const SizedBox.shrink();
 
+    // Shrink to fit narrow terminals — sudo on a phone-over-SSH
+    // session needs the input fully visible.
+    final viewportWidth = context.watch(viewportSizeProvider).width;
+    final width = math.min(64, math.max(20, viewportWidth - 4));
+
     return Center(
       child: Container(
-        width: 64,
+        width: width.toDouble(),
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
         decoration: BoxDecoration(
           border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),

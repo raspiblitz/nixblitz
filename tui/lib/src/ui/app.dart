@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:nocterm/nocterm.dart';
@@ -20,6 +21,7 @@ import 'widgets/password_overlay.dart';
 import 'widgets/top_menu.dart';
 import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
+import '../providers/viewport_provider.dart';
 import '../services/check_runner.dart';
 
 // helpVisibleProvider and modalActiveProvider live in
@@ -160,16 +162,61 @@ bool _isLifecycleView(AppView view) =>
 /// Returns an empty list for views that paint their own per-phase
 /// hints (Apply / Update / Install / Setup / packageDiff / config-
 /// TooNew) — the global strip stays out of their way.
+// Universal hint trailers reused across view-state branches. Top-
+// level so the per-view branches below can still return `const`
+// lists.
+const _hintTop = FooterHint(key: '←/→', action: 'switch view');
+const _hintHelp = FooterHint(key: '?', action: 'help');
+const _hintQuit = FooterHint(key: 'q', action: 'quit');
+
 List<FooterHint> _computeFooterHints(BuildContext context) {
   final view = context.watch(currentViewProvider);
-  // Universal trailers reused below.
-  const top = FooterHint(key: '←/→', action: 'switch view');
-  const help = FooterHint(key: '?', action: 'help');
-  const quit = FooterHint(key: 'q', action: 'quit');
+  final hints = _hintsFor(context, view);
+  if (context.watch(viewportClassProvider) == ViewportClass.compact) {
+    return _compactifyHints(hints);
+  }
+  return hints;
+}
 
+/// Drop the global trailers (`←/→ switch view`, `? help`, `q quit`)
+/// and shorten the remaining action text. The trailers stay
+/// reachable via the hamburger overlay + `?` hotkey; cramped
+/// phone-landscape screens shouldn't blow them on a line that's
+/// going to clip anyway.
+List<FooterHint> _compactifyHints(List<FooterHint> hints) {
+  const trailerKeys = {'←/→', '?', 'q', 'h/l'};
+  const shorten = <String, String>{
+    'pick section': 'move',
+    'pick option': 'move',
+    'pick action': 'move',
+    'pick row': 'move',
+    'edit section': 'open',
+    'change value': 'edit',
+    'run check': 'run',
+    'run action': 'run',
+    'arm / confirm': 'arm',
+    'back to dashboard': 'back',
+    'back to sidebar': 'back',
+    'Check / Apply / Power': 'sections',
+    'navigate': 'move',
+    'scroll': 'scroll',
+  };
+  return [
+    for (final h in hints)
+      if (!trailerKeys.contains(h.key))
+        FooterHint(key: h.key, action: shorten[h.action] ?? h.action),
+  ];
+}
+
+List<FooterHint> _hintsFor(BuildContext context, AppView view) {
   switch (view) {
     case AppView.dashboard:
-      return const [FooterHint(key: '↑/↓', action: 'scroll'), top, help, quit];
+      return const [
+        FooterHint(key: '↑/↓', action: 'scroll'),
+        _hintTop,
+        _hintHelp,
+        _hintQuit,
+      ];
 
     case AppView.configure:
       final col = context.watch(configureFocusedColumnProvider);
@@ -178,16 +225,16 @@ List<FooterHint> _computeFooterHints(BuildContext context) {
           FooterHint(key: '↑/↓', action: 'pick section'),
           FooterHint(key: 'Enter', action: 'edit section'),
           FooterHint(key: 'Esc', action: 'back to dashboard'),
-          top,
-          help,
+          _hintTop,
+          _hintHelp,
         ];
       }
       return const [
         FooterHint(key: '↑/↓', action: 'pick option'),
         FooterHint(key: 'Enter', action: 'change value'),
         FooterHint(key: 'Esc', action: 'back to sidebar'),
-        top,
-        help,
+        _hintTop,
+        _hintHelp,
       ];
 
     case AppView.system:
@@ -198,8 +245,8 @@ List<FooterHint> _computeFooterHints(BuildContext context) {
           FooterHint(key: '↑/↓', action: 'Check / Apply / Power'),
           FooterHint(key: 'Enter', action: 'pick action'),
           FooterHint(key: 'Esc', action: 'back to dashboard'),
-          top,
-          help,
+          _hintTop,
+          _hintHelp,
         ];
       }
       final enterLabel = switch (section) {
@@ -211,17 +258,17 @@ List<FooterHint> _computeFooterHints(BuildContext context) {
         const FooterHint(key: '↑/↓', action: 'pick action'),
         FooterHint(key: 'Enter', action: enterLabel),
         const FooterHint(key: 'Esc', action: 'back to sidebar'),
-        top,
-        help,
+        _hintTop,
+        _hintHelp,
       ];
 
     case AppView.debug:
       return const [
         FooterHint(key: '↑/↓', action: 'navigate'),
         FooterHint(key: 'Esc', action: 'back to dashboard'),
-        top,
-        help,
-        quit,
+        _hintTop,
+        _hintHelp,
+        _hintQuit,
       ];
 
     // Self-paint their own per-phase hints; shell strip stays
@@ -398,8 +445,54 @@ class NixBlitzApp extends StatelessComponent {
   }
 }
 
-class _Shell extends StatelessComponent {
+class _Shell extends StatefulComponent {
   const _Shell();
+
+  @override
+  State<_Shell> createState() => _ShellState();
+}
+
+class _ShellState extends State<_Shell> {
+  StreamSubscription<Size>? _resizeSubscription;
+  bool _viewportSeeded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pump the live terminal size + resize stream into the viewport
+    // provider so layout-sensitive widgets (sidebars, modals, top
+    // menu) react to SIGWINCH within one frame. Microtask defer so
+    // we don't mutate state mid-mount.
+    final binding = TerminalBinding.instance;
+    Future.microtask(() {
+      if (!mounted) return;
+      _pushSize(binding.terminal.size);
+    });
+    final resizeStream = binding.terminal.backend.resizeStream;
+    if (resizeStream != null) {
+      _resizeSubscription = resizeStream.listen((size) {
+        if (!mounted) return;
+        _pushSize(size);
+      });
+    }
+  }
+
+  void _pushSize(Size size) {
+    final w = size.width.toInt();
+    final h = size.height.toInt();
+    final current = context.read(viewportSizeProvider);
+    if (_viewportSeeded && current.width == w && current.height == h) {
+      return;
+    }
+    _viewportSeeded = true;
+    context.read(viewportSizeProvider.notifier).state = ViewportSize(w, h);
+  }
+
+  @override
+  void dispose() {
+    _resizeSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Component build(BuildContext context) {
@@ -661,6 +754,10 @@ class _Shell extends StatelessComponent {
               context.read(helpVisibleProvider.notifier).state = false;
             },
           ),
+        // Compact-mode hamburger-overlay listing every top-menu
+        // entry. Opens when the operator taps the `☰` glyph in the
+        // compact top strip.
+        if (context.watch(topMenuOverlayProvider)) const TopMenuOverlay(),
         // Sudo password modal — full-screen overlay; takes focus
         // exclusively so keystrokes can't leak into the underlying
         // view (passwords typed past Enter would otherwise be visible).

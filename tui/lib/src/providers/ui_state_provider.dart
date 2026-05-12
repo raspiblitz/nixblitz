@@ -55,13 +55,20 @@ final templatesDriftProvider = StateProvider<TemplatesDrift>(
 /// it without circular imports back to `app.dart`.
 final helpVisibleProvider = StateProvider<bool>((ref) => false);
 
-/// True while any modal popup is on top of the view tree (help or
-/// sudo prompt). Widgets that hold an interactive [Focusable] should
-/// set `focused: !modalActive` so a stray keystroke can't bubble
-/// into the underlying view while a modal is up — independent of
-/// nocterm's BlockFocus dispatch behavior.
+/// Compact-mode hamburger overlay (top menu's `☰` glyph). True =
+/// overlay is showing, view focus yielded. Lives here rather than
+/// alongside the TopMenu widget so [modalActiveProvider] can read
+/// it without circular imports.
+final topMenuOverlayProvider = StateProvider<bool>((ref) => false);
+
+/// True while any modal popup is on top of the view tree (help,
+/// sudo prompt, hamburger overlay). Widgets that hold an interactive
+/// [Focusable] should set `focused: !modalActive` so a stray
+/// keystroke can't bubble into the underlying view while a modal is
+/// up — independent of nocterm's BlockFocus dispatch behavior.
 final modalActiveProvider = Provider<bool>((ref) {
   final help = ref.watch(helpVisibleProvider);
   final sudo = ref.watch(pendingSudoPromptProvider);
-  return help || sudo != null;
+  final topMenu = ref.watch(topMenuOverlayProvider);
+  return help || sudo != null || topMenu;
 });

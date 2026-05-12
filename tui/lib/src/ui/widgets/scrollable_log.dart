@@ -243,12 +243,26 @@ class _ScrollableLogState extends State<ScrollableLog> {
         if (_handleScrollKey(event)) return true;
         return comp.onKeyEvent?.call(event) ?? false;
       },
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: listView),
-          if (showStatus) _statusBar(),
-        ],
+      child: MouseRegion(
+        // Mouse wheel: scroll one row per click. Phone-over-SSH
+        // clients that emit wheel events for two-finger scroll get
+        // the same surface — feels native compared to holding `j`.
+        // onHover fires for every event under the cursor including
+        // wheel button events; filter on button type.
+        onHover: (event) {
+          if (event.button == MouseButton.wheelUp) {
+            _scrollController.scrollUp();
+          } else if (event.button == MouseButton.wheelDown) {
+            _scrollController.scrollDown();
+          }
+        },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: listView),
+            if (showStatus) _statusBar(),
+          ],
+        ),
       ),
     );
   }

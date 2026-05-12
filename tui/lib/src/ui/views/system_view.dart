@@ -6,7 +6,9 @@ import 'package:common/common.dart';
 import '../format.dart';
 import '../layout.dart';
 import '../widgets/spinner.dart';
+import '../widgets/tappable.dart';
 import '../../providers/ui_state_provider.dart';
+import '../../providers/viewport_provider.dart';
 import '../../services/check_runner.dart';
 import 'update/action_gating.dart';
 import 'update_view.dart' show pendingUpdateIntentProvider, UpdateActionIntent;
@@ -192,75 +194,120 @@ class SystemView extends StatelessComponent {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SystemSidebar(
-                  current: section,
-                  focused: column == SystemColumn.sidebar,
-                ),
-                Expanded(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: BoxBorder.all(
-                        color: column == SystemColumn.content
-                            ? const Color.fromRGB(140, 140, 180)
-                            : const Color.fromRGB(50, 50, 70),
-                      ),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 2,
-                      vertical: 1,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _headingFor(section),
-                          style: TextStyle(
-                            // Bold + bright when this column owns
-                            // focus; bold + dim grey otherwise, so
-                            // the eye is pulled toward the sidebar
-                            // when that's where j/k is going.
-                            color: column == SystemColumn.content
-                                ? const Color.fromRGB(200, 200, 220)
-                                : const Color.fromRGB(110, 110, 130),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 1),
-                        if (section == SystemSection.check) ...[
-                          _CheckStatusPanel(),
-                          const SizedBox(height: 1),
-                        ],
-                        for (var i = 0; i < actions.length; i++) ...[
-                          _ActionRow(
-                            action: actions[i],
-                            selected: i == selected,
-                            columnFocused: column == SystemColumn.content,
-                          ),
-                          if (i < actions.length - 1) const SizedBox(height: 1),
-                        ],
-                        if (section == SystemSection.power &&
-                            powerStatus != null) ...[
-                          const SizedBox(height: 1),
-                          Text(
-                            powerStatus,
-                            style: const TextStyle(
-                              color: Color.fromRGB(220, 180, 100),
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
+            child: _buildBody(
+              context: context,
+              compact:
+                  context.watch(viewportClassProvider) == ViewportClass.compact,
+              section: section,
+              column: column,
+              actions: actions,
+              selected: selected,
+              powerStatus: powerStatus,
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Component _buildBody({
+    required BuildContext context,
+    required bool compact,
+    required SystemSection section,
+    required SystemColumn column,
+    required List<_SystemAction> actions,
+    required int selected,
+    required String? powerStatus,
+  }) {
+    final sidebar = _SystemSidebar(
+      current: section,
+      focused: column == SystemColumn.sidebar,
+    );
+    final content = Container(
+      decoration: BoxDecoration(
+        border: BoxBorder.all(
+          color: column == SystemColumn.content
+              ? const Color.fromRGB(140, 140, 180)
+              : const Color.fromRGB(50, 50, 70),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _headingFor(section),
+            style: TextStyle(
+              // Bold + bright when this column owns focus; bold +
+              // dim grey otherwise, so the eye is pulled toward
+              // the sidebar when that's where j/k is going.
+              color: column == SystemColumn.content
+                  ? const Color.fromRGB(200, 200, 220)
+                  : const Color.fromRGB(110, 110, 130),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 1),
+          if (section == SystemSection.check) ...[
+            _CheckStatusPanel(),
+            const SizedBox(height: 1),
+          ],
+          for (var i = 0; i < actions.length; i++) ...[
+            Tappable(
+              onTap: () {
+                // Tap = select + run, same as keyboard Enter. Two-
+                // press confirmation for destructive Power actions
+                // still works — the first tap arms (action.run sets
+                // the armed-flag), the second tap confirms.
+                context.read(_systemActionIndexProvider.notifier).state = i;
+                context.read(systemColumnProvider.notifier).state =
+                    SystemColumn.content;
+                actions[i].run(context);
+              },
+              child: _ActionRow(
+                action: actions[i],
+                selected: i == selected,
+                columnFocused: column == SystemColumn.content,
+              ),
+            ),
+            if (i < actions.length - 1) const SizedBox(height: 1),
+          ],
+          if (section == SystemSection.power && powerStatus != null) ...[
+            const SizedBox(height: 1),
+            Text(
+              powerStatus,
+              style: const TextStyle(
+                color: Color.fromRGB(220, 180, 100),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    if (!compact) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sidebar,
+          Expanded(child: content),
+        ],
+      );
+    }
+
+    // Compact / phone-over-SSH: one pane at a time. Sidebar fills
+    // the screen when focused; content fills + grows a back header
+    // when drilled in. Esc / tap-back returns to sidebar.
+    if (column == SystemColumn.sidebar) {
+      return SizedBox.expand(child: sidebar);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _CompactSystemBackHeader(section: section),
+        Expanded(child: content),
+      ],
     );
   }
 
@@ -679,6 +726,47 @@ class _CheckStatusPanel extends StatelessComponent {
 enum _RowState { ok, ahead, unknown }
 
 // ---------------------------------------------------------------------------
+// _CompactSystemBackHeader — single-pane content header in compact mode
+//
+// Shown above the section content when sidebar+content collapses to
+// a single pane. The `◀ <Section>` label tells the operator they're
+// inside a sub-section and Esc / tap-back returns to the sidebar.
+// Pure visual today; Tappable wiring lands in a follow-up.
+// ---------------------------------------------------------------------------
+
+class _CompactSystemBackHeader extends StatelessComponent {
+  final SystemSection section;
+  const _CompactSystemBackHeader({required this.section});
+
+  @override
+  Component build(BuildContext context) {
+    final label = switch (section) {
+      SystemSection.check => 'Check',
+      SystemSection.apply => 'Apply',
+      SystemSection.power => 'Power',
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+      decoration: const BoxDecoration(
+        border: BoxBorder(bottom: BorderSide(color: Color.fromRGB(50, 50, 70))),
+      ),
+      child: Tappable(
+        // Tap = back to the section sidebar. Same as Esc.
+        onTap: () => context.read(systemColumnProvider.notifier).state =
+            SystemColumn.sidebar,
+        child: Text(
+          '◀ $label',
+          style: const TextStyle(
+            color: Color.fromRGB(180, 180, 200),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _SystemSidebar — left column with Check / Apply
 // ---------------------------------------------------------------------------
 
@@ -706,22 +794,25 @@ class _SystemSidebar extends StatelessComponent {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sidebarEntry(
+            context,
+            SystemSection.check,
             'Check',
-            current == SystemSection.check,
             accent,
             idle,
             dim,
           ),
           _sidebarEntry(
+            context,
+            SystemSection.apply,
             'Apply',
-            current == SystemSection.apply,
             accent,
             idle,
             dim,
           ),
           _sidebarEntry(
+            context,
+            SystemSection.power,
             'Power',
-            current == SystemSection.power,
             accent,
             idle,
             dim,
@@ -732,8 +823,9 @@ class _SystemSidebar extends StatelessComponent {
   }
 
   Component _sidebarEntry(
+    BuildContext context,
+    SystemSection section,
     String label,
-    bool isActive,
     Color accent,
     Color idle,
     Color dim,
@@ -745,15 +837,26 @@ class _SystemSidebar extends StatelessComponent {
     //   focused inactive → idle
     //   unfocused active → idle (no bold)
     //   unfocused inactive → dim
+    final isActive = current == section;
     final prefix = isActive ? '> ' : '  ';
     final color = focused
         ? (isActive ? accent : idle)
         : (isActive ? idle : dim);
-    return Text(
-      '$prefix${truncateSidebarLabel(label)}',
-      style: TextStyle(
-        color: color,
-        fontWeight: isActive && focused ? FontWeight.bold : FontWeight.normal,
+    return Tappable(
+      // Tap selects the section AND focuses the content pane —
+      // same as Enter on the keyboard. iOS Settings paradigm.
+      onTap: () {
+        context.read(systemSectionProvider.notifier).state = section;
+        context.read(_systemActionIndexProvider.notifier).state = 0;
+        context.read(systemColumnProvider.notifier).state =
+            SystemColumn.content;
+      },
+      child: Text(
+        '$prefix${truncateSidebarLabel(label)}',
+        style: TextStyle(
+          color: color,
+          fontWeight: isActive && focused ? FontWeight.bold : FontWeight.normal,
+        ),
       ),
     );
   }
