@@ -196,6 +196,16 @@ class PluginService {
       // Initialize app_configs.<id> from the manifest's config_schema
       // defaults if the operator doesn't already have an entry.
       // Idempotent on reinstall — preserves the operator's edits.
+      //
+      // Override: force `enabled = true` regardless of the manifest's
+      // own default. The catalog UI calls this action "Install" — an
+      // operator clicking that expects the plugin to be running after
+      // Apply, not sitting on disk inert until they go re-toggle it
+      // in Configure. Plugins whose manifest defaults `enabled: false`
+      // were doing it for safety, but the operator's explicit
+      // install-via-UI is the consent signal that supersedes that
+      // default. Apply still gates activation, so the operator has
+      // one more checkpoint before the service starts.
       if (manifest.configSchema != null) {
         final config = configService.configExists()
             ? await configService.readConfig()
@@ -204,6 +214,9 @@ class PluginService {
           final defaults = <String, dynamic>{};
           for (final field in manifest.configSchema!.fields) {
             defaults[field.name] = _defaultValueOf(field);
+          }
+          if (defaults.containsKey('enabled')) {
+            defaults['enabled'] = true;
           }
           await configService.writeConfig(config.setAppConfig(id, defaults));
         }

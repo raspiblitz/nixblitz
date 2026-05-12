@@ -872,6 +872,55 @@ void main() {
         }
       },
     );
+
+    test(
+      'install forces enabled=true even when manifest defaults to false',
+      () async {
+        final disabledByDefault = Directory.systemTemp.createTempSync(
+          'nixblitz_plugin_disabled_default_',
+        );
+        try {
+          await _seedPluginRepo(
+            disabledByDefault.path,
+            id: 'opt-in',
+            name: 'opt-in',
+            manifestOverride: {
+              'manifest': {
+                'schema_version': 2,
+                'min_tui_version': 2,
+                'name': 'opt-in',
+              },
+              'id': 'opt-in',
+              'config_schema': {
+                'id': 'opt-in',
+                'label': 'Opt-in plugin',
+                'fields': [
+                  {
+                    'type': 'bool',
+                    'name': 'enabled',
+                    'label': 'Enabled',
+                    // Plugin author defaulted to false for safety;
+                    // the TUI's catalog "Install" action is the
+                    // consent signal that overrides this.
+                    'default': false,
+                  },
+                ],
+              },
+            },
+          );
+
+          await pluginService.install(
+            'file://${disabledByDefault.path}',
+            allowInsecure: true,
+          );
+
+          final cfg = await ConfigService(baseDir: home.path).readConfig();
+          expect(cfg.appConfig('opt-in')['enabled'], true);
+        } finally {
+          disabledByDefault.deleteSync(recursive: true);
+        }
+      },
+    );
   });
 
   group('PluginUrl.parse', () {
