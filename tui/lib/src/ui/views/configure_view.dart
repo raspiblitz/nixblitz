@@ -508,8 +508,9 @@ class ConfigureView extends StatelessComponent {
     }
   }
 
-  /// Handle Enter for the System tab (typed block — hostname, timezone,
-  /// platform, shell, password).
+  /// Handle Enter for the System tab (typed block — hostname,
+  /// timezone, shell, password). Platform is not editable post-
+  /// install — see the comment in [_buildSystemOptions].
   void _handleSystemEnter(
     BuildContext context,
     NixblitzConfig config,
@@ -525,21 +526,13 @@ class ConfigureView extends StatelessComponent {
         context.read(_editingSystemFieldProvider.notifier).state =
             _SystemTextField.timezone;
       case 2:
-        const platforms = ['pi5', 'x86', 'vm'];
-        final next =
-            (platforms.indexOf(config.system.platform) + 1) % platforms.length;
-        final updated = config.copyWith(
-          system: config.system.copyWith(platform: platforms[next]),
-        );
-        context.read(configProvider.notifier).updateConfig(updated);
-      case 3:
         const shells = ['bash', 'nushell'];
         final next = (shells.indexOf(config.system.shell) + 1) % shells.length;
         final updated = config.copyWith(
           system: config.system.copyWith(shell: shells[next]),
         );
         context.read(configProvider.notifier).updateConfig(updated);
-      case 4:
+      case 3:
         // Password change — authenticate sudo first.
         final session = context.read(sudoSessionProvider);
         session.ensureFresh().then((ok) {
@@ -589,6 +582,11 @@ class ConfigureView extends StatelessComponent {
     int selectedIndex,
     bool Function(String) isPending,
   ) {
+    // Platform is intentionally NOT shown here — it's locked in at
+    // install time (disko layout, bootloader, Pi-5 vs x86 kernel
+    // line all derive from it) and flipping `pi5 ↔ x86 ↔ vm` post-
+    // install produces an unbootable system. The wizard sets it
+    // once; subsequent changes require a fresh install.
     return [
       TextOptionEditor(
         label: 'hostname',
@@ -603,23 +601,16 @@ class ConfigureView extends StatelessComponent {
         pending: isPending('system.timezone'),
       ),
       SelectOptionEditor(
-        label: 'platform',
-        value: config.system.platform,
-        options: const ['pi5', 'x86', 'vm'],
-        focused: selectedIndex == 2,
-        pending: isPending('system.platform'),
-      ),
-      SelectOptionEditor(
         label: 'shell',
         value: config.system.shell,
         options: const ['bash', 'nushell'],
-        focused: selectedIndex == 3,
+        focused: selectedIndex == 2,
         pending: isPending('system.shell'),
       ),
       TextOptionEditor(
         label: 'password',
         value: 'Press Enter to change',
-        focused: selectedIndex == 4,
+        focused: selectedIndex == 3,
         // No pending marker — password is not a config field.
       ),
     ];
