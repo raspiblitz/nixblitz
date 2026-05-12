@@ -13,6 +13,7 @@ import 'views/setup_view.dart';
 import 'views/system_view.dart';
 import 'views/update_view.dart';
 import 'shutdown.dart';
+import 'widgets/cached_package_diff.dart';
 import 'widgets/help_popup.dart';
 import 'widgets/password_overlay.dart';
 import 'widgets/top_menu.dart';
@@ -549,6 +550,11 @@ class _Shell extends StatelessComponent {
                       AppView.system => const SystemView(),
                       AppView.apply => const ApplyView(),
                       AppView.update => const UpdateView(),
+                      AppView.packageDiff => CachedPackageDiff(
+                        onClose: () =>
+                            context.read(currentViewProvider.notifier).state =
+                                AppView.system,
+                      ),
                       AppView.debug => const DebugView(),
                       AppView.configTooNew => const ConfigTooNewView(),
                     },

@@ -7,6 +7,7 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../format.dart';
 import '../shutdown.dart';
+import '../widgets/cached_package_diff.dart';
 import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
@@ -1046,56 +1047,9 @@ class _UpdateViewState extends State<UpdateView> {
   }
 
   Component _buildViewCachedDiff() {
-    final status = readUpdateStatus();
-    final heavy = status.heavy;
-    final diffText = heavy?.diffText ?? '';
-    final lines = diffText.split('\n');
-    final ago = heavy != null ? humanizeAge(heavy.checkedAt) : 'unknown';
-
-    return Focusable(
-      focused: true,
-      onKeyEvent: (event) {
-        try {
-          if (event.logicalKey == LogicalKey.escape ||
-              event.logicalKey == LogicalKey.keyQ) {
-            context.read(_updateModeProvider.notifier).state =
-                _UpdateMode.selectMode;
-            return true;
-          }
-          return false;
-        } catch (e, st) {
-          LogService.error('View cached diff key handler failed', e, st);
-          return true;
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Cached package diff — checked $ago',
-              style: const TextStyle(
-                color: Color.fromRGB(247, 147, 26),
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 1),
-            Expanded(
-              child: ScrollableLog(
-                lines: lines,
-                lineColor: _nvdLineColor,
-                focused: true,
-              ),
-            ),
-            const SizedBox(height: 1),
-            const Text(
-              '[Esc] back to menu   [↑/↓ j/k] scroll   [PgUp/PgDn] page',
-              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
-            ),
-          ],
-        ),
-      ),
+    return CachedPackageDiff(
+      onClose: () => context.read(_updateModeProvider.notifier).state =
+          _UpdateMode.selectMode,
     );
   }
 
@@ -1166,7 +1120,7 @@ class _UpdateViewState extends State<UpdateView> {
             Expanded(
               child: ScrollableLog(
                 lines: lines,
-                lineColor: _nvdLineColor,
+                lineColor: nvdLineColor,
                 focused: true,
               ),
             ),
@@ -1239,7 +1193,7 @@ class _UpdateViewState extends State<UpdateView> {
                       l,
                       style: TextStyle(
                         color:
-                            _nvdLineColor(l) ??
+                            nvdLineColor(l) ??
                             const Color.fromRGB(200, 200, 200),
                       ),
                     ),
@@ -1276,23 +1230,4 @@ class _Option {
   final String label;
   final ActionState state;
   final void Function() runAction;
-}
-
-/// Per-line colour for `nvd diff` output. Keeps the diff readable
-/// at a glance: orange for version changes, green for additions,
-/// red for removals, cyan for the closure-size summary.
-Color? _nvdLineColor(String line) {
-  if (line.startsWith('[U.') || line.startsWith('[U]')) {
-    return const Color.fromRGB(247, 147, 26); // orange — updated
-  }
-  if (line.startsWith('[A.') || line.startsWith('[A]')) {
-    return const Color.fromRGB(110, 220, 110); // green — added
-  }
-  if (line.startsWith('[R.') || line.startsWith('[R]')) {
-    return const Color.fromRGB(255, 120, 120); // red — removed
-  }
-  if (line.startsWith('Closure size')) {
-    return const Color.fromRGB(120, 200, 220); // cyan — summary
-  }
-  return null;
 }

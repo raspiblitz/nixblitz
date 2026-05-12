@@ -60,8 +60,14 @@ class SystemView extends StatelessComponent {
     final column = context.watch(_systemColumnProvider);
     final actionIndex = context.watch(_systemActionIndexProvider);
     final modalActive = context.watch(modalActiveProvider);
+    // Watch so the "View package diff" action appears as soon as a
+    // Heavy check finishes (the tick bump triggers a SystemView
+    // rebuild; without watching it here we'd only re-evaluate
+    // _hasCachedPackageDiff on the next navigation).
+    context.watch(checkRefreshTickProvider);
 
-    final actions = _actionsFor(section);
+    final hasCachedDiff = _hasCachedPackageDiff();
+    final actions = _actionsFor(section, hasCachedDiff: hasCachedDiff);
     final selected = actionIndex.clamp(0, actions.length - 1);
 
     return Focusable(
@@ -201,7 +207,10 @@ class SystemView extends StatelessComponent {
     _SystemSection.apply => 'Apply — run nixos-rebuild',
   };
 
-  List<_SystemAction> _actionsFor(_SystemSection section) => switch (section) {
+  List<_SystemAction> _actionsFor(
+    _SystemSection section, {
+    bool hasCachedDiff = false,
+  }) => switch (section) {
     _SystemSection.check => [
       _SystemAction(
         label: 'Simple check',
@@ -220,6 +229,17 @@ class SystemView extends StatelessComponent {
             'Weekly timer runs this in the background.',
         run: (ctx) => runCheckSubprocess(ctx, 'heavy'),
       ),
+      if (hasCachedDiff)
+        _SystemAction(
+          label: 'View package diff',
+          description:
+              'Open the nvd output from the most recent Heavy check '
+              '— full-screen, scrollable. No subprocess; reads the '
+              'cached diff from update-status.json. Only appears '
+              'when a non-empty cached diff exists.',
+          run: (ctx) => ctx.read(currentViewProvider.notifier).state =
+              AppView.packageDiff,
+        ),
       _SystemAction(
         label: 'Plugins check',
         description:
@@ -275,6 +295,16 @@ class SystemView extends StatelessComponent {
       ),
     ],
   };
+
+  /// True when the last Heavy check left a non-empty nvd diff in
+  /// `update-status.json`. Gates the "View package diff" action so
+  /// it only appears when there's something to look at.
+  bool _hasCachedPackageDiff() {
+    final heavy = readUpdateStatus().heavy;
+    if (heavy == null || !heavy.ok) return false;
+    if (heavy.noChanges) return false;
+    return heavy.diffText.trim().isNotEmpty;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,11 @@ enum AppView {
   /// Same story as [apply]: still routable from [system] for the
   /// update / refresh actions; not in the top menu anymore.
   update,
+
+  /// Full-screen viewer for the cached `nvd diff` from the last
+  /// heavy check. Reached from `system → Check → View package diff`;
+  /// Esc routes back to [system]. Not in the top menu; transient.
+  packageDiff,
   debug,
   configTooNew,
 }
