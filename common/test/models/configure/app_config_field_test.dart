@@ -27,6 +27,26 @@ void main() {
       expect((f as StringField).placeholder, 'my-node');
     });
 
+    test('"str" accepted as alias for string', () {
+      final f = AppConfigField.fromJson({
+        'name': 'host_name',
+        'type': 'str',
+        'label': 'Hostname',
+        'default': 'localhost',
+      });
+      expect(f, isA<StringField>());
+    });
+
+    test('"integer" accepted as alias for int', () {
+      final f = AppConfigField.fromJson({
+        'name': 'port',
+        'type': 'integer',
+        'label': 'Port',
+        'default': 8080,
+      });
+      expect(f, isA<IntField>());
+    });
+
     test('secret field', () {
       final f = AppConfigField.fromJson({
         'name': 'auth_key',

@@ -115,6 +115,14 @@
         # it with {pluginCfg = cfg} returns the inner module
         # function (no pluginCfg in that signature), which the
         # module system treats as a normal NixOS module.
+        #
+        # Plugins needing cross-app reads (e.g. blitz-api checking
+        # whether lnd is enabled) get them via `config.nixblitz.
+        # appConfigs.<id>.<key>` — declared as a NixOS option by
+        # `templates/hosts/installed.nix`. No ABI change here; the
+        # option-based path keeps the outer function signature
+        # backwards-compatible with plugins that still use the
+        # strict `{ pluginCfg ? {} }: …` shape.
         (import modulePath) {pluginCfg = pluginCfg;};
     in
       map mkPluginModule pluginIds;

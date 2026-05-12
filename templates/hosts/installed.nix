@@ -32,6 +32,13 @@ in {
     ../hardware-configuration.nix
   ];
 
+  # Feed the appConfigs option declared in
+  # modules/system/nixblitz-options.nix (auto-imported via
+  # findModules). Plugins read this as
+  # `config.nixblitz.appConfigs.<id>.<key>` for cross-app state
+  # (e.g. blitz-api gating on lnd.enabled).
+  nixblitz.appConfigs = apps;
+
   networking.hostName = sys.hostname;
   time.timeZone = sys.timezone;
 

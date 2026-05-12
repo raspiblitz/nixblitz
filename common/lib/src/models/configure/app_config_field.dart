@@ -31,11 +31,15 @@ sealed class AppConfigField {
     if (type is! String) {
       throw AppManifestError('field.type is required (string)');
     }
+    // `str` accepted as an alias for `string` — a plausible typo
+    // some plugin manifests already shipped with. Canonical name
+    // remains `string` (what the docs spec). Same for `integer`,
+    // which a Python-flavored author may reach for over `int`.
     return switch (type) {
       'bool' => BoolField._fromJson(json),
-      'string' => StringField._fromJson(json),
+      'string' || 'str' => StringField._fromJson(json),
       'secret' => SecretField._fromJson(json),
-      'int' => IntField._fromJson(json),
+      'int' || 'integer' => IntField._fromJson(json),
       'enum' => EnumField._fromJson(json),
       _ => throw AppManifestError('unknown field type: $type'),
     };

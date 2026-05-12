@@ -358,6 +358,38 @@ in {
 module declares it_ — usually `services.<name>` for nix-bitcoin
 modules.
 
+### Reading another plugin's user config
+
+The block above (`config.services.lnd.certPath` etc.) is the
+upstream NixOS module's view — its declared options, after all
+modules have evaluated. That works for hardware paths and other
+post-eval shapes, but it doesn't help when you need to know
+whether the operator has _enabled_ another plugin, or which
+network they picked. Plugins don't declare NixOS options for
+those (and the old `config.features.apps.<id>.<key>` wiring was
+removed when bitcoind / lnd / cln became plugins themselves).
+
+Instead, every entry in `~/nixblitz/config.json`'s `app_configs.*`
+block is exposed as `config.nixblitz.appConfigs.<id>.<key>`:
+
+```nix
+{ config, lib, pkgs, ... }: let
+  appCfgs = config.nixblitz.appConfigs or {};
+  lndEnabled = (appCfgs.lnd or {}).enabled or false;
+  btcNetwork = (appCfgs.bitcoind or {}).network or "mainnet";
+in {
+  # ... condition on lndEnabled / btcNetwork ...
+}
+```
+
+The shape is loose (`attrsOf attrs`), so always read with `or
+default` fallbacks — the option's value mirrors whatever JSON
+the operator's `config.json` has, including fields that haven't
+been seeded yet.
+
+Use this for state-of-other-apps reads; keep `config.services.X.*`
+for post-eval option reads.
+
 ### The credential-staging pattern (RTL / lnbits)
 
 Several core service files (LND's admin macaroon, e.g.) live with

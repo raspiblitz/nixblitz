@@ -121,6 +121,14 @@ const String _flake = r'''
         # it with {pluginCfg = cfg} returns the inner module
         # function (no pluginCfg in that signature), which the
         # module system treats as a normal NixOS module.
+        #
+        # Plugins needing cross-app reads (e.g. blitz-api checking
+        # whether lnd is enabled) get them via `config.nixblitz.
+        # appConfigs.<id>.<key>` — declared as a NixOS option by
+        # `templates/hosts/installed.nix`. No ABI change here; the
+        # option-based path keeps the outer function signature
+        # backwards-compatible with plugins that still use the
+        # strict `{ pluginCfg ? {} }: …` shape.
         (import modulePath) {pluginCfg = pluginCfg;};
     in
       map mkPluginModule pluginIds;
@@ -435,6 +443,13 @@ in {
     ../hardware-configuration.nix
   ];
 
+  # Feed the appConfigs option declared in
+  # modules/system/nixblitz-options.nix (auto-imported via
+  # findModules). Plugins read this as
+  # `config.nixblitz.appConfigs.<id>.<key>` for cross-app state
+  # (e.g. blitz-api gating on lnd.enabled).
+  nixblitz.appConfigs = apps;
+
   networking.hostName = sys.hostname;
   time.timeZone = sys.timezone;
 
@@ -462,23 +477,6 @@ in {
     then sys.disk_device
     else "/dev/vda";
   features.system.disko-pi5.enable = sys.platform == "pi5";
-
-  # bitcoind / lnd / cln were built-in apps before; they're plugins
-  # now (forge.f44.fyi/f44/nixblitz_official_plugins/{bitcoind,lnd,cln}).
-  # The plugin loop in templates/flake.nix imports their plugin.nix
-  # files based on plugins.list + app_configs.<id>.enabled. Operators
-  # install via `nixblitz plugin add ...` or the setup wizard.
-
-  # blitz-api and blitz-web are no longer built-in apps — they live as
-  # plugins (forge.f44.fyi/f44/nixblitz_official_plugins/{blitz-api,blitz-web}).
-  # Operator runs `nixblitz plugin add ...` (or [i] in the TUI) to install
-  # them.
-
-  # Grant admin access to bitcoin-cli / lncli / lightning-cli once services
-  # are up. Needs at least one service enabled — nix-bitcoin.operator adds
-  # the user to groups that only exist when the relevant service runs.
-  features.system.operator.enable =
-    (appEnabled "bitcoind") || (appEnabled "lnd") || (appEnabled "cln");
 
   # Test-LND: secondary regtest-only LND instance for opening channels
   # against the primary node and dry-running payments via `lncli-test`.
@@ -817,31 +815,35 @@ in {
 }
 ''';
 
-const String _modulesSystemOperator = r'''
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}: let
-  cfg = config.features.system.operator;
-in {
-  options.features.system.operator = {
-    enable =
-      lib.mkEnableOption
-      "operator user access to service CLIs (bitcoin-cli, lncli, lightning-cli)";
-    name = lib.mkOption {
-      type = lib.types.str;
-      default = "admin";
-      description = "Existing user to grant operator access.";
-    };
-  };
-
-  config = lib.mkIf cfg.enable {
-    nix-bitcoin.operator = {
-      enable = true;
-      name = cfg.name;
-    };
+const String _modulesSystemNixblitzOptions = r'''
+{lib, ...}: {
+  # Read-only view of `config.json`'s `app_configs.*` block, exposed
+  # at the NixOS-config level so plugins can do cross-app reads
+  # without depending on a plugin ABI extension.
+  #
+  # E.g. blitz-api checks `config.nixblitz.appConfigs.lnd.enabled or
+  # false` to decide whether to wire LND's admin macaroon. Replaces
+  # the `config.features.apps.<id>.{enable,network}` accessor that
+  # came out with the bitcoind/lnd/cln plugin extraction — that
+  # wiring assumed every core app had a NixOS-options frontend, but
+  # extracted plugins no longer declare those options.
+  #
+  # Type is deliberately loose (`attrsOf attrs`) — the shape of each
+  # app's block is whatever its plugin's `config_schema` declares,
+  # and we don't want to repeat that schema here. Plugins read
+  # individual keys with `or default` fallbacks.
+  #
+  # The option is FED from `templates/hosts/installed.nix`'s `apps =
+  # cfg.app_configs or {}` let-binding (single source of truth — the
+  # same map the helpers `appOpt` / `appEnabled` consume).
+  options.nixblitz.appConfigs = lib.mkOption {
+    type = lib.types.attrsOf (lib.types.attrsOf lib.types.unspecified);
+    default = {};
+    description = ''
+      The `app_configs.*` block from `~/nixblitz/config.json`,
+      exposed for cross-plugin reads. Plugins access individual
+      keys via `config.nixblitz.appConfigs.<id>.<key> or default`.
+    '';
   };
 }
 ''';
@@ -1165,7 +1167,7 @@ Map<String, String> _getAllTemplates() {
     'modules/system/base.nix': _modulesSystemBase,
     'modules/system/disko-pi5.nix': _modulesSystemDiskoPi5,
     'modules/system/disko-x86.nix': _modulesSystemDiskoX86,
-    'modules/system/operator.nix': _modulesSystemOperator,
+    'modules/system/nixblitz-options.nix': _modulesSystemNixblitzOptions,
     'modules/system/test-lnd.nix': _modulesSystemTestLnd,
     'modules/system/update-check.nix': _modulesSystemUpdateCheck,
   };
