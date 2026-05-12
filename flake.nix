@@ -41,17 +41,31 @@
         # in the TUI header and `nixblitz --version` output.
         gitHash = self.shortRev or self.dirtyShortRev or "unknown";
 
+        # Augmented version goes into the derivation's name so
+        # `nvd diff` lists nixblitz as changed on every commit
+        # (otherwise nvd compares "nixblitz-0.1.0" against itself
+        # and reports "No version or selection state changes" even
+        # when the binary actually moved). Display surfaces (TUI
+        # header, --version) still see plain [version] so they
+        # don't churn on micro-changes.
+        #
+        # Date prefix matters: nvd parses semver build metadata
+        # (the part after `+`) by extracting a leading numeric
+        # prefix from each side. A bare git hash like `e7aabca`
+        # has no numeric prefix → nvd reads it as 0, while
+        # `248a8b8` reads as 248 → newer build flagged as a
+        # downgrade ("[D*]"). Prefixing with the flake's
+        # `lastModifiedDate` (YYYYMMDDHHMMSS, monotonic across
+        # commits) gives nvd a numeric-orderable field to lead
+        # with; the hash stays for human debug, same shape
+        # `nixos-system-nixblitz` already uses
+        # (`25.11.20260510.8fd9daa`).
+        flakeDate = self.lastModifiedDate or "0";
+        derivationVersion = "${version}+${flakeDate}-${gitHash}";
+
         nixblitzUnwrapped = pkgsUnstable.callPackage ./nix/tui_pkg.nix {
           nixFilter = nix-filter.lib;
-          inherit version gitHash;
-          # Augmented version goes into the derivation's name so
-          # `nvd diff` lists nixblitz as changed on every commit
-          # (otherwise nvd compares "nixblitz-0.1.0" against
-          # itself and reports "No version or selection state
-          # changes" even when the binary actually moved). Display
-          # surfaces (TUI header, --version) still see plain
-          # [version] so they don't churn on micro-changes.
-          derivationVersion = "${version}+${gitHash}";
+          inherit version gitHash derivationVersion;
         };
 
         # Wrap nixblitz with disko and git on PATH so `nix run` just works
@@ -71,8 +85,7 @@
         nixblitzWebsite = pkgsUnstable.callPackage ./nix/website_pkg.nix {
           nixFilter = nix-filter.lib;
           tailwindcss_4 = pkgs.tailwindcss_4;
-          inherit version gitHash;
-          derivationVersion = "${version}+${gitHash}";
+          inherit version gitHash derivationVersion;
         };
       in {
         packages = {
