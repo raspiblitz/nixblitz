@@ -101,10 +101,10 @@ final _pendingInstallUrlProvider = StateProvider<String?>((ref) => null);
 /// the top menu in `_Shell` claims them globally for view
 /// switching. Predictable nav: arrow keys leave the view, Enter
 /// drills in, Esc backs out.
-enum _ConfigureColumn { sidebar, content }
+enum ConfigureColumn { sidebar, content }
 
-final _focusedColumnProvider = StateProvider<_ConfigureColumn>(
-  (ref) => _ConfigureColumn.sidebar,
+final configureFocusedColumnProvider = StateProvider<ConfigureColumn>(
+  (ref) => ConfigureColumn.sidebar,
 );
 
 // ---------------------------------------------------------------------------
@@ -257,12 +257,12 @@ class ConfigureView extends StatelessComponent {
         // Synchronous Provider (NOT FutureProvider) — direct read, no
         // AsyncValue unwrap, no flicker frame on configProvider ticks.
         final pendingKeys = context.watch(pendingChangeKeysProvider);
-        final focusedColumn = context.watch(_focusedColumnProvider);
+        final focusedColumn = context.watch(configureFocusedColumnProvider);
         // Pass -1 (no row "selected") when the sidebar owns focus, so
         // option editors skip the cursor + accent and render in their
         // idle color. Avoids the misleading "> hostname: [foo]" cue
         // when j/k is actually moving the sidebar.
-        final visibleSelected = focusedColumn == _ConfigureColumn.content
+        final visibleSelected = focusedColumn == ConfigureColumn.content
             ? selectedOption
             : -1;
         final options = _buildOptions(
@@ -305,7 +305,7 @@ class ConfigureView extends StatelessComponent {
               // Sidebar: walk sections; content: walk rows within section.
               if (event.logicalKey == LogicalKey.keyJ ||
                   event.logicalKey == LogicalKey.arrowDown) {
-                if (focusedColumn == _ConfigureColumn.sidebar) {
+                if (focusedColumn == ConfigureColumn.sidebar) {
                   if (serviceIndex < menuEntries.length - 1) {
                     context.read(selectedServiceIndexProvider.notifier).state =
                         serviceIndex + 1;
@@ -322,7 +322,7 @@ class ConfigureView extends StatelessComponent {
               }
               if (event.logicalKey == LogicalKey.keyK ||
                   event.logicalKey == LogicalKey.arrowUp) {
-                if (focusedColumn == _ConfigureColumn.sidebar) {
+                if (focusedColumn == ConfigureColumn.sidebar) {
                   if (serviceIndex > 0) {
                     context.read(selectedServiceIndexProvider.notifier).state =
                         serviceIndex - 1;
@@ -341,9 +341,9 @@ class ConfigureView extends StatelessComponent {
               // existing drill-in (edit field, cycle bool, drill plugin).
               if (event.logicalKey == LogicalKey.enter ||
                   event.logicalKey == LogicalKey.space) {
-                if (focusedColumn == _ConfigureColumn.sidebar) {
-                  context.read(_focusedColumnProvider.notifier).state =
-                      _ConfigureColumn.content;
+                if (focusedColumn == ConfigureColumn.sidebar) {
+                  context.read(configureFocusedColumnProvider.notifier).state =
+                      ConfigureColumn.content;
                 } else {
                   _handleEnter(context, config, currentEntry, selectedOption);
                 }
@@ -358,9 +358,9 @@ class ConfigureView extends StatelessComponent {
               // arrow keys (`←/→/h/l`) are reserved for the top
               // menu and intentionally bubble past this handler.
               if (event.logicalKey == LogicalKey.escape) {
-                if (focusedColumn == _ConfigureColumn.content) {
-                  context.read(_focusedColumnProvider.notifier).state =
-                      _ConfigureColumn.sidebar;
+                if (focusedColumn == ConfigureColumn.content) {
+                  context.read(configureFocusedColumnProvider.notifier).state =
+                      ConfigureColumn.sidebar;
                 } else {
                   context.read(currentViewProvider.notifier).state =
                       AppView.dashboard;
@@ -386,7 +386,7 @@ class ConfigureView extends StatelessComponent {
                         0,
                         menuEntries.length - 1,
                       ),
-                      focused: focusedColumn == _ConfigureColumn.sidebar,
+                      focused: focusedColumn == ConfigureColumn.sidebar,
                     ),
                     Expanded(
                       child: Container(
@@ -398,7 +398,7 @@ class ConfigureView extends StatelessComponent {
                         // rectangle glows is where j/k goes.
                         decoration: BoxDecoration(
                           border: BoxBorder.all(
-                            color: focusedColumn == _ConfigureColumn.content
+                            color: focusedColumn == ConfigureColumn.content
                                 ? const Color.fromRGB(140, 140, 180)
                                 : const Color.fromRGB(50, 50, 70),
                           ),
@@ -407,7 +407,7 @@ class ConfigureView extends StatelessComponent {
                             ? _buildPluginsContent(
                                 context,
                                 selectedOption,
-                                focusedColumn == _ConfigureColumn.content,
+                                focusedColumn == ConfigureColumn.content,
                               )
                             : Container(
                                 padding: const EdgeInsets.symmetric(

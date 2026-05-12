@@ -26,16 +26,16 @@ import 'update/action_gating.dart';
 // ---------------------------------------------------------------------------
 
 /// Which sidebar section is selected.
-enum _SystemSection { check, apply }
+enum SystemSection { check, apply }
 
 /// Which column has focus — same idiom as Configure.
-enum _SystemColumn { sidebar, content }
+enum SystemColumn { sidebar, content }
 
-final _systemSectionProvider = StateProvider<_SystemSection>(
-  (ref) => _SystemSection.check,
+final systemSectionProvider = StateProvider<SystemSection>(
+  (ref) => SystemSection.check,
 );
-final _systemColumnProvider = StateProvider<_SystemColumn>(
-  (ref) => _SystemColumn.sidebar,
+final systemColumnProvider = StateProvider<SystemColumn>(
+  (ref) => SystemColumn.sidebar,
 );
 final _systemActionIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -57,8 +57,8 @@ class SystemView extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    final section = context.watch(_systemSectionProvider);
-    final column = context.watch(_systemColumnProvider);
+    final section = context.watch(systemSectionProvider);
+    final column = context.watch(systemColumnProvider);
     final actionIndex = context.watch(_systemActionIndexProvider);
     final modalActive = context.watch(modalActiveProvider);
     // Watch so the "View package diff" action appears as soon as a
@@ -92,10 +92,10 @@ class SystemView extends StatelessComponent {
           // Vertical nav within the focused column.
           if (event.logicalKey == LogicalKey.keyJ ||
               event.logicalKey == LogicalKey.arrowDown) {
-            if (column == _SystemColumn.sidebar) {
-              if (section == _SystemSection.check) {
-                context.read(_systemSectionProvider.notifier).state =
-                    _SystemSection.apply;
+            if (column == SystemColumn.sidebar) {
+              if (section == SystemSection.check) {
+                context.read(systemSectionProvider.notifier).state =
+                    SystemSection.apply;
                 context.read(_systemActionIndexProvider.notifier).state = 0;
               }
             } else {
@@ -108,10 +108,10 @@ class SystemView extends StatelessComponent {
           }
           if (event.logicalKey == LogicalKey.keyK ||
               event.logicalKey == LogicalKey.arrowUp) {
-            if (column == _SystemColumn.sidebar) {
-              if (section == _SystemSection.apply) {
-                context.read(_systemSectionProvider.notifier).state =
-                    _SystemSection.check;
+            if (column == SystemColumn.sidebar) {
+              if (section == SystemSection.apply) {
+                context.read(systemSectionProvider.notifier).state =
+                    SystemSection.check;
                 context.read(_systemActionIndexProvider.notifier).state = 0;
               }
             } else {
@@ -126,9 +126,9 @@ class SystemView extends StatelessComponent {
           // Enter: descend (sidebar → content, content → run action).
           if (event.logicalKey == LogicalKey.enter ||
               event.logicalKey == LogicalKey.space) {
-            if (column == _SystemColumn.sidebar) {
-              context.read(_systemColumnProvider.notifier).state =
-                  _SystemColumn.content;
+            if (column == SystemColumn.sidebar) {
+              context.read(systemColumnProvider.notifier).state =
+                  SystemColumn.content;
             } else {
               actions[selected].run(context);
             }
@@ -137,9 +137,9 @@ class SystemView extends StatelessComponent {
 
           // Esc: ascend (content → sidebar, sidebar → dashboard).
           if (event.logicalKey == LogicalKey.escape) {
-            if (column == _SystemColumn.content) {
-              context.read(_systemColumnProvider.notifier).state =
-                  _SystemColumn.sidebar;
+            if (column == SystemColumn.content) {
+              context.read(systemColumnProvider.notifier).state =
+                  SystemColumn.sidebar;
             } else {
               context.read(currentViewProvider.notifier).state =
                   AppView.dashboard;
@@ -161,13 +161,13 @@ class SystemView extends StatelessComponent {
               children: [
                 _SystemSidebar(
                   current: section,
-                  focused: column == _SystemColumn.sidebar,
+                  focused: column == SystemColumn.sidebar,
                 ),
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
                       border: BoxBorder.all(
-                        color: column == _SystemColumn.content
+                        color: column == SystemColumn.content
                             ? const Color.fromRGB(140, 140, 180)
                             : const Color.fromRGB(50, 50, 70),
                       ),
@@ -186,14 +186,14 @@ class SystemView extends StatelessComponent {
                             // focus; bold + dim grey otherwise, so
                             // the eye is pulled toward the sidebar
                             // when that's where j/k is going.
-                            color: column == _SystemColumn.content
+                            color: column == SystemColumn.content
                                 ? const Color.fromRGB(200, 200, 220)
                                 : const Color.fromRGB(110, 110, 130),
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         const SizedBox(height: 1),
-                        if (section == _SystemSection.check) ...[
+                        if (section == SystemSection.check) ...[
                           _CheckStatusPanel(),
                           const SizedBox(height: 1),
                         ],
@@ -201,7 +201,7 @@ class SystemView extends StatelessComponent {
                           _ActionRow(
                             action: actions[i],
                             selected: i == selected,
-                            columnFocused: column == _SystemColumn.content,
+                            columnFocused: column == SystemColumn.content,
                           ),
                           if (i < actions.length - 1) const SizedBox(height: 1),
                         ],
@@ -217,16 +217,16 @@ class SystemView extends StatelessComponent {
     );
   }
 
-  String _headingFor(_SystemSection section) => switch (section) {
-    _SystemSection.check => 'Check — read-only probes',
-    _SystemSection.apply => 'Apply — run nixos-rebuild',
+  String _headingFor(SystemSection section) => switch (section) {
+    SystemSection.check => 'Check — read-only probes',
+    SystemSection.apply => 'Apply — run nixos-rebuild',
   };
 
   List<_SystemAction> _actionsFor(
-    _SystemSection section, {
+    SystemSection section, {
     bool hasCachedDiff = false,
   }) => switch (section) {
-    _SystemSection.check => [
+    SystemSection.check => [
       _SystemAction(
         label: 'Simple check',
         description:
@@ -265,7 +265,7 @@ class SystemView extends StatelessComponent {
         run: (ctx) => runCheckSubprocess(ctx, 'light'),
       ),
     ],
-    _SystemSection.apply => [
+    SystemSection.apply => [
       _SystemAction(
         label: 'Apply pending changes',
         description:
@@ -544,7 +544,7 @@ enum _RowState { ok, ahead, unknown }
 // ---------------------------------------------------------------------------
 
 class _SystemSidebar extends StatelessComponent {
-  final _SystemSection current;
+  final SystemSection current;
   final bool focused;
 
   const _SystemSidebar({required this.current, required this.focused});
@@ -568,14 +568,14 @@ class _SystemSidebar extends StatelessComponent {
         children: [
           _sidebarEntry(
             'Check',
-            current == _SystemSection.check,
+            current == SystemSection.check,
             accent,
             idle,
             dim,
           ),
           _sidebarEntry(
             'Apply',
-            current == _SystemSection.apply,
+            current == SystemSection.apply,
             accent,
             idle,
             dim,

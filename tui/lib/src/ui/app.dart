@@ -14,6 +14,7 @@ import 'views/system_view.dart';
 import 'views/update_view.dart';
 import 'shutdown.dart';
 import 'widgets/cached_package_diff.dart';
+import 'widgets/footer_hints.dart';
 import 'widgets/help_popup.dart';
 import 'widgets/password_overlay.dart';
 import 'widgets/top_menu.dart';
@@ -150,6 +151,88 @@ bool _isLifecycleView(AppView view) =>
     view == AppView.install ||
     view == AppView.setup ||
     view == AppView.configTooNew;
+
+/// Context-sensitive hint list painted in the bottom strip — see
+/// `widgets/footer_hints.dart`. Composed in the shell rather than
+/// per-view so the strip's layout stays uniform and the sidebar /
+/// content interaction model is visible at a glance.
+///
+/// Returns an empty list for views that paint their own per-phase
+/// hints (Apply / Update / Install / Setup / packageDiff / config-
+/// TooNew) — the global strip stays out of their way.
+List<FooterHint> _computeFooterHints(BuildContext context) {
+  final view = context.watch(currentViewProvider);
+  // Universal trailers reused below.
+  const top = FooterHint(key: '←/→', action: 'switch view');
+  const help = FooterHint(key: '?', action: 'help');
+  const quit = FooterHint(key: 'q', action: 'quit');
+
+  switch (view) {
+    case AppView.dashboard:
+      return const [FooterHint(key: '↑/↓', action: 'scroll'), top, help, quit];
+
+    case AppView.configure:
+      final col = context.watch(configureFocusedColumnProvider);
+      if (col == ConfigureColumn.sidebar) {
+        return const [
+          FooterHint(key: '↑/↓', action: 'pick section'),
+          FooterHint(key: 'Enter', action: 'edit section'),
+          FooterHint(key: 'Esc', action: 'back to dashboard'),
+          top,
+          help,
+        ];
+      }
+      return const [
+        FooterHint(key: '↑/↓', action: 'pick option'),
+        FooterHint(key: 'Enter', action: 'change value'),
+        FooterHint(key: 'Esc', action: 'back to sidebar'),
+        top,
+        help,
+      ];
+
+    case AppView.system:
+      final col = context.watch(systemColumnProvider);
+      final section = context.watch(systemSectionProvider);
+      if (col == SystemColumn.sidebar) {
+        return const [
+          FooterHint(key: '↑/↓', action: 'Check / Apply'),
+          FooterHint(key: 'Enter', action: 'pick action'),
+          FooterHint(key: 'Esc', action: 'back to dashboard'),
+          top,
+          help,
+        ];
+      }
+      return [
+        const FooterHint(key: '↑/↓', action: 'pick action'),
+        FooterHint(
+          key: 'Enter',
+          action: section == SystemSection.check ? 'run check' : 'run action',
+        ),
+        const FooterHint(key: 'Esc', action: 'back to sidebar'),
+        top,
+        help,
+      ];
+
+    case AppView.debug:
+      return const [
+        FooterHint(key: '↑/↓', action: 'navigate'),
+        FooterHint(key: 'Esc', action: 'back to dashboard'),
+        top,
+        help,
+        quit,
+      ];
+
+    // Self-paint their own per-phase hints; shell strip stays
+    // empty to avoid double-bottom-bars.
+    case AppView.install:
+    case AppView.setup:
+    case AppView.apply:
+    case AppView.update:
+    case AppView.packageDiff:
+    case AppView.configTooNew:
+      return const [];
+  }
+}
 
 /// Run when the on-disk config is older than this TUI expects:
 /// migrate `config.json` to [currentConfigVersion] and leave
@@ -560,6 +643,12 @@ class _Shell extends StatelessComponent {
                     },
                   ),
                 ),
+                // Context-sensitive footer — only on views whose nav
+                // model isn't already self-explanatory. install /
+                // setup / configTooNew run linear wizards; apply /
+                // update / packageDiff have their own internal hint
+                // lines tuned to each sub-phase.
+                FooterHints(hints: _computeFooterHints(context)),
               ],
             ),
           ),
