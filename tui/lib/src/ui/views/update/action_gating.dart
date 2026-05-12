@@ -51,11 +51,6 @@ bool isHeavyDiffStale(
 /// Pure function — no I/O, no providers — derives the action panel's
 /// gating from a snapshot of `update-status.json`.
 ///
-/// [tuiInputName] is the name of the flake input that pins the TUI
-/// binary (`nixblitz` for the default install). Filtering it out of
-/// the "flake inputs" status row and into the "TUI binary" row is
-/// done in the renderer; this function only consumes [LightCheck].
-///
 /// [liveInputsAhead] is the renderer-filtered (`filterStillAhead`)
 /// view of `light.inputsAhead`. Used to detect when the heavy diff
 /// has been invalidated by a lock advance since heavy ran.
@@ -63,7 +58,6 @@ bool isHeavyDiffStale(
 /// [now] is injected for testability.
 UpdateActionStates computeUpdateActionStates(
   UpdateStatus status, {
-  required String tuiInputName,
   required List<InputAhead> liveInputsAhead,
   DateTime? now,
 }) {
@@ -72,7 +66,7 @@ UpdateActionStates computeUpdateActionStates(
   // ── tuiOnly ────────────────────────────────────────────────
   final light = status.lightweight;
   final tuiAhead = liveInputsAhead
-      .where((i) => i.name == tuiInputName)
+      .where((i) => i.name == kTuiInputName)
       .toList();
 
   final ActionState tuiOnly;
@@ -108,7 +102,7 @@ UpdateActionStates computeUpdateActionStates(
     final heavyStale =
         wallClock.difference(heavy.checkedAt) > const Duration(days: 14);
     final liveAheadNonTui = liveInputsAhead
-        .where((i) => i.name != tuiInputName)
+        .where((i) => i.name != kTuiInputName)
         .toList();
     if (heavyStale && liveAheadNonTui.isNotEmpty) {
       entire = const ActionState(
@@ -122,7 +116,7 @@ UpdateActionStates computeUpdateActionStates(
       );
     }
   } else {
-    final n = _countDiffChanges(heavy.diffText);
+    final n = countDiffChanges(heavy.diffText);
     entire = ActionState(
       enabled: true,
       subtitle: n == 1 ? '1 change pending' : '$n changes pending',
@@ -203,10 +197,11 @@ String _briefError(String? raw) {
   return first.length <= maxLen ? first : '${first.substring(0, maxLen - 1)}…';
 }
 
-/// Counts `[U./A./R.]` lines — same heuristic as the inline diff
-/// renderer in `update_view.dart`. Kept inline (not imported) so
-/// `action_gating.dart` has no nocterm dependency.
-int _countDiffChanges(String diffText) {
+/// Counts `[U./A./R.]` lines in an `nvd diff`. Single source of
+/// truth for "how many package changes are pending" — both the
+/// action-subtitle ("$n changes pending") and the Update view's
+/// status-panel value depend on this returning the same number.
+int countDiffChanges(String diffText) {
   var n = 0;
   for (final line in diffText.split('\n')) {
     if (line.startsWith('[U.') ||
@@ -219,4 +214,24 @@ int _countDiffChanges(String diffText) {
     }
   }
   return n;
+}
+
+/// True when the heavy check has a cached nvd diff worth looking
+/// at — non-empty, marked as having changes, and not invalidated
+/// by a since-bumped lock. Single predicate so the Update view's
+/// status panel, its `[v]` action gate, and the System Check
+/// panel's "View package diff" action all agree.
+///
+/// Caller passes the already-filtered [liveInputsAhead] (same
+/// shape as [computeUpdateActionStates]); this function stays
+/// pure, no I/O.
+bool hasCachedPackageDiff(
+  UpdateStatus status, {
+  required List<InputAhead> liveInputsAhead,
+}) {
+  final heavy = status.heavy;
+  if (heavy == null || !heavy.ok) return false;
+  if (heavy.noChanges) return false;
+  if (heavy.diffText.trim().isEmpty) return false;
+  return !isHeavyDiffStale(status, liveInputsAhead: liveInputsAhead);
 }

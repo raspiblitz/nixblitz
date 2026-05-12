@@ -6,8 +6,6 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 
-import '../build_info.dart';
-
 /// Mode of the currently-running `nixblitz check` subprocess (`light`
 /// / `heavy`), or `null` if none. UI uses this to render the "Running
 /// … check" spinner and to gate the re-trigger handler so the operator
@@ -124,39 +122,5 @@ RootInputsResult readRootFlakeInputs(String baseDir) {
     );
   } catch (e) {
     return RootInputsResult(inputs: const [], error: 'flake.lock parse: $e');
-  }
-}
-
-/// Cross-check the running binary's commit against the `nixblitz`
-/// input's locked rev in `<baseDir>/flake.lock`. Returns true when
-/// they match — meaning whatever the last `nixblitz check` wrote
-/// about the TUI being "ahead" is known-stale (the lock has since
-/// been bumped to the rev we're running, the rebuild has happened).
-///
-/// Best-effort overlay: returns false on any read / parse failure or
-/// when the build hash isn't trustworthy (dev `dart run`, dirty
-/// worktree). The daily check remains the authority for every other
-/// input.
-bool tuiBinaryMatchesLock(String baseDir) {
-  if (buildGitHash.isEmpty ||
-      buildGitHash == 'local' ||
-      buildGitHash.endsWith('-dirty')) {
-    return false;
-  }
-  try {
-    final lockFile = File('$baseDir/flake.lock');
-    if (!lockFile.existsSync()) return false;
-    final lock =
-        jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
-    for (final input in UpdateCheckService.parseRootInputs(lock)) {
-      if (input.name == 'nixblitz') {
-        return input.lockedRev.toLowerCase().startsWith(
-          buildGitHash.toLowerCase(),
-        );
-      }
-    }
-    return false;
-  } catch (_) {
-    return false;
   }
 }

@@ -2,8 +2,6 @@ import 'package:common/common.dart';
 import 'package:test/test.dart';
 import 'package:tui/src/ui/views/update/action_gating.dart';
 
-const _tuiInputName = 'nixblitz';
-
 InputAhead _input(String name) => InputAhead(
   name: name,
   currentRev: 'a' * 40,
@@ -16,7 +14,6 @@ void main() {
     test('no status file → both actions enabled with "no full check yet"', () {
       final states = computeUpdateActionStates(
         UpdateStatus.empty(),
-        tuiInputName: _tuiInputName,
         liveInputsAhead: const [],
         now: DateTime.utc(2026, 5, 4),
       );
@@ -35,7 +32,6 @@ void main() {
       );
       final states = computeUpdateActionStates(
         status,
-        tuiInputName: _tuiInputName,
         liveInputsAhead: const [],
         now: DateTime.utc(2026, 5, 4),
       );
@@ -53,7 +49,6 @@ void main() {
       );
       final states = computeUpdateActionStates(
         status,
-        tuiInputName: _tuiInputName,
         liveInputsAhead: const [],
         now: DateTime.utc(2026, 5, 4),
       );
@@ -78,7 +73,6 @@ void main() {
         );
         final states = computeUpdateActionStates(
           status,
-          tuiInputName: _tuiInputName,
           liveInputsAhead: [_input('nixpkgs')],
           now: DateTime.utc(2026, 5, 4),
         );
@@ -97,7 +91,6 @@ void main() {
       );
       final states = computeUpdateActionStates(
         status,
-        tuiInputName: _tuiInputName,
         liveInputsAhead: [_input('nixblitz')],
         now: DateTime.utc(2026, 5, 4),
       );
@@ -115,7 +108,6 @@ void main() {
       );
       final states = computeUpdateActionStates(
         status,
-        tuiInputName: _tuiInputName,
         liveInputsAhead: [_input('nixpkgs')],
         now: DateTime.utc(2026, 5, 4),
       );
@@ -144,7 +136,6 @@ void main() {
         );
         final states = computeUpdateActionStates(
           status,
-          tuiInputName: _tuiInputName,
           liveInputsAhead: const [],
           now: DateTime.utc(2026, 5, 4, 12, 5),
         );

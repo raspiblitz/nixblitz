@@ -8,6 +8,7 @@ import '../layout.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
 import '../../services/check_runner.dart';
+import 'update/action_gating.dart';
 
 // ---------------------------------------------------------------------------
 // System view — sidebar: [Check, Apply].
@@ -63,10 +64,24 @@ class SystemView extends StatelessComponent {
     // Watch so the "View package diff" action appears as soon as a
     // Heavy check finishes (the tick bump triggers a SystemView
     // rebuild; without watching it here we'd only re-evaluate
-    // _hasCachedPackageDiff on the next navigation).
+    // hasCachedPackageDiff on the next navigation).
     context.watch(checkRefreshTickProvider);
 
-    final hasCachedDiff = _hasCachedPackageDiff();
+    // Same filter the Update view + dashboard use — single source of
+    // truth for "is this cached input-ahead claim still valid?".
+    final baseDir = context.read(baseDirProvider);
+    final status = readUpdateStatus();
+    final liveInputsAhead =
+        (status.lightweight != null && status.lightweight!.ok)
+        ? UpdateCheckService.filterStillAhead(
+            status.lightweight!.inputsAhead,
+            flakePath: baseDir,
+          )
+        : <InputAhead>[];
+    final hasCachedDiff = hasCachedPackageDiff(
+      status,
+      liveInputsAhead: liveInputsAhead,
+    );
     final actions = _actionsFor(section, hasCachedDiff: hasCachedDiff);
     final selected = actionIndex.clamp(0, actions.length - 1);
 
@@ -295,16 +310,6 @@ class SystemView extends StatelessComponent {
       ),
     ],
   };
-
-  /// True when the last Heavy check left a non-empty nvd diff in
-  /// `update-status.json`. Gates the "View package diff" action so
-  /// it only appears when there's something to look at.
-  bool _hasCachedPackageDiff() {
-    final heavy = readUpdateStatus().heavy;
-    if (heavy == null || !heavy.ok) return false;
-    if (heavy.noChanges) return false;
-    return heavy.diffText.trim().isNotEmpty;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -322,15 +327,12 @@ const _aheadCol = Color.fromRGB(247, 147, 26);
 const _ageCol = Color.fromRGB(120, 120, 140);
 
 class _CheckStatusPanel extends StatelessComponent {
-  static const String _tuiInputName = 'nixblitz';
-
   @override
   Component build(BuildContext context) {
     // Trigger a rebuild after each check subprocess exits.
     context.watch(checkRefreshTickProvider);
     final running = context.watch(runningCheckProvider);
     final baseDir = context.watch(baseDirProvider);
-    final binaryMatchesLock = tuiBinaryMatchesLock(baseDir);
     final status = readUpdateStatus();
     final light = status.lightweight;
     final heavy = status.heavy;
@@ -338,8 +340,17 @@ class _CheckStatusPanel extends StatelessComponent {
 
     final lightReady = light != null && light.ok;
     final lightAge = lightReady ? humanizeAge(light.checkedAt) : '—';
+    // Filter via `filterStillAhead` so cached entries whose `currentRev`
+    // no longer matches the live `flake.lock` get dropped — same path
+    // the Update view + dashboard use. The previous `tuiBinaryMatchesLock`
+    // override was too aggressive: it hid REAL upstream-ahead claims
+    // anytime the running binary happened to match the lock, including
+    // the normal "you pushed a commit and haven't pulled it yet" state.
     final aheadInputs = lightReady
-        ? light.inputsAhead.map((i) => i.name).toSet()
+        ? UpdateCheckService.filterStillAhead(
+            light.inputsAhead,
+            flakePath: baseDir,
+          ).map((i) => i.name).toSet()
         : const <String>{};
 
     final rows = <Component>[
@@ -370,17 +381,12 @@ class _CheckStatusPanel extends StatelessComponent {
       rows.add(_indentedNote('no root inputs in flake.lock'));
     } else {
       for (final input in rootInputs.inputs) {
-        final isTui = input.name == _tuiInputName;
-        // Hide the cached "nixblitz ahead" claim once the running
-        // binary's commit matches the lock — the rebuild already
-        // happened, the daily check just hasn't re-run.
-        final isAhead =
-            aheadInputs.contains(input.name) && !(isTui && binaryMatchesLock);
+        final isTui = input.name == kTuiInputName;
         rows.add(
           _inputRow(
             name: input.name,
             isTui: isTui,
-            isAhead: isAhead,
+            isAhead: aheadInputs.contains(input.name),
             unknown: !lightReady,
           ),
         );

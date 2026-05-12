@@ -17,6 +17,12 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+/// Attribute name of the flake input that pins the running TUI's
+/// own source — matches `templates/flake.nix:13`. Spelled out once
+/// here so consumers (System Check panel, Update view's status
+/// block, action_gating) don't drift if the input is ever renamed.
+const String kTuiInputName = 'nixblitz';
+
 /// Where the periodic checker writes its result. systemd-tmpfiles
 /// creates the directory with admin:admin ownership; the
 /// `nixblitz check {light,heavy}` commands run as `admin` and write

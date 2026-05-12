@@ -591,12 +591,14 @@ class _UpdateViewState extends State<UpdateView> {
             flakePath: context.read(baseDirProvider),
           )
         : <InputAhead>[];
-    final hasCachedDiff = _hasCachedDiff(status, liveInputsAhead);
+    final hasCachedDiff = hasCachedPackageDiff(
+      status,
+      liveInputsAhead: liveInputsAhead,
+    );
 
     // Compute gating from cache (pure function from action_gating.dart).
     final actionStates = computeUpdateActionStates(
       status,
-      tuiInputName: 'nixblitz',
       liveInputsAhead: liveInputsAhead,
     );
 
@@ -877,7 +879,6 @@ class _UpdateViewState extends State<UpdateView> {
     BuildContext context,
     List<InputAhead> liveInputsAhead,
   ) {
-    const tuiInputName = 'nixblitz';
     final status = readUpdateStatus();
     final children = <Component>[
       Row(
@@ -918,7 +919,7 @@ class _UpdateViewState extends State<UpdateView> {
       final stillAhead = liveInputsAhead;
 
       // flake inputs row — exclude the TUI input.
-      final nonTui = stillAhead.where((e) => e.name != tuiInputName).toList();
+      final nonTui = stillAhead.where((e) => e.name != kTuiInputName).toList();
       final lightAge = humanizeAge(light.checkedAt);
       final lightStale =
           DateTime.now().toUtc().difference(light.checkedAt) >
@@ -937,7 +938,9 @@ class _UpdateViewState extends State<UpdateView> {
       );
 
       // TUI binary row — only the TUI input.
-      final tuiAhead = stillAhead.where((e) => e.name == tuiInputName).toList();
+      final tuiAhead = stillAhead
+          .where((e) => e.name == kTuiInputName)
+          .toList();
       final tuiValue = tuiAhead.isEmpty
           ? 'up to date'
           : 'ahead — pull and rebuild';
@@ -963,17 +966,16 @@ class _UpdateViewState extends State<UpdateView> {
       // If a fresher light check found the live lock at upstream,
       // the cached diff has been overtaken by an Update that already
       // landed — treat as no changes regardless of what the cached
-      // diff reports.
-      final diffOvertaken = isHeavyDiffStale(
+      // diff reports. hasCachedPackageDiff folds all three checks
+      // (noChanges / empty / overtaken) so this branch matches the
+      // [v] action gate and the System Check panel.
+      final hasDiff = hasCachedPackageDiff(
         status,
         liveInputsAhead: liveInputsAhead,
       );
-      final String heavyValue;
-      if (heavy.noChanges || heavy.diffText.trim().isEmpty || diffOvertaken) {
-        heavyValue = 'no system changes';
-      } else {
-        heavyValue = '${_countDiffChanges(heavy.diffText)} changes pending';
-      }
+      final heavyValue = hasDiff
+          ? '${countDiffChanges(heavy.diffText)} changes pending'
+          : 'no system changes';
       children.add(
         _statusRow(
           label: 'system closure',
@@ -1012,38 +1014,6 @@ class _UpdateViewState extends State<UpdateView> {
         ? const Color.fromRGB(220, 180, 100) // warn yellow
         : const Color.fromRGB(200, 200, 200);
     return Text('$prefix$padded$value  ($age)', style: TextStyle(color: color));
-  }
-
-  /// True when the cached heavy diff is non-empty AND still relevant
-  /// (the lock hasn't already advanced past it). Drives whether we
-  /// show the `[v] view full package diff` keybind hint — there's
-  /// no point offering to view a diff the operator has already
-  /// applied.
-  bool _hasCachedDiff(UpdateStatus status, List<InputAhead> liveInputsAhead) {
-    final h = status.heavy;
-    if (h == null || !h.ok || h.noChanges || h.diffText.trim().isEmpty) {
-      return false;
-    }
-    return !isHeavyDiffStale(status, liveInputsAhead: liveInputsAhead);
-  }
-
-  /// Counts `[U.]` / `[A.]` / `[R.]` lines in the cached diff —
-  /// i.e. the actual change count, ignoring the "Closure size"
-  /// summary and any blank lines. nvd's bracket prefix is the
-  /// stable signal across versions.
-  int _countDiffChanges(String diffText) {
-    var n = 0;
-    for (final line in diffText.split('\n')) {
-      if (line.startsWith('[U.') ||
-          line.startsWith('[U]') ||
-          line.startsWith('[A.') ||
-          line.startsWith('[A]') ||
-          line.startsWith('[R.') ||
-          line.startsWith('[R]')) {
-        n++;
-      }
-    }
-    return n;
   }
 
   Component _buildViewCachedDiff() {
