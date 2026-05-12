@@ -601,14 +601,22 @@ class _SystemSidebar extends StatelessComponent {
     Color idle,
     Color dim,
   ) {
-    final showCursor = isActive && focused;
-    final prefix = showCursor ? '> ' : '  ';
-    final color = focused ? (isActive ? accent : idle) : dim;
+    // The `>` cursor stays on the active entry even when the column
+    // isn't focused — the operator needs to know which section
+    // they're in while working in the content pane. Color gradient:
+    //   focused active   → accent + bold
+    //   focused inactive → idle
+    //   unfocused active → idle (no bold)
+    //   unfocused inactive → dim
+    final prefix = isActive ? '> ' : '  ';
+    final color = focused
+        ? (isActive ? accent : idle)
+        : (isActive ? idle : dim);
     return Text(
       '$prefix${truncateSidebarLabel(label)}',
       style: TextStyle(
         color: color,
-        fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
+        fontWeight: isActive && focused ? FontWeight.bold : FontWeight.normal,
       ),
     );
   }

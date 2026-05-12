@@ -867,14 +867,21 @@ class _ConfigureSidebar extends StatelessComponent {
           for (var i = 0; i < entries.length; i++)
             () {
               final isActive = i == selectedIndex;
-              final showCursor = isActive && focused;
-              final prefix = showCursor ? '> ' : '  ';
-              final color = focused ? (isActive ? accent : idle) : dim;
+              // Cursor + a brighter color stay on the active entry
+              // even when the column is unfocused — operator needs
+              // "I'm in Bitcoin Core" visible while editing fields
+              // in the content pane. Bold is the focused-only cue.
+              final prefix = isActive ? '> ' : '  ';
+              final color = focused
+                  ? (isActive ? accent : idle)
+                  : (isActive ? idle : dim);
               return Text(
                 '$prefix${truncateSidebarLabel(entries[i].label)}',
                 style: TextStyle(
                   color: color,
-                  fontWeight: showCursor ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: isActive && focused
+                      ? FontWeight.bold
+                      : FontWeight.normal,
                 ),
               );
             }(),
