@@ -281,7 +281,19 @@ class SystemView extends StatelessComponent {
 // _CheckStatusPanel — last-check summary embedded in the Check section
 // ---------------------------------------------------------------------------
 
+// Palette shared across the check-status panel. Pulled out of the
+// build method so the per-row helpers below can reuse it without
+// taking ten parameters each.
+const _labelCol = Color.fromRGB(150, 150, 180);
+const _dimCol = Color.fromRGB(140, 140, 150);
+const _normalCol = Color.fromRGB(200, 200, 200);
+const _okCol = Color.fromRGB(110, 220, 110);
+const _aheadCol = Color.fromRGB(247, 147, 26);
+const _ageCol = Color.fromRGB(120, 120, 140);
+
 class _CheckStatusPanel extends StatelessComponent {
+  static const String _tuiInputName = 'nixblitz';
+
   @override
   Component build(BuildContext context) {
     // Trigger a rebuild after each check subprocess exits.
@@ -292,124 +304,204 @@ class _CheckStatusPanel extends StatelessComponent {
     final status = readUpdateStatus();
     final light = status.lightweight;
     final heavy = status.heavy;
+    final rootInputs = readRootFlakeInputs(baseDir);
 
-    const dim = Color.fromRGB(140, 140, 150);
-    const normal = Color.fromRGB(200, 200, 200);
+    final lightReady = light != null && light.ok;
+    final lightAge = lightReady ? humanizeAge(light.checkedAt) : '—';
+    final aheadInputs = lightReady
+        ? light.inputsAhead.map((i) => i.name).toSet()
+        : const <String>{};
 
     final rows = <Component>[
       const Text(
         'Last check',
-        style: TextStyle(
-          color: Color.fromRGB(150, 150, 180),
-          fontWeight: FontWeight.bold,
-        ),
+        style: TextStyle(color: _labelCol, fontWeight: FontWeight.bold),
       ),
     ];
 
     if (running != null) {
       rows.add(const SizedBox(height: 1));
       rows.add(
-        Row(
-          children: [
-            Spinner(
-              label: running == 'heavy'
-                  ? 'Running heavy check…'
-                  : 'Running simple check…',
-            ),
-          ],
+        Spinner(
+          label: running == 'heavy'
+              ? 'Running heavy check…'
+              : 'Running simple check…',
         ),
       );
     }
 
     rows.add(const SizedBox(height: 1));
 
-    // flake inputs row — anything other than the TUI input pinned ahead.
-    final tuiInput = 'nixblitz';
-    if (light == null || !light.ok) {
-      rows.add(_row('flake inputs', 'no check yet', '—', dim));
+    // ---------- flake inputs (header + per-input list) ----------
+    rows.add(_headerRow('flake inputs:', lightAge));
+    if (rootInputs.error != null) {
+      rows.add(_indentedNote(rootInputs.error!));
+    } else if (rootInputs.inputs.isEmpty) {
+      rows.add(_indentedNote('no root inputs in flake.lock'));
     } else {
-      final ahead = light.inputsAhead.where((i) => i.name != tuiInput).toList();
-      final value = ahead.isEmpty
-          ? 'up to date'
-          : ahead.map((i) => i.name).take(3).join(', ') +
-                (ahead.length > 3 ? ' (+${ahead.length - 3} more)' : '');
-      rows.add(
-        _row('flake inputs', value, humanizeAge(light.checkedAt), normal),
-      );
+      for (final input in rootInputs.inputs) {
+        final isTui = input.name == _tuiInputName;
+        // Hide the cached "nixblitz ahead" claim once the running
+        // binary's commit matches the lock — the rebuild already
+        // happened, the daily check just hasn't re-run.
+        final isAhead =
+            aheadInputs.contains(input.name) && !(isTui && binaryMatchesLock);
+        rows.add(
+          _inputRow(
+            name: input.name,
+            isTui: isTui,
+            isAhead: isAhead,
+            unknown: !lightReady,
+          ),
+        );
+      }
     }
 
-    // TUI binary row — only the TUI input. When the running binary's
-    // commit matches the locked rev, override any stale "ahead" claim
-    // — the rebuild already happened, the daily check just hasn't
-    // re-run yet (handled at startup, but a fresh install or a
-    // network glitch can still leave the cache lagging).
-    if (light == null || !light.ok) {
-      rows.add(_row('TUI binary', 'no check yet', '—', dim));
-    } else {
-      final tuiAhead =
-          light.inputsAhead.any((i) => i.name == tuiInput) &&
-          !binaryMatchesLock;
-      rows.add(
-        _row(
-          'TUI binary',
-          tuiAhead ? 'ahead — pull and rebuild' : 'up to date',
-          humanizeAge(light.checkedAt),
-          normal,
-        ),
-      );
-    }
+    rows.add(const SizedBox(height: 1));
 
-    // plugins row.
-    if (light == null || !light.ok) {
-      rows.add(_row('plugins', 'no check yet', '—', dim));
+    // ---------- plugins row ----------
+    if (!lightReady) {
+      rows.add(
+        _topLevelRow('plugins', 'no check yet', '—', state: _RowState.unknown),
+      );
     } else {
       final n = light.pluginsAhead.length;
       rows.add(
-        _row(
+        _topLevelRow(
           'plugins',
           n == 0 ? 'up to date' : '$n update${n == 1 ? "" : "s"} available',
-          humanizeAge(light.checkedAt),
-          normal,
+          lightAge,
+          state: n == 0 ? _RowState.ok : _RowState.ahead,
         ),
       );
     }
 
-    // system closure (heavy) row.
+    // ---------- system closure (heavy) row ----------
     if (heavy == null || !heavy.ok) {
-      rows.add(_row('system closure', 'no full check yet', '—', dim));
-    } else {
-      final value = heavy.noChanges || heavy.diffText.trim().isEmpty
-          ? 'no system changes'
-          : 'changes pending';
       rows.add(
-        _row('system closure', value, humanizeAge(heavy.checkedAt), normal),
+        _topLevelRow(
+          'system closure',
+          'no full check yet',
+          '—',
+          state: _RowState.unknown,
+        ),
+      );
+    } else {
+      final noChange = heavy.noChanges || heavy.diffText.trim().isEmpty;
+      rows.add(
+        _topLevelRow(
+          'system closure',
+          noChange ? 'no system changes' : 'changes pending',
+          humanizeAge(heavy.checkedAt),
+          state: noChange ? _RowState.ok : _RowState.ahead,
+        ),
       );
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 
-  Component _row(String label, String value, String age, Color valueColor) {
+  /// Header row: indented label, age on the right, no value column.
+  /// Used for the "flake inputs:" parent above the per-input list.
+  Component _headerRow(String label, String age) {
     return Row(
       children: [
         SizedBox(
           width: 18,
-          child: Text(
-            '  $label',
-            style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+          child: Text('  $label', style: const TextStyle(color: _labelCol)),
+        ),
+        Expanded(child: const SizedBox.shrink()),
+        Text('($age)', style: const TextStyle(color: _ageCol)),
+      ],
+    );
+  }
+
+  /// Top-level row with status icon, label, value, age. Used for the
+  /// `plugins` and `system closure` rows.
+  Component _topLevelRow(
+    String label,
+    String value,
+    String age, {
+    required _RowState state,
+  }) {
+    final (icon, iconColor, valueColor) = switch (state) {
+      _RowState.ok => ('✓ ', _okCol, _normalCol),
+      _RowState.ahead => ('↑ ', _aheadCol, _aheadCol),
+      _RowState.unknown => ('  ', _dimCol, _dimCol),
+    };
+    return Row(
+      children: [
+        SizedBox(
+          width: 18,
+          child: Row(
+            children: [
+              Text(icon, style: TextStyle(color: iconColor)),
+              Text(label, style: const TextStyle(color: _labelCol)),
+            ],
           ),
         ),
         Expanded(
           child: Text(value, style: TextStyle(color: valueColor)),
         ),
-        Text(
-          '($age)',
-          style: const TextStyle(color: Color.fromRGB(120, 120, 140)),
+        Text('($age)', style: const TextStyle(color: _ageCol)),
+      ],
+    );
+  }
+
+  /// Indented per-input row: status icon, input name (+ optional
+  /// "(this TUI)" annotation), state text. No age column — the
+  /// parent "flake inputs:" header carries it.
+  Component _inputRow({
+    required String name,
+    required bool isTui,
+    required bool isAhead,
+    required bool unknown,
+  }) {
+    final state = unknown
+        ? _RowState.unknown
+        : (isAhead ? _RowState.ahead : _RowState.ok);
+    final (icon, iconColor, valueColor) = switch (state) {
+      _RowState.ok => ('✓ ', _okCol, _normalCol),
+      _RowState.ahead => ('↑ ', _aheadCol, _aheadCol),
+      _RowState.unknown => ('  ', _dimCol, _dimCol),
+    };
+    final stateText = switch (state) {
+      _RowState.ok => 'up to date',
+      _RowState.ahead => 'update available',
+      _RowState.unknown => '—',
+    };
+    final displayName = isTui ? '$name (this TUI)' : name;
+    return Row(
+      children: [
+        SizedBox(
+          width: 26,
+          child: Row(
+            children: [
+              const SizedBox(width: 4),
+              Text(icon, style: TextStyle(color: iconColor)),
+              Text(displayName, style: const TextStyle(color: _normalCol)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Text(stateText, style: TextStyle(color: valueColor)),
         ),
       ],
     );
   }
+
+  /// Indented error / fallback note under the "flake inputs:" header.
+  Component _indentedNote(String message) {
+    return Row(
+      children: [
+        const SizedBox(width: 4),
+        Text(message, style: const TextStyle(color: _dimCol)),
+      ],
+    );
+  }
 }
+
+enum _RowState { ok, ahead, unknown }
 
 // ---------------------------------------------------------------------------
 // _SystemSidebar — left column with Check / Apply

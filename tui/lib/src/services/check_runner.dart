@@ -90,6 +90,43 @@ void runCheckSubprocess(BuildContext ctx, String mode) {
       });
 }
 
+/// Return value of [readRootFlakeInputs] when the file is missing
+/// or unparseable — distinguished from "empty list" so the caller
+/// can render a clear error instead of a blank list.
+class RootInputsResult {
+  const RootInputsResult({required this.inputs, required this.error});
+  final List<LockedInput> inputs;
+
+  /// `null` on success; otherwise a short, operator-readable string
+  /// explaining what went wrong (missing file / parse error).
+  final String? error;
+}
+
+/// Enumerate the operator's root flake inputs from
+/// `<baseDir>/flake.lock`. Wraps [UpdateCheckService.parseRootInputs]
+/// with file-level error handling so the Check panel can render
+/// rows even when the daily lightweight check hasn't populated
+/// `update-status.json` yet.
+RootInputsResult readRootFlakeInputs(String baseDir) {
+  try {
+    final lockFile = File('$baseDir/flake.lock');
+    if (!lockFile.existsSync()) {
+      return RootInputsResult(
+        inputs: const [],
+        error: 'no flake.lock at $baseDir',
+      );
+    }
+    final lock =
+        jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
+    return RootInputsResult(
+      inputs: UpdateCheckService.parseRootInputs(lock),
+      error: null,
+    );
+  } catch (e) {
+    return RootInputsResult(inputs: const [], error: 'flake.lock parse: $e');
+  }
+}
+
 /// Cross-check the running binary's commit against the `nixblitz`
 /// input's locked rev in `<baseDir>/flake.lock`. Returns true when
 /// they match — meaning whatever the last `nixblitz check` wrote
