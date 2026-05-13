@@ -392,15 +392,44 @@ class _UpdateViewState extends State<UpdateView> {
             if (autorewrote) {
               _appendUpdateLine('Auto-rewrote drifted templates.');
             }
+            await _recordApplied(attr);
           }
           context.read(_updateExitCodeProvider.notifier).state = code;
           context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+          context.read(viewBusyProvider.notifier).state = false;
           _started = false;
         })
         .catchError((e, st) {
           LogService.error('Rebuild failed', e, st);
           _failToDone(1);
         });
+  }
+
+  /// After a successful rebuild, snapshot HEAD + the new
+  /// `/run/current-system` to `last-applied.json`. See
+  /// `apply_view._recordApplied` for the rationale — Update is the
+  /// other path that can leave HEAD ahead of the running system when
+  /// the operator quits mid-flow, since `updateLock` commits
+  /// `flake.lock` before the preview screen renders.
+  Future<void> _recordApplied(String attr) async {
+    try {
+      final git = context.read(gitServiceProvider);
+      final rev = await git.headRef();
+      if (rev == null) return;
+      final readlink = Process.runSync('readlink', [
+        '-f',
+        '/run/current-system',
+      ]);
+      final toplevel = readlink.exitCode == 0
+          ? (readlink.stdout as String).trim()
+          : '';
+      context
+          .read(appliedStateServiceProvider)
+          .write(rev: rev, toplevel: toplevel, flakeAttr: attr);
+    } catch (e, st) {
+      LogService.warn('update: recording applied state failed: $e');
+      LogService.error('update: _recordApplied trace', e, st);
+    }
   }
 
   /// Rewrite the binary's embedded Nix template files over the
@@ -475,6 +504,11 @@ class _UpdateViewState extends State<UpdateView> {
     context.read(_updateExitCodeProvider.notifier).state = null;
     context.read(_packageDiffProvider.notifier).state = null;
     context.read(_updateBinaryUpdatedProvider.notifier).state = false;
+    // From here on, an unconfirmed `q` keystroke must be gated — the
+    // updateLock step that follows may commit `flake.lock` before
+    // the rebuild even starts, and a mid-flow quit would leave HEAD
+    // ahead of `/run/current-system`.
+    context.read(viewBusyProvider.notifier).state = true;
   }
 
   void _resetToSelect() {
@@ -484,18 +518,21 @@ class _UpdateViewState extends State<UpdateView> {
     context.read(_updateExitCodeProvider.notifier).state = null;
     context.read(_packageDiffProvider.notifier).state = null;
     context.read(_updateBinaryUpdatedProvider.notifier).state = false;
+    context.read(viewBusyProvider.notifier).state = false;
     _started = false;
   }
 
   void _completeWithSuccess() {
     context.read(_updateExitCodeProvider.notifier).state = 0;
     context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+    context.read(viewBusyProvider.notifier).state = false;
     _started = false;
   }
 
   void _failToDone(int code) {
     context.read(_updateExitCodeProvider.notifier).state = code;
     context.read(_updateModeProvider.notifier).state = _UpdateMode.done;
+    context.read(viewBusyProvider.notifier).state = false;
     _started = false;
   }
 

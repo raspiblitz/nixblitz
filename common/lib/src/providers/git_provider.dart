@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:riverpod/riverpod.dart';
 import 'package:common/src/models/nixblitz_config.dart';
+import 'package:common/src/services/applied_state_service.dart';
 import 'package:common/src/services/git_service.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/providers/config_provider.dart';
@@ -111,4 +112,34 @@ final pendingChangeKeysProvider = Provider<Set<String>>((ref) {
       .maybeWhen(data: (c) => c, orElse: () => null);
   if (committed == null) return const <String>{};
   return live.diffKeysFrom(committed);
+});
+
+final appliedStateServiceProvider = Provider<AppliedStateService>((ref) {
+  return AppliedStateService();
+});
+
+/// SHA recorded after the last successful `nixos-rebuild switch`, or
+/// null when nothing's been applied yet (fresh install) or the state
+/// file is missing / corrupt. Rides on [committedConfigProvider]'s
+/// invalidation — same trigger set as "HEAD moved."
+final lastAppliedRevProvider = FutureProvider<String?>((ref) async {
+  ref.watch(committedConfigProvider);
+  final svc = ref.watch(appliedStateServiceProvider);
+  final state = await svc.read();
+  return state?.rev;
+});
+
+/// True when HEAD has advanced past the last successfully-applied
+/// commit. Drives the "applied HEAD~N — open Apply" dashboard state.
+///
+/// Returns false when [lastAppliedRevProvider] is null — fresh
+/// installs have no baseline yet, so we can't claim drift. Once the
+/// first Apply succeeds, the comparison becomes meaningful.
+final unappliedHeadProvider = FutureProvider<bool>((ref) async {
+  final git = ref.watch(gitServiceProvider);
+  final last = await ref.watch(lastAppliedRevProvider.future);
+  if (last == null) return false;
+  final head = await git.headRef();
+  if (head == null) return false;
+  return head != last;
 });

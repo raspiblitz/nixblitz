@@ -94,6 +94,10 @@ class _DashboardViewState extends State<DashboardView> {
     }
     final configChangesNames = configSections.toList()..sort();
 
+    final unappliedRebuild = context
+        .watch(unappliedHeadProvider)
+        .maybeWhen(data: (b) => b, orElse: () => false);
+
     return NodeTile(
       hostname: config.system.hostname,
       uptimeSec: _readUptimeSec(context),
@@ -102,6 +106,7 @@ class _DashboardViewState extends State<DashboardView> {
       systemUpdateSources: updateSources,
       configChangesCount: configChangesNames.length,
       configChangesNames: configChangesNames,
+      unappliedRebuild: unappliedRebuild,
     );
   }
 
@@ -199,10 +204,15 @@ class _DashboardViewState extends State<DashboardView> {
                   builder: (context, constraints) {
                     final cols = columnsFor(constraints.maxWidth);
                     final pluginTiles = _pluginTiles(context);
+                    final nodeUnapplied = context
+                        .watch(unappliedHeadProvider)
+                        .maybeWhen(data: (b) => b, orElse: () => false);
                     final tiles = <SizedTile>[
                       (
                         widget: _buildNodeTile(context, config),
-                        height: NodeTile.tileHeight,
+                        height: NodeTile.tileHeightFor(
+                          unappliedRebuild: nodeUnapplied,
+                        ),
                       ),
                       ...bundledTiles,
                       ...pluginTiles,

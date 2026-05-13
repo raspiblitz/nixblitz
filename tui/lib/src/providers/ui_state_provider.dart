@@ -72,3 +72,27 @@ final modalActiveProvider = Provider<bool>((ref) {
   final topMenu = ref.watch(topMenuOverlayProvider);
   return help || sudo != null || topMenu;
 });
+
+/// View-declared "I'm in a non-resumable rebuild flow" flag. Apply
+/// and Update flip this on when they enter the post-commit /
+/// rebuild-running window and clear it when they reach a terminal
+/// state (done, fail, reset to select). The shell consumes it to
+/// gate the `q` quit shortcut behind a two-press confirm — an
+/// operator fat-fingering `q` instead of `a` during an Apply must
+/// not nuke a half-finished rebuild silently. (See
+/// `docs/superpowers/specs/.../merry-tinkering-pine.md` and the
+/// `last-applied.json` flow for the rationale.)
+final viewBusyProvider = StateProvider<bool>((ref) => false);
+
+/// Composed signal: any view declares itself busy, or a sudo prompt
+/// is up. Read by the shell's `q` handler.
+final inflightOperationProvider = Provider<bool>((ref) {
+  final viewBusy = ref.watch(viewBusyProvider);
+  final sudo = ref.watch(pendingSudoPromptProvider);
+  return viewBusy || sudo != null;
+});
+
+/// First press of `q` during an in-flight op flips this true. Within
+/// a short window (3s) a second press actually quits; after that the
+/// flag clears so a stale arm doesn't snipe an unrelated `q`.
+final quitArmedProvider = StateProvider<bool>((ref) => false);

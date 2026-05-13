@@ -455,6 +455,7 @@ class _Shell extends StatefulComponent {
 class _ShellState extends State<_Shell> {
   StreamSubscription<Size>? _resizeSubscription;
   bool _viewportSeeded = false;
+  Timer? _quitArmTimer;
 
   @override
   void initState() {
@@ -491,6 +492,7 @@ class _ShellState extends State<_Shell> {
   @override
   void dispose() {
     _resizeSubscription?.cancel();
+    _quitArmTimer?.cancel();
     super.dispose();
   }
 
@@ -585,6 +587,28 @@ class _ShellState extends State<_Shell> {
                 return true;
               }
               if (event.logicalKey == LogicalKey.keyQ) {
+                // Confirm `q` when an Apply / Update flow is mid-
+                // stream — a fat-fingered `q` in place of `a` must
+                // not nuke a half-finished rebuild. After
+                // `updateLock` commits flake.lock or `commitAll`
+                // commits config.json, an immediate quit leaves
+                // HEAD ahead of `/run/current-system` with no
+                // breadcrumb in the working tree.
+                final busy = context.read(inflightOperationProvider);
+                if (busy) {
+                  final armed = context.read(quitArmedProvider);
+                  if (!armed) {
+                    context.read(quitArmedProvider.notifier).state = true;
+                    _quitArmTimer?.cancel();
+                    _quitArmTimer = Timer(const Duration(seconds: 3), () {
+                      if (!mounted) return;
+                      context.read(quitArmedProvider.notifier).state = false;
+                    });
+                    return true;
+                  }
+                  _quitArmTimer?.cancel();
+                  _quitArmTimer = null;
+                }
                 shutdownWithTerminalRestore();
                 return true;
               }
@@ -738,6 +762,17 @@ class _ShellState extends State<_Shell> {
                     },
                   ),
                 ),
+                if (context.watch(quitArmedProvider))
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: const Text(
+                      'Rebuild in flight — press q again within 3s to quit anyway',
+                      style: TextStyle(
+                        color: Color.fromRGB(255, 200, 80),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
                 // Context-sensitive footer — only on views whose nav
                 // model isn't already self-explanatory. install /
                 // setup / configTooNew run linear wizards; apply /

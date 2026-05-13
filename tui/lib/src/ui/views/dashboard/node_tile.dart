@@ -22,10 +22,11 @@ import '../../widgets/tile.dart';
 class NodeTile extends StatelessComponent {
   /// Total terminal-row footprint of this tile, used by
   /// [tileRows] / [assignColumnsByHeight] for height-balanced
-  /// column packing. Always 4 content rows (uptime, last apply,
-  /// system updates, config changes) plus chrome (border, title,
-  /// padding, spacer).
-  static const int tileHeight = 10;
+  /// column packing. 4 content rows (uptime, last apply, system
+  /// updates, config changes) plus chrome (border, title, padding,
+  /// spacer), plus an optional "unapplied rebuild" row.
+  static int tileHeightFor({bool unappliedRebuild = false}) =>
+      10 + (unappliedRebuild ? 1 : 0);
 
   final String hostname;
   final int? uptimeSec;
@@ -34,6 +35,12 @@ class NodeTile extends StatelessComponent {
   final List<String> configChangesNames;
   final int systemUpdatesCount;
   final List<String> systemUpdateSources;
+
+  /// HEAD has commits beyond what `/run/current-system` was built
+  /// from. Catches the "operator quit between `git commit` and
+  /// `nixos-rebuild` exit-0" case — see
+  /// `apply_view._recordApplied` for where the baseline is written.
+  final bool unappliedRebuild;
 
   const NodeTile({
     super.key,
@@ -44,6 +51,7 @@ class NodeTile extends StatelessComponent {
     this.configChangesNames = const [],
     this.systemUpdatesCount = 0,
     this.systemUpdateSources = const [],
+    this.unappliedRebuild = false,
   });
 
   static const _orange = Color.fromRGB(247, 147, 26);
@@ -71,8 +79,12 @@ class NodeTile extends StatelessComponent {
         _formatNamed(configChangesCount, configChangesNames),
       ),
     );
+    if (unappliedRebuild) {
+      rows.add(const TileRow('unapplied rebuild', 'yes'));
+    }
 
-    final total = systemUpdatesCount + configChangesCount;
+    final total =
+        systemUpdatesCount + configChangesCount + (unappliedRebuild ? 1 : 0);
 
     return Tile(
       title: hostname,

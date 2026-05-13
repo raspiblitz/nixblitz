@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -87,6 +89,7 @@ class _ApplyViewState extends State<ApplyView> {
     context.read(_applyOutputProvider.notifier).state = [];
     context.read(_applyExitCodeProvider.notifier).state = null;
     context.read(_applyBinaryUpdatedProvider.notifier).state = false;
+    context.read(viewBusyProvider.notifier).state = false;
   }
 
   void _leave() {
@@ -120,6 +123,7 @@ class _ApplyViewState extends State<ApplyView> {
       final sudo = context.read(sudoSessionProvider);
 
       context.read(_applyModeProvider.notifier).state = _ApplyMode.running;
+      context.read(viewBusyProvider.notifier).state = true;
       context.read(_applyOutputProvider.notifier).state = [];
       context.read(_applyExitCodeProvider.notifier).state = null;
 
@@ -132,6 +136,7 @@ class _ApplyViewState extends State<ApplyView> {
           _append('Authorization cancelled — aborting Apply.');
           context.read(_applyExitCodeProvider.notifier).state = 1;
           context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+          context.read(viewBusyProvider.notifier).state = false;
           _started = false;
           return;
         }
@@ -142,6 +147,7 @@ class _ApplyViewState extends State<ApplyView> {
       _append('Error: $e');
       context.read(_applyExitCodeProvider.notifier).state = 1;
       context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+      context.read(viewBusyProvider.notifier).state = false;
       _started = false;
     }
   }
@@ -259,11 +265,13 @@ class _ApplyViewState extends State<ApplyView> {
                                   .read(_applyBinaryUpdatedProvider.notifier)
                                   .state =
                               updated;
+                          await _recordApplied(git, attr);
                         }
                         context.read(_applyExitCodeProvider.notifier).state =
                             code;
                         context.read(_applyModeProvider.notifier).state =
                             _ApplyMode.done;
+                        context.read(viewBusyProvider.notifier).state = false;
                         _started = false;
                       })
                       .catchError((e, st) {
@@ -271,6 +279,7 @@ class _ApplyViewState extends State<ApplyView> {
                         context.read(_applyExitCodeProvider.notifier).state = 1;
                         context.read(_applyModeProvider.notifier).state =
                             _ApplyMode.done;
+                        context.read(viewBusyProvider.notifier).state = false;
                         _started = false;
                       });
                 })
@@ -280,6 +289,7 @@ class _ApplyViewState extends State<ApplyView> {
                   context.read(_applyExitCodeProvider.notifier).state = 1;
                   context.read(_applyModeProvider.notifier).state =
                       _ApplyMode.done;
+                  context.read(viewBusyProvider.notifier).state = false;
                   _started = false;
                 });
           })
@@ -288,6 +298,7 @@ class _ApplyViewState extends State<ApplyView> {
             _append('Error: $e');
             context.read(_applyExitCodeProvider.notifier).state = 1;
             context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+            context.read(viewBusyProvider.notifier).state = false;
             _started = false;
           });
     } catch (e, st) {
@@ -295,7 +306,33 @@ class _ApplyViewState extends State<ApplyView> {
       _append('Error: $e');
       context.read(_applyExitCodeProvider.notifier).state = 1;
       context.read(_applyModeProvider.notifier).state = _ApplyMode.done;
+      context.read(viewBusyProvider.notifier).state = false;
       _started = false;
+    }
+  }
+
+  /// After a successful rebuild, snapshot HEAD + the new
+  /// `/run/current-system` to `last-applied.json`. The dashboard
+  /// compares HEAD against this on subsequent launches to surface
+  /// the "committed but never applied" case (operator quits between
+  /// `git commit` and `nixos-rebuild` exit-0).
+  Future<void> _recordApplied(GitService git, String attr) async {
+    try {
+      final rev = await git.headRef();
+      if (rev == null) return;
+      final readlink = Process.runSync('readlink', [
+        '-f',
+        '/run/current-system',
+      ]);
+      final toplevel = readlink.exitCode == 0
+          ? (readlink.stdout as String).trim()
+          : '';
+      context
+          .read(appliedStateServiceProvider)
+          .write(rev: rev, toplevel: toplevel, flakeAttr: attr);
+    } catch (e, st) {
+      LogService.warn('apply: recording applied state failed: $e');
+      LogService.error('apply: _recordApplied trace', e, st);
     }
   }
 
