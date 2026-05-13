@@ -6,6 +6,7 @@ Map<String, String> getDocsStateServer() {
       'docs/installation.md': File(
         'content/docs/installation.md',
       ).readAsStringSync(),
+      'docs/updates.md': File('content/docs/updates.md').readAsStringSync(),
       'docs/architecture.md': File(
         'content/docs/architecture.md',
       ).readAsStringSync(),

@@ -6,6 +6,7 @@ class Sidebar extends StatelessComponent {
 
   static const Map<String, String> docs = {
     '/docs/installation': 'installation',
+    '/docs/updates': 'updates',
     '/docs/architecture': 'architecture',
     '/docs/plugins': 'plugins',
   };

@@ -99,6 +99,14 @@ recover them. **Treat any field passed via `pluginCfg` as
 publicly-readable on the node** — fine for switches and option
 strings, not fine for long-lived secrets.
 
+For ephemeral or one-shot secrets — pre-auth keys, OTPs, unlock
+tokens — use an [action input](#action-inputs) instead of a
+`secret` config field. Inputs are collected from the operator at
+action time, transported to the spawned process via an env var
+(or a transient `/run` EnvironmentFile for `unit:` actions), and
+discarded immediately afterwards. They never touch
+`config.json` or the store.
+
 ## Manifest reference
 
 ### `manifest` header (required)
@@ -129,7 +137,11 @@ hard-fails (no silent partial parsing).
 ### `config` block (optional)
 
 User-editable fields. Each field is a typed entry; the TUI
-auto-renders the right editor.
+auto-renders the right editor. Values are persisted to the
+plugin's `config.json` and read at every `nixos-rebuild` — pick
+this block for stable knobs (URLs, toggles, paths). For
+ephemeral or one-shot values, use [action inputs](#action-inputs)
+instead.
 
 ```json
 "config": {
@@ -138,15 +150,15 @@ auto-renders the right editor.
     "label": "Login server URL (headscale, etc.)",
     "required": false
   },
-  "auth_key": {
-    "type": "secret",
-    "label": "Tailnet auth key",
-    "required": false
-  },
   "exit_node": {
     "type": "bool",
     "label": "Advertise this node as an exit node",
     "default": false
+  },
+  "shared_token": {
+    "type": "secret",
+    "label": "Long-lived shared token",
+    "required": false
   }
 }
 ```
@@ -157,7 +169,10 @@ Available `type`s:
 - `int` — number input.
 - `string` — single-line text.
 - `secret` — masked input. Stored cleartext in `config.json`
-  today; the masking is just UI hygiene.
+  today; the masking is just UI hygiene. Reserve this for
+  long-lived shared tokens — pre-auth keys, OTPs and other
+  one-shot values belong on an action's
+  [`inputs`](#action-inputs) list, which never persists.
 - `select<a|b|c>` — pick one. Pipe-separated choices.
 - `list<string>` / `list<int>` / `list<bool>` — homogeneous list.
 
@@ -170,7 +185,7 @@ In `plugin.nix`, read each field via `pluginCfg.<key> or
 <fallback>`:
 
 ```nix
-authKey = pluginCfg.auth_key or "";
+loginServer = pluginCfg.login_server or "";
 exitNode = pluginCfg.exit_node or false;
 ```
 
@@ -206,6 +221,7 @@ is set:
 | `unit`            | —       | Type=oneshot systemd service name. Dispatched as root via SudoSession. _Mutually exclusive with `command`._ |
 | `confirm`         | `true`  | Show y/N before launching.                                                                                  |
 | `timeout_seconds` | `300`   | Watchdog SIGTERM at this limit; SIGKILL after grace.                                                        |
+| `inputs`          | `[]`    | Operator-supplied values collected just before the action runs. See [Action inputs](#action-inputs).        |
 
 Exactly one of `command` / `unit` per action. The discrimination
 matters:
@@ -224,6 +240,91 @@ matters:
 Without the allow-list cross-check, a manifest could trigger
 arbitrary system units; with it, the operator sees exactly which
 units a plugin claims root for at install-time consent.
+
+#### Action inputs
+
+Some actions need an ephemeral value the operator types in once
+and the plugin then consumes — a pre-auth key, an OTP, a one-shot
+unlock token. Persisting that to `config.json` (and thereby git
+history) is both pointless and a small leak surface, so actions
+declare these as `inputs` and the TUI collects them right before
+the run:
+
+```json
+"actions": {
+  "connect": {
+    "label": "Connect with pre-auth key",
+    "description": "Join the tailnet with a one-time pre-auth key.",
+    "unit": "tailscale-connect-preauth.service",
+    "confirm": false,
+    "inputs": [
+      {
+        "name": "authkey",
+        "label": "Pre-auth key",
+        "description": "From the Tailscale admin console (Settings → Keys).",
+        "type": "secret"
+      }
+    ]
+  }
+}
+```
+
+| Input field   | Required | Meaning                                                                                        |
+| ------------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `name`        | yes      | Identifier — must match `[a-z][a-z0-9_]*`. Becomes the env-var suffix (see below).             |
+| `label`       | yes      | Prompt label shown above the input field.                                                      |
+| `description` | no       | Helper text rendered under the label. Optional.                                                |
+| `type`        | no       | `"text"` (plain row) or `"secret"` (masked, uses the password-input widget). Default `"text"`. |
+
+The TUI prompts for each input in declared order. `secret` fields
+reuse the password-input widget (Tab to peek, no length minimum
+for action inputs, no confirmation step).
+
+**Transport into the action's process** depends on the action's
+flavor:
+
+- **`command:` action** → each input becomes an env var on the
+  spawned `bash -c` process, named `NIXBLITZ_INPUT_<NAME_UPPER>`.
+  Read it directly in your script:
+
+  ```bash
+  echo "got authkey: $NIXBLITZ_INPUT_AUTHKEY" >&2
+  ```
+
+- **`unit:` action** → the TUI writes the inputs to a transient
+  EnvironmentFile at `/run/nixblitz/<unit-stem>-input.env` via
+  sudo (mode 600, root-owned) right before
+  `systemctl start --wait`, and deletes it after the unit exits.
+  Your unit declares `EnvironmentFile=-` pointing at the same
+  path and reads the same env-var names:
+
+  ```nix
+  systemd.services.tailscale-connect-preauth = {
+    serviceConfig = {
+      Type = "oneshot";
+      EnvironmentFile = "-/run/nixblitz/tailscale-connect-preauth-input.env";
+    };
+    script = ''
+      if [ -z "''${NIXBLITZ_INPUT_AUTHKEY:-}" ]; then
+        echo "no auth key provided" >&2
+        exit 1
+      fi
+      ${pkgs.tailscale}/bin/tailscale up \
+        --authkey="''${NIXBLITZ_INPUT_AUTHKEY}"
+    '';
+  };
+  ```
+
+  The leading `-` on `EnvironmentFile` matters: it keeps the unit
+  valid when the file is absent (the operator might
+  `systemctl start` the unit without going through the TUI, in
+  which case there's no env file and the unit should fail
+  cleanly with the "no value" message, not refuse to start).
+
+Inputs are never on the command line (so `ps -ef` doesn't see
+them) and never written to `config.json`. They live in
+`PluginActionRunner`'s in-memory map for the duration of the run
+and are discarded afterwards.
 
 ### `dashboard` block (optional)
 
@@ -450,10 +551,12 @@ old and new `plugin.nix` so the operator reviews before deploying.
   values come through as `bool`, `string`, `int`, lists. There's
   no Nix interpolation in `pluginCfg` values; treat them as
   inert data.
-- **`auth_key` (or any `secret`) ends up in the store.** Phase 1
-  inlines them into the build. If the operator commits
-  `~/nixblitz/` to a public mirror, secrets leak. Document this
-  in your README.
+- **`secret` config fields end up in the store.** Phase 1 inlines
+  `pluginCfg` values into the build. If the operator commits
+  `~/nixblitz/` to a public mirror, secrets leak. For one-shot
+  values (pre-auth keys, OTPs) prefer an [action
+  input](#action-inputs) — it bypasses `config.json` entirely
+  and is discarded after the action runs.
 - **Tile-state command timeouts.** The polled command runs every
   N seconds with a hard timeout. If it depends on a network call
   set a generous `timeout_seconds` and a shorter explicit
@@ -482,13 +585,15 @@ bespoke integrations), ship from your own repo. The
 Two in-tree plugins exercise everything in this doc:
 
 - [**tailscale**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/tailscale)
-  — secret config field (`auth_key`), tile with state-machine
-  status, autoconnect systemd unit gated on the auth key, no
-  privileged actions.
+  — tile with state-machine status, two privileged `unit:`
+  actions (`connect` with a `secret` input for the one-time
+  pre-auth key, `leave` with a y/N confirm). No persisted
+  secrets: the pre-auth key is consumed once and discarded — the
+  canonical example of the action-inputs pattern.
 - [**lnbits**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/lnbits)
   — `select` config field (`backend`), credential-staging from
   LND's macaroon (the RTL pattern), one privileged `unit:`
-  action (`reset_db`).
+  action (`reset_db`) with a y/N confirm and no inputs.
 
 Read both. Between them they cover ~95% of the patterns you'll
 need; everything else is straightforward NixOS.

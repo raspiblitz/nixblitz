@@ -423,12 +423,14 @@ entry):
 
 - `[c]` Configure — typed-options editor with a sidebar of
   per-service sections
-- `[a]` Apply / `[u]` Update — both land on **System**, which
-  splits read-only **Check** probes from the destructive **Apply**
-  rebuild on a left sidebar
+- `[a]` Apply / `[u]` Update — both land on **System**, whose
+  sidebar splits read-only **Check** probes, destructive **Apply**
+  rebuilds, and **Power** (shutdown / reboot) into three sections
 - `[D]` Debug — service health, log tail, regtest helpers
 - `[?]` Help
-- `[q]` Quit
+- `[q]` Quit — during an in-flight Apply / Update / sudo prompt,
+  the first `q` arms a 3-second confirm window and shows a
+  banner; second `q` actually quits
 
 Walk through Configure for a moment. Use `j`/`k` (or `↑`/`↓`) to move
 through the sidebar's sections; `Enter` (or `l` / `→`) focuses the
@@ -443,11 +445,21 @@ That's the loop: edit → diff → apply.
 
 After a few hours the node tile's `system updates` row populates
 once the periodic check timer (`nixblitz-check-light.timer`) has
-run. The status badge folds that count into the same `<n> to apply`
-indicator — there's nothing else to learn. Trigger a check on
-demand from inside the TUI via **System → Check → Simple check**
-(or **Heavy check** for the full `nvd diff`), or from any shell
-with `nixblitz check light` / `nixblitz check heavy`.
+run. The status badge folds that count — along with any pending
+config edits and any `unapplied rebuild` from a previous Apply
+that crashed before completing — into the same `<n> to apply`
+indicator. Trigger a check on demand from inside the TUI via
+**System → Check → Simple check** (or **Heavy check** for the
+full `nvd diff`), or from any shell with `nixblitz check light`
+/ `nixblitz check heavy`.
+
+The Heavy check probes the cache first via `nix build --dry-run`
+and only runs `nvd diff` when every path is substitutable; if any
+derivation would need a local compile the check bails out before
+realising the toplevel (to spare a Pi 5 from a multi-hour rustc
+storm) and surfaces the would-build list under **View packages
+to compile** — `[v]` from anywhere in the Check section is the
+shortcut into the same viewer.
 
 ## 7. Access the running node
 
@@ -467,6 +479,9 @@ Inside the box you have:
 
 ## What's next
 
+- [Updates](/docs/updates) — how to keep the node updated without
+  surprises (which key to press, what the badge means, what the
+  Pi 5's compile-storm warning is, how rollback works).
 - [Architecture](/docs/architecture) — the layout, the
   config-as-source-of-truth model, and the few Nix concepts
   you'll meet.

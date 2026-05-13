@@ -23,7 +23,7 @@ Three layers, each with one job:
 ┌─────────────────────────────────────────────────────────────┐
 │  Dart TUI                                                   │
 │  - Renders dashboard / configure / system / debug           │
-│    (system splits read-only Check + destructive Apply)      │
+│    (system splits Check / Apply / Power on a sidebar)       │
 │  - Reads + writes ~/nixblitz/config.json                    │
 │  - Runs `nixos-rebuild switch` to deploy changes            │
 └────────────────────────────┬────────────────────────────────┘
@@ -115,6 +115,30 @@ Rollback: `git revert <apply-commit>` then re-Apply. NixOS
 generations also stick around — `sudo nixos-rebuild switch
 --rollback` reverts to the previous one even without the TUI.
 
+### Tracking "committed but not applied"
+
+Apply commits before the rebuild runs (so the rebuild has a stable
+commit to point at). If the operator quits between the commit and
+`nixos-rebuild` exit-0 — `q` instead of `a`, OOM mid-build, SSH
+drop — HEAD ends up one commit past `/run/current-system` with no
+breadcrumb in the working tree.
+
+To make that state visible:
+
+- After every successful rebuild, the TUI writes
+  `~/.local/state/nixblitz/last-applied.json` (HEAD sha + active
+  toplevel + flake attr).
+- On launch, the dashboard compares that record against
+  `git rev-parse HEAD`. When they differ, the node tile sprouts
+  an `unapplied rebuild` row + the badge counts it as pending.
+  Opening **System → Apply** + hitting `[a]` resolves it (nothing
+  to commit, just a rebuild).
+- During an in-flight Apply / Update, the global `[q]` quit
+  shortcut arms a 3-second window and shows a banner instead of
+  exiting immediately. Second `q` quits; any other key cancels
+  the arm. Prevents the original fat-finger that motivated the
+  whole tracking story.
+
 ## Sudo posture
 
 The installed system uses NixOS's default
@@ -133,16 +157,64 @@ Live-ISO context keeps `wheelNeedsPassword = false` via a separate
 host module, since install runs before any admin password could
 exist.
 
+## The update model
+
+> For the day-to-day operator flow ("which key do I press, what do
+> I see, what if it breaks?"), read [Updates](/docs/updates). This
+> section is the under-the-hood story for readers who want the
+> Nix-shaped model.
+
+The verb "update" covers two things that are fused on Debian-shaped
+distros but stay separate here:
+
+```
+   upstream HEAD ──┐
+                   │ light check probes (passive)
+                   ▼
+              flake.lock ──┐
+                           │ heavy check probes; Apply realises
+                           ▼
+                   /run/current-system
+```
+
+- **`nix flake update`** — bump `flake.lock` to match upstream HEAD.
+  Wraps as **Update entire system** (or **Update TUI only** /
+  per-plugin variants) in the TUI. A git commit; nothing on the
+  running system changes yet.
+- **`nixos-rebuild switch`** — build the closure declared by
+  `flake.lock` + `config.json` and activate it. Wraps as **Apply**.
+  The lock isn't touched here, just realised against.
+
+Either step can lag the other:
+
+| What lags                         | Detected by              | Resolved by              |
+| --------------------------------- | ------------------------ | ------------------------ |
+| Working tree dirty (config edits) | `git status` on launch   | Apply                    |
+| `flake.lock` behind upstream      | Simple check (light)     | Update entire system     |
+| `/run/current-system` behind HEAD | `last-applied.json` diff | Apply (no commit needed) |
+
+The `X to apply` badge sums all three. None of the probes mutate the
+system — they write status JSON, the operator initiates every actual
+change.
+
+Two checks, two questions: **light** answers _"has upstream moved?"_
+via HTTP API calls (~kB transfer). **heavy** answers _"what would
+change if we rebuilt now?"_ via `nix build --dry-run` against the
+would-be-built toplevel — emitting either an `nvd diff` of package
+version changes (fast path, every store path substitutable) or a
+would-build list of derivations that aren't (slow path, would
+compile locally).
+
 ## Periodic update checks
 
 Two systemd timers run on the installed system to surface
 pending upstream bumps on the dashboard without the operator
 having to trigger a check by hand:
 
-| Timer                        | Cadence | What it does                                                                                                                           |
-| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `nixblitz-check-light.timer` | daily   | Calls each flake input's upstream API (GitHub / Forgejo) for the branch HEAD; compares to our locked rev. ~5 HTTP calls, ~kB transfer. |
-| `nixblitz-check-heavy.timer` | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix eval` + `nvd diff` there. ~125 MB tarball fetch + 30-60s eval.        |
+| Timer                        | Cadence | What it does                                                                                                                                                                                |
+| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nixblitz-check-light.timer` | daily   | Calls each flake input's upstream API (GitHub / Forgejo) for the branch HEAD; compares to our locked rev. ~5 HTTP calls, ~kB transfer.                                                      |
+| `nixblitz-check-heavy.timer` | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix build --dry-run`. If every store path is substitutable, realises the toplevel and runs `nvd diff` for a per-package delta. |
 
 Both run as `User=admin` and write to
 `/var/lib/nixblitz-tui/update-status.json`. The TUI's node tile
@@ -150,6 +222,17 @@ reads this file on every render and folds the result into the
 `system updates` row + the `<n> to apply` status badge — no
 separate banner, just one count that means "there's stuff to
 deploy."
+
+The heavy check's dry-run-first shape is a recent (and load-
+bearing) refinement: realising the toplevel just to render a diff
+used to peg all 4 cores on the Pi 5 for hours when a single
+derivation was cache-miss (rustc storms with `page-size-16k`
+jemalloc rebuilds were the worst offender). The check now bails
+out before that happens, records the would-build derivation
+names on `HeavyCheck.wouldBuild`, and the TUI surfaces "N need
+compile" + a drill-in viewer (Configure → System → Check → View
+packages to compile) so the operator picks the moment to start
+the actual compile via System → Apply.
 
 The CLI verbs the timers wrap are also exposed for ad-hoc use:
 `nixblitz check light` and `nixblitz check heavy`. Inside the TUI,

@@ -52,8 +52,12 @@ class HomePage extends StatelessComponent {
         title: 'the tui',
         text: const _TuiBody(),
         media: const _Screenshot(
-          src: '/screenshots/dashboard.png',
-          alt: 'The dashboard view: header, tile grid, footer keybind hints.',
+          src: '/screenshots/2026-05-13-dashboard.png',
+          alt:
+              'The dashboard view: header with node alias and pending count, '
+              'tile grid with node summary, hardware, system services, '
+              'Bitcoin Core, Lightning, LNBits, Tailscale, and a footer '
+              'with keybind hints.',
           caption: 'Dashboard — the home screen after first-boot setup.',
         ),
       ),
@@ -62,19 +66,31 @@ class HomePage extends StatelessComponent {
         title: 'configure → apply',
         text: const _ConfigureApplyBody(),
         media: const _Screenshot(
-          src: '/screenshots/configuration_menu.png',
-          alt: 'The Configure view: tabs across services, editable rows.',
+          src: '/screenshots/2026-05-13-configuration-menu.png',
+          alt:
+              'The Configure view: left sidebar lists System and each '
+              'installed app (Bitcoin Core, Blitz API, LNBits, LND, '
+              'Tailscale, Plugins); right pane shows the selected '
+              'section\'s editable rows.',
           caption: 'Configure — edit values; apply commits and rebuilds.',
         ),
       ),
       _section(
-        anchor: 'update',
-        title: 'update menu',
+        anchor: 'system',
+        title: 'system menu',
         text: const _UpdateBody(),
         media: const _Screenshot(
-          src: '/screenshots/update_menu.png',
-          alt: 'The Update view: lists available upstream updates.',
-          caption: 'Update — pull TUI, flake, and plugin updates.',
+          src: '/screenshots/2026-05-13-system-update-menu.png',
+          alt:
+              'The System view: sidebar splits Check / Apply / Power; '
+              'the Check pane shows a "Last check" status panel with '
+              'flake inputs, plugin updates, and a "108 need compile" '
+              'system-closure signal, plus the action list (Simple '
+              'check, Heavy check, View packages to compile, Plugins '
+              'check).',
+          caption:
+              'System — read-only checks, destructive applies, and '
+              'shutdown / reboot on a single sidebar.',
         ),
       ),
       _section(
@@ -82,8 +98,12 @@ class HomePage extends StatelessComponent {
         title: 'debug menu',
         text: const _DebugBody(),
         media: const _Screenshot(
-          src: '/screenshots/debug_menu.png',
-          alt: 'The Debug view: service health, log tail, regtest helpers.',
+          src: '/screenshots/2026-05-13-debug-menu.png',
+          alt:
+              'The Debug view: action list for service health, API '
+              'login password, unit log tailing, regtest block '
+              'generation, and the Test-LN helpers (status / fund '
+              'wallets / open channel / pay self-invoice).',
           caption: 'Debug — service health and regtest helpers.',
         ),
       ),
@@ -467,9 +487,10 @@ class _UpdateBody extends StatelessComponent {
     return div([
       p(classes: 'mb-3', [
         Component.text(
-          'Press `[u]` from the dashboard. The Update view pulls upstream HEAD '
-          'for each flake input (nixpkgs, nix-bitcoin, etc.), shows what would '
-          'change, and offers a single rebuild step.',
+          'Press `[a]` (Apply) or `[u]` (Update) from the dashboard. Both '
+          'land on the System view, whose sidebar splits read-only Check '
+          'probes, destructive Apply / Update rebuilds, and Power '
+          '(shutdown / reboot) into three sections.',
         ),
       ]),
       ul(classes: 'space-y-2', [
@@ -480,7 +501,10 @@ class _UpdateBody extends StatelessComponent {
         ]),
         li([
           Component.text(
-            'Weekly heavy check evaluates the new system + runs `nvd diff` for a per-package version delta.',
+            'Weekly heavy check probes the cache via `nix build --dry-run`; '
+            'runs `nvd diff` for a per-package version delta when every path '
+            'is substitutable, otherwise reports a would-build list so a '
+            'compile-needed rebuild doesn\'t catch you by surprise.',
           ),
         ]),
         li([
