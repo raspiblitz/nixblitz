@@ -4,9 +4,12 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/update_status.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
+import 'package:common/src/services/system_service.dart'
+    show rebuildAttributeFor;
 
 /// Periodic update-availability checker, invoked by systemd timers
 /// via the `nixblitz check {light|heavy}` subcommands.
@@ -57,6 +60,25 @@ class UpdateCheckService {
     } catch (e, st) {
       LogService.error('UpdateCheckService: marker discovery failed', e, st);
       return const [];
+    }
+  }
+
+  /// Read `system.platform` from the on-disk `config.json`. Falls
+  /// back to `'x86'` on any I/O or parse error — that's also the
+  /// hardcoded default of `SystemConfig.defaults()`, so a missing
+  /// file makes the dry-run target match what a fresh-install
+  /// `nixos-rebuild switch` would pick.
+  String _readPlatform() {
+    try {
+      final f = File('$flakePath/config.json');
+      if (!f.existsSync()) return 'x86';
+      final raw = f.readAsStringSync();
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return NixblitzConfig.fromJson(json).system.platform;
+    } catch (e, st) {
+      LogService.warn('UpdateCheckService: platform read failed, default x86');
+      LogService.error('platform read trace', e, st);
+      return 'x86';
     }
   }
 
@@ -194,6 +216,7 @@ class UpdateCheckService {
 
       // Copy just enough for an eval: flake.{nix,lock}, hosts/,
       // modules/, plugins/, hardware-configuration.nix, config.json.
+      stdout.writeln('• copying flake to ${tmp.path}');
       final cp = await Process.run('cp', ['-aT', flakePath, tmpFlake]);
       if (cp.exitCode != 0) {
         _merge(
@@ -207,7 +230,25 @@ class UpdateCheckService {
       }
 
       // 1. flake update.
+      //
+      // `--accept-flake-config` is critical here AND in the build
+      // steps below. nixos-raspberrypi's flake declares its
+      // `extra-substituters = ["https://nixos-raspberrypi.cachix.org"]`
+      // via `nixConfig`, and Nix only honours nixConfig from a
+      // flake whose path has been "accepted" by the user. The
+      // operator's `~/nixblitz` is accepted (typically via the
+      // first `nixos-rebuild switch` they ran), but our tmpdir
+      // copy is a different path so the acceptance doesn't apply
+      // there — without this flag, dry-run runs WITHOUT the Pi
+      // cache as a substituter and reports every page-size-16k
+      // jemalloc-affected derivation as "will be built". On the
+      // real `nixos-rebuild switch` those same paths fetch from
+      // cache and only the operator's truly out-of-cache packages
+      // compile. We hit this with a 108-vs-1 discrepancy that
+      // took a while to track down.
+      stdout.writeln('• nix flake update');
       final upd = await Process.run('nix', [
+        '--accept-flake-config',
         'flake',
         'update',
       ], workingDirectory: tmpFlake);
@@ -224,16 +265,93 @@ class UpdateCheckService {
         return 1;
       }
 
-      // 2. build new toplevel — realizes the derivation in the
-      // store (mostly via binary-cache substitution) so nvd diff
-      // can introspect it. `nix eval --raw` would only return a
-      // hash-predicted path that doesn't exist on disk yet, and
-      // nvd would fail with "Path does not exist".
+      // 2. dry-run probe — ask Nix what *would* happen if we built
+      // the new toplevel: which paths come from cache (free) vs.
+      // which need to be compiled locally (expensive). `nvd diff`
+      // needs realised paths, so we can't *just* dry-run when the
+      // operator wants a per-package version delta; but if anything
+      // would need a local build, we bail before the CPU storm
+      // (rustc, llvm, etc. on aarch64 with no cache hits can pin
+      // all cores for hours — see the heavy-check bail in #N/A).
+      // The operator sees the would-build list, decides whether to
+      // wait, then triggers the actual build via System → Apply.
+      // Per-platform attribute. On the Pi, `nixblitz` evaluates to
+      // the x86_64-linux toplevel — which an aarch64 daemon can't
+      // substitute or build, so every derivation in its closure
+      // surfaces as "will be built" (we hit a 108-vs-1 discrepancy
+      // against the real `nixos-rebuild switch`, which uses the
+      // correct per-platform attr). Read the operator's
+      // `config.json` to pick the matching attribute the way
+      // `apply_view._continueApply` does.
+      final platform = _readPlatform();
+      final attrName = rebuildAttributeFor(platform);
+      final attr =
+          '$tmpFlake#nixosConfigurations.$attrName.config.system.build.toplevel';
+      LogService.info(
+        'UpdateCheckService.runHeavy: platform=$platform attr=$attrName',
+      );
+      stdout.writeln('• nix build --dry-run (probing cache)');
+      final dry = await Process.run('nix', [
+        '--accept-flake-config',
+        'build',
+        '--dry-run',
+        '--no-link',
+        attr,
+      ], workingDirectory: tmpFlake);
+      if (dry.exitCode != 0) {
+        _merge(
+          HeavyCheck(
+            checkedAt: now,
+            ok: false,
+            error:
+                'nix build --dry-run failed: '
+                '${(dry.stderr as String).trim()}',
+          ),
+        );
+        return 1;
+      }
+      final plan = parseDryRunStderr(dry.stderr as String);
+      if (plan.wouldBuild.isNotEmpty) {
+        stdout.writeln(
+          '! ${plan.wouldBuild.length} package(s) would need local compile:',
+        );
+        // Cap the printed list so a runaway dependency tree doesn't
+        // flood the runningCheck pane; the full list lives on
+        // HeavyCheck.wouldBuild and the TUI's Status panel surfaces
+        // the count.
+        for (final name in plan.wouldBuild.take(20)) {
+          stdout.writeln('    $name');
+        }
+        if (plan.wouldBuild.length > 20) {
+          stdout.writeln('    … (${plan.wouldBuild.length - 20} more)');
+        }
+        stdout.writeln('  skipping nvd diff — Apply when ready to compile.');
+        // Cache miss — local build needed. Don't realise the
+        // toplevel just to render a diff; doing so on aarch64 can
+        // take hours and that's exactly the spike we're trying to
+        // suppress in the background check. The TUI will surface
+        // the would-build names so the operator can decide.
+        _merge(
+          HeavyCheck(checkedAt: now, ok: true, wouldBuild: plan.wouldBuild),
+        );
+        return 0;
+      }
+
+      // 3. realise the toplevel. We only get here when dry-run says
+      // every path is substitutable, so this is bounded by network
+      // throughput, not CPU. `nix eval --raw` would skip the
+      // download entirely but then nvd can't introspect the store
+      // path; the realise step is the cost of a useful diff.
+      stdout.writeln(
+        '• ${plan.wouldFetch.length} path(s) will be fetched from cache',
+      );
+      stdout.writeln('• nix build (substitute-only)');
       final eval = await Process.run('nix', [
+        '--accept-flake-config',
         'build',
         '--no-link',
         '--print-out-paths',
-        '$tmpFlake#nixosConfigurations.nixblitz.config.system.build.toplevel',
+        attr,
       ], workingDirectory: tmpFlake);
       if (eval.exitCode != 0) {
         _merge(
@@ -257,7 +375,7 @@ class UpdateCheckService {
         return 1;
       }
 
-      // 3. compare to current.
+      // 4. compare to current.
       final readlink = await Process.run('readlink', [
         '-f',
         '/run/current-system',
@@ -268,7 +386,7 @@ class UpdateCheckService {
         return 0;
       }
 
-      // 4. nvd diff.
+      // 5. nvd diff.
       try {
         final nvd = await Process.run('nvd', [
           'diff',
@@ -556,6 +674,99 @@ class UpdateCheckService {
   void close() {
     _http.close();
   }
+}
+
+/// Result of parsing `nix build --dry-run` stderr. Both lists hold
+/// short derivation names ("the readable part" of
+/// `/nix/store/HASH-NAME.drv` — e.g. `rustc-1.87.0`) so the UI can
+/// show a compact summary without dragging store hashes around.
+/// Lists are alphabetically sorted for stability.
+class NixBuildPlan {
+  const NixBuildPlan({required this.wouldBuild, required this.wouldFetch});
+
+  /// Paths that would be compiled locally (cache miss / non-
+  /// substitutable). Non-empty list = "huge update incoming."
+  final List<String> wouldBuild;
+
+  /// Paths that would be downloaded from a binary cache. Surfaced
+  /// for completeness; not currently used by the TUI gating logic.
+  final List<String> wouldFetch;
+}
+
+/// Parse the stderr output of `nix build --dry-run` into a
+/// [NixBuildPlan]. Nix prints two stanzas when there's work to do:
+///
+/// ```
+/// these 3 derivations will be built:
+///   /nix/store/abc-rustc-1.87.0.drv
+///   ...
+/// these 12 paths will be fetched (456 MB):
+///   /nix/store/xyz-foo.drv
+///   ...
+/// ```
+///
+/// Either stanza may be absent (or both — `noChanges`). Parsing is
+/// lenient: unknown lines are ignored, and we only key off the
+/// leading whitespace + `/nix/store/` marker for the path lines.
+/// Singular `derivation` / `path` variants are accepted.
+NixBuildPlan parseDryRunStderr(String stderr) {
+  final lines = const LineSplitter().convert(stderr);
+  final built = <String>[];
+  final fetched = <String>[];
+  // 0 = looking for a header; 1 = inside builds; 2 = inside fetches.
+  var section = 0;
+  for (final raw in lines) {
+    final line = raw.trimRight();
+    final t = line.trimLeft();
+    // Stanza headers — match both "this/these N derivation(s) will
+    // be built:" and the fetch counterpart.
+    final builtRe = RegExp(
+      r'^(?:this|these).*derivations? will be built:',
+      caseSensitive: false,
+    );
+    final fetchRe = RegExp(
+      r'^(?:this|these).*paths? will be fetched',
+      caseSensitive: false,
+    );
+    if (builtRe.hasMatch(t)) {
+      section = 1;
+      continue;
+    }
+    if (fetchRe.hasMatch(t)) {
+      section = 2;
+      continue;
+    }
+    // Path lines: indented + start with /nix/store/. A blank line
+    // or any other unindented line ends the current section.
+    if (section != 0 && t.startsWith('/nix/store/')) {
+      final name = _derivationShortName(t);
+      if (section == 1) {
+        built.add(name);
+      } else {
+        fetched.add(name);
+      }
+    } else if (line.isEmpty || !line.startsWith(' ')) {
+      section = 0;
+    }
+  }
+  built.sort();
+  fetched.sort();
+  return NixBuildPlan(wouldBuild: built, wouldFetch: fetched);
+}
+
+/// Strip `/nix/store/<hash>-` prefix and the trailing `.drv` from a
+/// store path so the UI shows `rustc-1.87.0` instead of
+/// `/nix/store/abc123…-rustc-1.87.0.drv`. Returns the input
+/// unchanged when the shape doesn't match — defensive against
+/// hypothetical future Nix output changes.
+String _derivationShortName(String storePath) {
+  final m = RegExp(r'^/nix/store/[^-]+-(.+)$').firstMatch(storePath);
+  if (m == null) return storePath;
+  var name = m.group(1)!;
+  if (name.endsWith('.drv')) {
+    name = name.substring(0, name.length - 4);
+  }
+  return name;
 }
 
 /// Record of a flake input we know how to query upstream against.

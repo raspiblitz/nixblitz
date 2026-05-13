@@ -25,9 +25,35 @@ class CachedPackageDiff extends StatelessComponent {
   Component build(BuildContext context) {
     final status = readUpdateStatus();
     final heavy = status.heavy;
-    final diffText = heavy?.diffText ?? '';
-    final lines = diffText.split('\n');
     final ago = heavy != null ? humanizeAge(heavy.checkedAt) : 'unknown';
+
+    // Two body shapes share the same viewer: a populated nvd diff
+    // (substitute-only path) or a "would-build" list (compile-needed
+    // path). The viewer chooses based on what the heavy check
+    // recorded — diffText takes precedence so that, if both were
+    // ever present, the operator still sees the more informative
+    // nvd output.
+    final compileNeeded =
+        heavy != null && heavy.diffText.trim().isEmpty && heavy.compileNeeded;
+    final String title;
+    final List<String> lines;
+    final Color? Function(String)? lineColor;
+    if (compileNeeded) {
+      title = 'Packages needing local compile — checked $ago';
+      lines = [
+        '${heavy.wouldBuild.length} derivation${heavy.wouldBuild.length == 1 ? "" : "s"} '
+            'have no binary-cache substitute and would need to be built locally.',
+        'Trigger the build via System → Apply when you have time — on a Pi 5',
+        'a fresh rustc storm can take several hours.',
+        '',
+        ...heavy.wouldBuild,
+      ];
+      lineColor = null;
+    } else {
+      title = 'Cached package diff — checked $ago';
+      lines = (heavy?.diffText ?? '').split('\n');
+      lineColor = nvdLineColor;
+    }
 
     return Focusable(
       focused: true,
@@ -60,7 +86,7 @@ class CachedPackageDiff extends StatelessComponent {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Cached package diff — checked $ago',
+              title,
               style: const TextStyle(
                 color: Color.fromRGB(247, 147, 26),
                 fontWeight: FontWeight.bold,
@@ -70,7 +96,7 @@ class CachedPackageDiff extends StatelessComponent {
             Expanded(
               child: ScrollableLog(
                 lines: lines,
-                lineColor: nvdLineColor,
+                lineColor: lineColor,
                 focused: true,
               ),
             ),

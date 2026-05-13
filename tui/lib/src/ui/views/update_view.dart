@@ -1103,9 +1103,15 @@ class _UpdateViewState extends State<UpdateView> {
         status,
         liveInputsAhead: liveInputsAhead,
       );
-      final heavyValue = hasDiff
-          ? '${countDiffChanges(heavy.diffText)} changes pending'
-          : 'no system changes';
+      final String heavyValue;
+      if (heavy.compileNeeded) {
+        final n = heavy.wouldBuild.length;
+        heavyValue = n == 1 ? '1 needs compile' : '$n need compile';
+      } else if (hasDiff) {
+        heavyValue = '${countDiffChanges(heavy.diffText)} changes pending';
+      } else {
+        heavyValue = 'no system changes';
+      }
       children.add(
         _statusRow(
           label: 'system closure',

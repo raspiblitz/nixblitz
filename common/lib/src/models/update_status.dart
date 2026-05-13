@@ -222,18 +222,24 @@ class HeavyCheck {
     this.error,
     this.diffText = '',
     this.noChanges = false,
+    this.wouldBuild = const [],
   });
 
   final DateTime checkedAt;
 
-  /// True when the eval + nvd run completed cleanly. False ⇒ the
-  /// new lock would not build (eval failure) — see [error].
+  /// True when the eval (+ nvd diff, when reached) completed
+  /// cleanly. False ⇒ the new lock would not even evaluate — see
+  /// [error]. NOTE: a heavy check that bailed early because local
+  /// builds would be needed still reports `ok: true` and populates
+  /// [wouldBuild]; "needs compile" is not a failure mode.
   final bool ok;
 
   final String? error;
 
-  /// `nvd diff` output. Empty when [noChanges] is true or [ok] is
-  /// false.
+  /// `nvd diff` output. Empty when [noChanges] is true, [ok] is
+  /// false, or [compileNeeded] is true (in which case the heavy
+  /// check refused to compile derivations just to render a diff —
+  /// the operator triggers the actual build via Apply).
   final String diffText;
 
   /// True when the new toplevel store path matched
@@ -241,12 +247,31 @@ class HeavyCheck {
   /// system didn't change.
   final bool noChanges;
 
+  /// Derivation names (e.g. `rustc-1.87.0`, `cargo-foo-0.1.0`) that
+  /// `nix build --dry-run` reported as "will be built" — i.e. not
+  /// substitutable from any configured binary cache. Non-empty list
+  /// means the heavy check skipped its own `nix build` step to
+  /// avoid pinning the CPU for what's potentially a multi-hour
+  /// compile; the operator decides whether to proceed via
+  /// `nixos-rebuild switch` (System → Apply).
+  ///
+  /// Names are short ("derivation name", the part after the store
+  /// hash) so a list of a few dozen still fits a sensible UI. The
+  /// list is sorted alphabetically for stability across runs.
+  final List<String> wouldBuild;
+
+  /// True when [wouldBuild] is non-empty. Convenience for the UI
+  /// gating logic so callers don't need to remember the
+  /// "empty list = no compile" convention.
+  bool get compileNeeded => wouldBuild.isNotEmpty;
+
   factory HeavyCheck.fromJson(Map<String, dynamic> j) => HeavyCheck(
     checkedAt: DateTime.parse(j['checked_at'] as String),
     ok: j['ok'] as bool? ?? true,
     error: j['error'] as String?,
     diffText: j['diff_text'] as String? ?? '',
     noChanges: j['no_changes'] as bool? ?? false,
+    wouldBuild: (j['would_build'] as List?)?.cast<String>() ?? const <String>[],
   );
 
   Map<String, dynamic> toJson() => {
@@ -255,5 +280,6 @@ class HeavyCheck {
     if (error != null) 'error': error,
     'diff_text': diffText,
     'no_changes': noChanges,
+    if (wouldBuild.isNotEmpty) 'would_build': wouldBuild,
   };
 }

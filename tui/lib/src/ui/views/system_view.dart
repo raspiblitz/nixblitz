@@ -99,11 +99,13 @@ class SystemView extends StatelessComponent {
       status,
       liveInputsAhead: liveInputsAhead,
     );
+    final hasCachedWouldBuild = status.heavy?.compileNeeded ?? false;
     final armedPower = context.watch(_armedPowerActionProvider);
     final powerStatus = context.watch(_powerStatusProvider);
     final actions = _actionsFor(
       section,
       hasCachedDiff: hasCachedDiff,
+      hasCachedWouldBuild: hasCachedWouldBuild,
       armedPower: armedPower,
     );
     final selected = actionIndex.clamp(0, actions.length - 1);
@@ -170,6 +172,21 @@ class SystemView extends StatelessComponent {
             return true;
           }
 
+          // `v` jumps straight to the cached package viewer from
+          // anywhere in the Check section. Matches the existing [v]
+          // shortcut in the Update view's selectMode so muscle memory
+          // carries across — operators don't have to remember which
+          // pane they're on. Gated on something actually being
+          // viewable so a stray `v` on a fresh install doesn't open
+          // an empty pane.
+          if (event.logicalKey == LogicalKey.keyV &&
+              section == SystemSection.check &&
+              (hasCachedDiff || hasCachedWouldBuild)) {
+            context.read(currentViewProvider.notifier).state =
+                AppView.packageDiff;
+            return true;
+          }
+
           // Esc: ascend (content → sidebar, sidebar → dashboard).
           // Always disarms any armed Power action — escaping is a
           // clear "I changed my mind" signal.
@@ -233,8 +250,14 @@ class SystemView extends StatelessComponent {
     );
 
     if (!compact) {
+      // `stretch` so both bordered panes (sidebar + content) fill
+      // the available row height regardless of how much content
+      // they currently render. Without this the content's outer
+      // Container shrinks to fit its body — fine when the action
+      // list overflows, ugly when it fits in half the pane and
+      // the border ends mid-screen.
       return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           sidebar,
           Expanded(child: content),
@@ -266,6 +289,7 @@ class SystemView extends StatelessComponent {
   List<_SystemAction> _actionsFor(
     SystemSection section, {
     bool hasCachedDiff = false,
+    bool hasCachedWouldBuild = false,
     String? armedPower,
   }) => switch (section) {
     SystemSection.check => [
@@ -280,10 +304,14 @@ class SystemView extends StatelessComponent {
       _SystemAction(
         label: 'Heavy check',
         description:
-            'Builds the new system closure off-disk and runs nvd '
-            'diff so you can preview every package change before '
-            'committing. Slow — several minutes — and CPU-heavy. '
-            'Weekly timer runs this in the background.',
+            'Probes the new system closure off-disk via '
+            '`nix build --dry-run` and runs nvd diff when every '
+            'path is substitutable. Bails before realising the '
+            'toplevel if any path would need a local compile so '
+            'the Pi 5 doesn\'t pin all 4 cores for hours; the '
+            'would-build list is reachable via "View packages to '
+            'compile" below. Weekly timer runs this in the '
+            'background.',
         run: (ctx) => runCheckSubprocess(ctx, 'heavy'),
       ),
       if (hasCachedDiff)
@@ -294,6 +322,18 @@ class SystemView extends StatelessComponent {
               '— full-screen, scrollable. No subprocess; reads the '
               'cached diff from update-status.json. Only appears '
               'when a non-empty cached diff exists.',
+          run: (ctx) => ctx.read(currentViewProvider.notifier).state =
+              AppView.packageDiff,
+        ),
+      if (hasCachedWouldBuild)
+        _SystemAction(
+          label: 'View packages to compile',
+          description:
+              'Open the would-build list from the most recent Heavy '
+              'check — derivations that need a local compile because '
+              'no binary-cache substitute is available. Full-screen, '
+              'scrollable. Only appears when the cached check '
+              'reports compile-needed.',
           run: (ctx) => ctx.read(currentViewProvider.notifier).state =
               AppView.packageDiff,
         ),
@@ -554,6 +594,26 @@ class _CheckStatusPanel extends StatelessComponent {
           state: _RowState.unknown,
         ),
       );
+    } else if (heavy.compileNeeded) {
+      // Single-line summary in the value cell, plus an indented
+      // pointer at the action below — the full would-build list
+      // is reachable via "View packages to compile" but that
+      // wasn't obvious from the status panel alone (operators
+      // saw the count and didn't connect it to the trailing
+      // action). Inlining all the names here pushed "Plugins
+      // check" off the bottom of the pane on a Pi-sized terminal,
+      // so the drill-in action stays the primary surface; this
+      // is just signage.
+      final n = heavy.wouldBuild.length;
+      rows.add(
+        _topLevelRow(
+          'system closure',
+          n == 1 ? '1 needs compile' : '$n need compile',
+          humanizeAge(heavy.checkedAt),
+          state: _RowState.ahead,
+        ),
+      );
+      rows.add(_indentedNote('see "View packages to compile" below'));
     } else {
       final noChange = heavy.noChanges || heavy.diffText.trim().isEmpty;
       rows.add(
@@ -763,13 +823,22 @@ class _SystemContentPaneState extends State<_SystemContentPane> {
     SystemSection.power => 2,
   };
 
-  // Each action in compact mode is 1 row (label) + 1 row spacer.
+  // Per-action vertical budget. Unselected actions render only the
+  // label (1 row) + a spacer (1 row) — 2 rows. The currently-
+  // selected action expands to label + ~3 wrapped description rows
+  // + spacer, ~5 rows; the description's true height depends on
+  // pane width so we over-estimate by aiming the scroll target at
+  // the *bottom* of the expanded block. This keeps the description
+  // visible after a `j` step instead of clipping it off the
+  // viewport's bottom edge.
   static const int _rowsPerAction = 2;
+  static const int _selectedExpansion = 4;
 
   void _maybeScrollToSelected() {
     if (_lastSelected == component.selected) return;
     _lastSelected = component.selected;
-    final offset = _headerOffset() + component.selected * _rowsPerAction;
+    final base = _headerOffset() + component.selected * _rowsPerAction;
+    final offset = base + _selectedExpansion;
     // Microtask defer so the scroll happens AFTER the new content
     // layout has settled — otherwise viewportDimension may still
     // reflect the previous frame.
@@ -1003,17 +1072,19 @@ class _ActionRow extends StatelessComponent {
       descColor = columnFocused ? dim : inactive;
     }
 
-    // Drop the long description when the terminal is short —
-    // labels are self-explanatory ("Simple check" / "Reboot" /
-    // etc.) and the extra wrapped lines push the selected row
-    // off-screen on a phone with the on-screen keyboard up. Gate
-    // on HEIGHT (`viewportShortProvider`), not width — a wide-but-
-    // short terminal has the same problem. Danger rows always
-    // keep the warning so the operator sees "Press Enter again to
-    // power off" — that confirmation message isn't redundant with
-    // the label.
-    final short = context.watch(viewportShortProvider);
-    final showDescription = !short || action.danger;
+    // iOS-Settings-style disclosure: only the focused action shows
+    // its description inline. Unselected actions collapse to a
+    // single label row so a long action list (System → Check has
+    // up to 5 rows when both View affordances appear) doesn't
+    // push the trailing entries below the fold on a Pi-sized
+    // terminal. Danger rows always show the description —
+    // "Press Enter again to power off" is a state warning, not
+    // a help blurb, and must stay visible regardless of focus.
+    //
+    // Auto-scroll keeps the selected row + its expanded
+    // description on-screen as the operator moves; see
+    // `_SystemContentPaneState._maybeScrollToSelected`.
+    final showDescription = action.danger || (selected && columnFocused);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

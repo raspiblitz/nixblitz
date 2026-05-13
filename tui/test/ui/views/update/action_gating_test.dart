@@ -57,6 +57,43 @@ void main() {
     });
 
     test(
+      'heavy compileNeeded → entireSystem enabled, subtitle counts builds',
+      () {
+        final status = UpdateStatus(
+          heavy: HeavyCheck(
+            checkedAt: DateTime.utc(2026, 5, 4),
+            ok: true,
+            wouldBuild: const ['rustc-1.87.0', 'cargo-helper-0.1'],
+          ),
+        );
+        final states = computeUpdateActionStates(
+          status,
+          liveInputsAhead: const [],
+          now: DateTime.utc(2026, 5, 4),
+        );
+        expect(states.entireSystem.enabled, isTrue);
+        expect(states.entireSystem.subtitle, contains('2 packages'));
+        expect(states.entireSystem.subtitle, contains('local compile'));
+      },
+    );
+
+    test('heavy compileNeeded singular → "1 package"', () {
+      final status = UpdateStatus(
+        heavy: HeavyCheck(
+          checkedAt: DateTime.utc(2026, 5, 4),
+          ok: true,
+          wouldBuild: const ['rustc-1.87.0'],
+        ),
+      );
+      final states = computeUpdateActionStates(
+        status,
+        liveInputsAhead: const [],
+        now: DateTime.utc(2026, 5, 4),
+      );
+      expect(states.entireSystem.subtitle, contains('1 package needs'));
+    });
+
+    test(
       'heavy stale + light has hits → entireSystem enabled with stale hint',
       () {
         final status = UpdateStatus(

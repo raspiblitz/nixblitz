@@ -202,6 +202,76 @@ void main() {
     });
   });
 
+  group('parseDryRunStderr', () {
+    test('empty input → empty plan', () {
+      final plan = parseDryRunStderr('');
+      expect(plan.wouldBuild, isEmpty);
+      expect(plan.wouldFetch, isEmpty);
+    });
+
+    test('parses both stanzas (build + fetch)', () {
+      const stderr = '''
+warning: ignoring untrusted setting
+these 2 derivations will be built:
+  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-rustc-1.87.0.drv
+  /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-cargo-helper-0.1.drv
+these 3 paths will be fetched (456.00 MiB download, 789.00 MiB unpacked):
+  /nix/store/cccccccccccccccccccccccccccccccc-libfoo-2.3.drv
+  /nix/store/dddddddddddddddddddddddddddddddd-libbar-4.5.drv
+  /nix/store/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-libbaz-6.7.drv
+''';
+      final plan = parseDryRunStderr(stderr);
+      expect(plan.wouldBuild, ['cargo-helper-0.1', 'rustc-1.87.0']);
+      expect(plan.wouldFetch, ['libbar-4.5', 'libbaz-6.7', 'libfoo-2.3']);
+    });
+
+    test('handles singular header variants', () {
+      const stderr = '''
+this derivation will be built:
+  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-only-one.drv
+this path will be fetched (1.00 MiB):
+  /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-other-thing.drv
+''';
+      final plan = parseDryRunStderr(stderr);
+      expect(plan.wouldBuild, ['only-one']);
+      expect(plan.wouldFetch, ['other-thing']);
+    });
+
+    test('blank line ends the section (no spurious cross-pollination)', () {
+      const stderr = '''
+these 1 derivations will be built:
+  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-built.drv
+
+  /nix/store/zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-stray.drv
+these 1 paths will be fetched:
+  /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-fetched.drv
+''';
+      final plan = parseDryRunStderr(stderr);
+      expect(plan.wouldBuild, ['built']);
+      expect(plan.wouldFetch, ['fetched']);
+    });
+
+    test('only-fetch stanza (substitutes-only update)', () {
+      const stderr = '''
+these 2 paths will be fetched (10 MiB):
+  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-foo-1.0.drv
+  /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bar-2.0.drv
+''';
+      final plan = parseDryRunStderr(stderr);
+      expect(plan.wouldBuild, isEmpty);
+      expect(plan.wouldFetch, ['bar-2.0', 'foo-1.0']);
+    });
+
+    test('strips .drv suffix and store hash prefix', () {
+      const stderr = '''
+this derivation will be built:
+  /nix/store/0123456789abcdef0123456789abcdef-some-pkg-with-dashes-9.9.drv
+''';
+      final plan = parseDryRunStderr(stderr);
+      expect(plan.wouldBuild, ['some-pkg-with-dashes-9.9']);
+    });
+  });
+
   group('lockedInputForPlugin', () {
     test('parses github: scheme', () {
       final p = _marker(url: 'github:example/foo', rev: 'a' * 40);

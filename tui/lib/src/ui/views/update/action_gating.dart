@@ -97,6 +97,20 @@ UpdateActionStates computeUpdateActionStates(
       enabled: true,
       subtitle: 'last full check failed: ${_briefError(heavy.error)}',
     );
+  } else if (heavy.compileNeeded) {
+    // Heavy check bailed before realising the toplevel — at least
+    // one path isn't substitutable from a binary cache and would
+    // need a local compile. On aarch64 boards that's often a
+    // multi-hour rustc storm; surface the count so the operator
+    // can pick the moment to start it instead of being surprised
+    // mid-rebuild.
+    final n = heavy.wouldBuild.length;
+    entire = ActionState(
+      enabled: true,
+      subtitle: n == 1
+          ? '1 package needs local compile — Apply when ready'
+          : '$n packages need local compile — Apply when ready',
+    );
   } else if (heavy.noChanges ||
       isHeavyDiffStale(status, liveInputsAhead: liveInputsAhead)) {
     final heavyStale =
