@@ -142,6 +142,26 @@ class _PasswordInputState extends State<PasswordInput> {
             return true;
           }
 
+          // Paste: nocterm synthesises Ctrl+V from bracketed-paste
+          // sequences (terminal_binding.dart:299). Strip newlines so
+          // a copied-with-trailing-newline auth password doesn't
+          // accidentally submit the form on paste.
+          if (event.logicalKey == LogicalKey.keyV && event.modifiers.ctrl) {
+            final pasted = ClipboardManager.paste();
+            if (pasted != null && pasted.isNotEmpty) {
+              final sanitised = pasted.replaceAll(RegExp(r'[\r\n]+'), '');
+              setState(() {
+                if (_confirming) {
+                  _confirm += sanitised;
+                } else {
+                  _password += sanitised;
+                  _mismatch = false;
+                }
+              });
+            }
+            return true;
+          }
+
           final char = event.character;
           if (char != null && char.isNotEmpty) {
             setState(() {

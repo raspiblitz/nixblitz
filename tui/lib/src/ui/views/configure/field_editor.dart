@@ -157,6 +157,17 @@ class _StringFieldEditorState extends State<StringFieldEditor> {
             }
             return true;
           }
+          // Paste: nocterm synthesises Ctrl+V from bracketed paste.
+          // Single-line field, so strip newlines.
+          if (event.logicalKey == LogicalKey.keyV && event.modifiers.ctrl) {
+            final pasted = ClipboardManager.paste();
+            if (pasted != null && pasted.isNotEmpty) {
+              setState(
+                () => _buffer += pasted.replaceAll(RegExp(r'[\r\n]+'), ' '),
+              );
+            }
+            return true;
+          }
           final ch = event.character;
           if (ch != null && ch.length == 1) {
             final code = ch.codeUnitAt(0);
@@ -235,6 +246,17 @@ class _SecretFieldEditorState extends State<SecretFieldEditor> {
               setState(
                 () => _buffer = _buffer.substring(0, _buffer.length - 1),
               );
+            }
+            return true;
+          }
+          // Paste — particularly relevant here: secret fields hold
+          // long auth keys / API tokens the operator copies in from
+          // a manager. Strip whitespace entirely (not just newlines)
+          // because tokens shouldn't contain spaces.
+          if (event.logicalKey == LogicalKey.keyV && event.modifiers.ctrl) {
+            final pasted = ClipboardManager.paste();
+            if (pasted != null && pasted.isNotEmpty) {
+              setState(() => _buffer += pasted.replaceAll(RegExp(r'\s+'), ''));
             }
             return true;
           }
@@ -323,6 +345,17 @@ class _IntFieldEditorState extends State<IntFieldEditor> {
             if (_buffer.isNotEmpty) {
               setState(
                 () => _buffer = _buffer.substring(0, _buffer.length - 1),
+              );
+            }
+            return true;
+          }
+          // Paste — int field, so strip everything that isn't a
+          // digit. A pasted port like "8080\n" becomes "8080".
+          if (event.logicalKey == LogicalKey.keyV && event.modifiers.ctrl) {
+            final pasted = ClipboardManager.paste();
+            if (pasted != null && pasted.isNotEmpty) {
+              setState(
+                () => _buffer += pasted.replaceAll(RegExp(r'[^0-9]'), ''),
               );
             }
             return true;

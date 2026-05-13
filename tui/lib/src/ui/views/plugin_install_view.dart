@@ -203,6 +203,17 @@ class _PluginInstallViewState extends State<PluginInstallView> {
       }
       return true;
     }
+    // Paste: terminal_binding.dart synthesises Ctrl+V from
+    // bracketed-paste sequences. URLs from the clipboard often
+    // arrive with a trailing newline that would otherwise submit
+    // the install on paste — strip whitespace.
+    if (event.logicalKey == LogicalKey.keyV && event.modifiers.ctrl) {
+      final pasted = ClipboardManager.paste();
+      if (pasted != null && pasted.isNotEmpty) {
+        setState(() => _urlBuffer += pasted.trim());
+      }
+      return true;
+    }
     final ch = event.character;
     if (ch != null && ch.length == 1) {
       final code = ch.codeUnitAt(0);

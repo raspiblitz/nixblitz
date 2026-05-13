@@ -1123,6 +1123,16 @@ class _SystemTextOverlayState extends State<_SystemTextOverlay> {
             }
             return true;
           }
+          // Paste — single-line hostname / timezone; strip
+          // whitespace since neither field permits embedded spaces
+          // or newlines.
+          if (event.logicalKey == LogicalKey.keyV && event.modifiers.ctrl) {
+            final pasted = ClipboardManager.paste();
+            if (pasted != null && pasted.isNotEmpty) {
+              setState(() => _buffer += pasted.replaceAll(RegExp(r'\s+'), ''));
+            }
+            return true;
+          }
           final ch = event.character;
           if (ch != null && ch.length == 1) {
             final code = ch.codeUnitAt(0);
