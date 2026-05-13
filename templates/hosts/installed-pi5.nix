@@ -61,4 +61,22 @@
       size = 8 * 1024;
     }
   ];
+
+  # Cap nix-daemon CPU usage so a Pi-local rebuild doesn't peg all
+  # 4 cores and starve bitcoind / lnd / the dashboard tile pollers.
+  # Default `max-jobs = "auto"` (=4 here) + default `cores = 0`
+  # (=all available) means one rustc storm can drive load average
+  # above 8 and slow `tailscale status` polls into timeouts. The
+  # split below leaves the 4th core for everything else:
+  #
+  #   max-jobs = 1  — only one derivation at a time
+  #   cores    = 3  — that derivation can spin up to 3 rustc threads
+  #
+  # Builds take longer in absolute terms, but the node stays
+  # responsive throughout — preferable for a single-board node
+  # that's also serving a live Bitcoin + Lightning stack.
+  nix.settings = {
+    max-jobs = 1;
+    cores = 3;
+  };
 }
