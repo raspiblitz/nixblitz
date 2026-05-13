@@ -19,7 +19,8 @@ void main() {
         // exist in the global scope by then.
         script(src: '/vendor/asciinema-player/asciinema-player.min.js'),
         // Unregister stale ServiceWorkers from earlier PWA experiments to
-        // avoid origin pollution on localhost:8080.
+        // avoid origin pollution on the dev server (localhost:8383, or
+        // whatever port jaspr serve is bound to).
         RawText('''
         <script>
         if ('serviceWorker' in navigator) {

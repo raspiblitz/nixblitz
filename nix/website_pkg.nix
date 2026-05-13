@@ -109,7 +109,15 @@ buildDartApplication {
     # `just web-css` invocation (if any) is overwritten.
     tailwindcss -i web/input.css -o web/styles.css
 
-    packageRun jaspr_cli -e jaspr build -O4
+    # `--dart-define` mirrors the TUI's BUILD_VERSION + BUILD_GIT_HASH
+    # so the website's header right-segment shows the same
+    # "v0.1.0-abc1234" string the TUI does — operators can confirm at
+    # a glance which build the site was rendered from. The values
+    # land via website/lib/build_info.dart's String.fromEnvironment
+    # constants, identical pattern to tui/lib/src/build_info.dart.
+    packageRun jaspr_cli -e jaspr build -O4 \
+      --dart-define=BUILD_VERSION=${version} \
+      --dart-define=BUILD_GIT_HASH=${gitHash}
 
     runHook postBuild
   '';

@@ -97,10 +97,16 @@ web-css-watch:
   #!/usr/bin/env nu
   cd website; tailwindcss -i web/input.css -o web/styles.css --watch
 
-# Serve the website locally with hot reload (http://localhost:8080)
+# Serve the website locally with hot reload (http://localhost:8383)
+# Passes BUILD_VERSION + BUILD_GIT_HASH the same way `nix build .#website`
+# does so the header version string shows real git context during dev.
 web-serve: web-css
   #!/usr/bin/env nu
-  cd website; jaspr serve
+  let hash = (git rev-parse --short=7 HEAD | str trim)
+  let dirty = ((git status --porcelain | str length) > 0)
+  let tagged = (if $dirty { $"($hash)-dirty" } else { $hash })
+  cd website
+  jaspr serve --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged)
 
 # Build the website via Nix (output symlink: ./result/)
 web-build:
@@ -109,12 +115,16 @@ web-build:
 # Build the website locally with `jaspr` on PATH (faster dev iteration; output: website/build/jaspr/)
 web-build-local: web-css
   #!/usr/bin/env nu
-  cd website; jaspr build -O4
+  let hash = (git rev-parse --short=7 HEAD | str trim)
+  let dirty = ((git status --porcelain | str length) > 0)
+  let tagged = (if $dirty { $"($hash)-dirty" } else { $hash })
+  cd website
+  jaspr build -O4 --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged)
 
-# Serve the Nix-built bundle on http://localhost:8082
+# Serve the Nix-built bundle on http://localhost:8383
 web-serve-prod: web-build
   #!/usr/bin/env nu
-  cd result; python3 -m http.server 8082
+  cd result; python3 -m http.server 8383
 
 # Clean local build artifacts (nix-built ./result/ is unaffected)
 web-clean:

@@ -138,7 +138,7 @@ The patch is upstreamable; once it lands at
 
 ```bash
 just web-css-watch      # one terminal: Tailwind in watch mode
-just web-serve          # another terminal: jaspr serve, hot reload, http://localhost:8080
+just web-serve          # another terminal: jaspr serve, hot reload, http://localhost:8383
 ```
 
 Edit anything under `lib/`, `content/`, or `web/`. Tailwind recompiles

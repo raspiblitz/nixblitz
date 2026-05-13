@@ -25,5 +25,9 @@ dev_dependencies:
 
 jaspr:
   mode: static
+  # 8080 collides with the operator's other dev work too often. 8383
+  # is unassigned in IANA's well-known list and rare in the wild,
+  # so `just web-serve` doesn't fight whatever else is on 8080.
+  port: 8383
 
 resolution: workspace

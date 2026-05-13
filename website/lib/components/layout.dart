@@ -1,10 +1,7 @@
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
 
-/// Static version slug shown in the right-hand header segment. Bumped by
-/// hand at release time; matches the `<repo>` tag the public site is
-/// built from.
-const _kVersion = 'v0.1.0';
+import '../build_info.dart';
 
 /// Forge URL the `[r] Repo` keybind opens.
 const _kRepoUrl = 'https://forge.f44.fyi/f44/nixblitz_ng';
@@ -36,7 +33,7 @@ class NavBar extends StatelessComponent {
         div(classes: 'tui-breadcrumb', [
           Component.text(_breadcrumb(currentPath)),
         ]),
-        div(classes: 'tui-version', [Component.text(_kVersion)]),
+        div(classes: 'tui-version', [Component.text(buildVersionString)]),
       ]),
       nav(classes: 'tui-keybind-nav', [
         for (final item in _navItems) _keybindLink(item, currentPath),
