@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/services/log_service.dart';
@@ -40,15 +42,26 @@ class PluginActionRunner {
   /// `/run/wrappers/bin` — setuid wrappers.
   static const _systemPath = '/run/current-system/sw/bin:/run/wrappers/bin';
 
-  ({Stream<String> output, Future<int> exitCode}) run(PluginAction action) {
+  /// Run [action]. [inputs] holds operator-supplied values keyed by
+  /// [PluginActionInput.name] — they're transported to the spawned
+  /// process as env vars (`command:`) or via a transient
+  /// EnvironmentFile under `/run/nixblitz/` (`unit:`). Missing inputs
+  /// arrive as empty strings; the runner does not validate against
+  /// the action's declared `inputs` list (the TUI's prompt UI is
+  /// responsible for that).
+  ({Stream<String> output, Future<int> exitCode}) run(
+    PluginAction action, {
+    Map<String, String> inputs = const {},
+  }) {
     if (action.unit != null) {
-      return _runUnit(action);
+      return _runUnit(action, inputs);
     }
-    return _runCommand(action);
+    return _runCommand(action, inputs);
   }
 
   ({Stream<String> output, Future<int> exitCode}) _runCommand(
     PluginAction action,
+    Map<String, String> inputs,
   ) {
     final controller = StreamController<String>();
 
@@ -59,9 +72,23 @@ class PluginActionRunner {
 
       controller.add('> bash -c "${action.command}"\n');
 
+      // Inherit the parent env, then layer the operator-supplied
+      // inputs on top as NIXBLITZ_INPUT_<NAME>. Plugins read these
+      // from inside their script — they never appear on the command
+      // line (so `ps -ef` doesn't leak secrets) or in our log
+      // output (we never echo the values).
+      final env = {
+        ...Platform.environment,
+        for (final input in action.inputs)
+          input.envVarName: inputs[input.name] ?? '',
+      };
+
       Process process;
       try {
-        process = await Process.start('bash', ['-c', wrappedCommand]);
+        process = await Process.start('bash', [
+          '-c',
+          wrappedCommand,
+        ], environment: env);
       } catch (e, st) {
         LogService.error(
           'PluginActionRunner: spawn failed for ${action.label}',
@@ -132,6 +159,7 @@ class PluginActionRunner {
   /// and the action surfaces as failed.
   ({Stream<String> output, Future<int> exitCode}) _runUnit(
     PluginAction action,
+    Map<String, String> inputs,
   ) {
     final controller = StreamController<String>();
     final unit = action.unit!;
@@ -141,6 +169,31 @@ class PluginActionRunner {
       // 2-second backdate so journalctl picks up startup messages
       // emitted right at the unit-start moment.
       final sinceUnix = (DateTime.now().millisecondsSinceEpoch ~/ 1000) - 2;
+
+      // Inputs land in a transient EnvironmentFile so they're never
+      // visible in argv (ps -ef) or in the unit's static
+      // definition. Plugins opt into reading them by declaring
+      // `EnvironmentFile=-/run/nixblitz/<stem>-input.env` in their
+      // service body. The leading `-` is important — the file is
+      // absent for actions that have no inputs, and the unit must
+      // still start cleanly in that case.
+      final envFilePath = _envFilePathFor(unit);
+      final hasInputs = action.inputs.isNotEmpty;
+      if (hasInputs) {
+        final written = await _writeInputsEnvFile(
+          envFilePath: envFilePath,
+          action: action,
+          inputs: inputs,
+        );
+        if (!written) {
+          controller.add(
+            'plugin-action: failed to stage inputs at $envFilePath\n',
+          );
+          controller.add('plugin-action: exit 1\n');
+          await controller.close();
+          return 1;
+        }
+      }
 
       controller.add('> sudo systemctl start --wait $unit\n');
       final start = await sudoSession.runOneShot([
@@ -152,6 +205,14 @@ class PluginActionRunner {
       if (start.stderr.isNotEmpty) {
         controller.add(start.stderr);
         if (!start.stderr.endsWith('\n')) controller.add('\n');
+      }
+
+      if (hasInputs) {
+        // Best-effort cleanup. The unit has already consumed the
+        // values; leaving the file behind would expose the secret
+        // until the next reboot clears /run. Failures here are
+        // logged, not fatal — the action's own exit code wins.
+        await _deleteInputsEnvFile(envFilePath);
       }
 
       controller.add('--- journalctl -u $unit ---\n');
@@ -175,6 +236,81 @@ class PluginActionRunner {
     }();
 
     return (output: controller.stream, exitCode: exitCodeFuture);
+  }
+
+  /// Path the runner writes inputs to, and the plugin's unit reads
+  /// from via `EnvironmentFile=-...`. Stem strips `.service` so a
+  /// unit literally named `tailscale-connect-preauth.service` maps
+  /// to `/run/nixblitz/tailscale-connect-preauth-input.env`.
+  static String _envFilePathFor(String unit) {
+    final stem = unit.endsWith('.service')
+        ? unit.substring(0, unit.length - '.service'.length)
+        : unit;
+    return '/run/nixblitz/$stem-input.env';
+  }
+
+  /// Writes a `KEY=value` env file at [envFilePath] via sudo. Uses
+  /// `install` so the file lands with mode 600 owned by root in one
+  /// shot — no race window where the file exists with a permissive
+  /// mode. Returns false on any sudo failure; the caller logs and
+  /// bails so the unit never starts with stale or missing inputs.
+  Future<bool> _writeInputsEnvFile({
+    required String envFilePath,
+    required PluginAction action,
+    required Map<String, String> inputs,
+  }) async {
+    // Build the env-file content. Values are written as
+    // `KEY=value` lines without surrounding quotes — systemd's
+    // EnvironmentFile parser handles bare values fine and the
+    // quoteless form sidesteps shell-escaping bugs in the unit
+    // script. Newlines / NULs in inputs are rejected at the TUI
+    // prompt layer, so we don't need to escape them here.
+    final lines = StringBuffer();
+    for (final input in action.inputs) {
+      final value = inputs[input.name] ?? '';
+      lines.writeln('${input.envVarName}=$value');
+    }
+    final bytes = Uint8List.fromList(utf8.encode(lines.toString()));
+
+    // mkdir -p then install -m 600 /dev/stdin <dest>. Two
+    // sudo calls is uglier than one but `install --owner` can't
+    // chain a stdin read into a non-existent parent directory.
+    final mkdir = await sudoSession.runOneShot(const [
+      'install',
+      '-d',
+      '-m',
+      '700',
+      '/run/nixblitz',
+    ]);
+    if (mkdir.exitCode != 0) {
+      LogService.warn(
+        'plugin-action: mkdir /run/nixblitz failed: ${mkdir.stderr}',
+      );
+      return false;
+    }
+    final write = await sudoSession.runOneShot([
+      'install',
+      '-m',
+      '600',
+      '/dev/stdin',
+      envFilePath,
+    ], stdinBytes: bytes);
+    if (write.exitCode != 0) {
+      LogService.warn(
+        'plugin-action: write $envFilePath failed: ${write.stderr}',
+      );
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _deleteInputsEnvFile(String envFilePath) async {
+    final rm = await sudoSession.runOneShot(['rm', '-f', envFilePath]);
+    if (rm.exitCode != 0) {
+      LogService.warn(
+        'plugin-action: cleanup of $envFilePath failed: ${rm.stderr}',
+      );
+    }
   }
 
   /// One-shot variant for code paths that need to consume the

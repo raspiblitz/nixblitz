@@ -226,6 +226,118 @@ void main() {
       expect(back.permissions.privilegedUnits, ['p-reset.service']);
     });
 
+    test('parses action with inputs', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'connect': {
+            'label': 'Connect',
+            'unit': 'p-connect.service',
+            'inputs': [
+              {
+                'name': 'authkey',
+                'label': 'Pre-auth key',
+                'description': 'One-time, expires in 1h.',
+                'type': 'secret',
+              },
+            ],
+          },
+        },
+        'permissions': {
+          'privileged_units': ['p-connect.service'],
+        },
+      });
+      final action = m.actions['connect']!;
+      expect(action.inputs, hasLength(1));
+      expect(action.inputs.first.name, 'authkey');
+      expect(action.inputs.first.label, 'Pre-auth key');
+      expect(action.inputs.first.type, 'secret');
+      expect(action.inputs.first.envVarName, 'NIXBLITZ_INPUT_AUTHKEY');
+    });
+
+    test('action with empty inputs list parses', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'r': {'label': 'R', 'command': 'true', 'inputs': []},
+        },
+      });
+      expect(m.actions['r']!.inputs, isEmpty);
+    });
+
+    test('action input with bad name is rejected', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'r': {
+              'label': 'R',
+              'command': 'true',
+              'inputs': [
+                {'name': 'BAD-NAME', 'label': 'x'},
+              ],
+            },
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('action input with unknown type is rejected', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'r': {
+              'label': 'R',
+              'command': 'true',
+              'inputs': [
+                {'name': 'x', 'label': 'x', 'type': 'integer'},
+              ],
+            },
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('action with duplicate input names is rejected', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'r': {
+              'label': 'R',
+              'command': 'true',
+              'inputs': [
+                {'name': 'k', 'label': 'a'},
+                {'name': 'k', 'label': 'b'},
+              ],
+            },
+          },
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('action with inputs round-trips via toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'r': {
+            'label': 'R',
+            'command': 'true',
+            'inputs': [
+              {'name': 'authkey', 'label': 'Key', 'type': 'secret'},
+            ],
+          },
+        },
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.actions['r']!.inputs.first.name, 'authkey');
+      expect(back.actions['r']!.inputs.first.type, 'secret');
+    });
+
     test('parses dashboard block', () {
       final m = PluginManifest.fromJson({
         'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},

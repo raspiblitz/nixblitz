@@ -18,10 +18,11 @@ class _NoopAuth implements SudoAuthBackend {
 
 Future<({List<String> output, int exitCode})> _runAndCollect(
   PluginActionRunner svc,
-  PluginAction action,
-) async {
+  PluginAction action, {
+  Map<String, String> inputs = const {},
+}) async {
   final out = <String>[];
-  final r = svc.run(action);
+  final r = svc.run(action, inputs: inputs);
   r.output.listen(out.add);
   final code = await r.exitCode;
   // Give the stream listener one more microtask to flush trailing
@@ -78,6 +79,55 @@ void main() {
       );
       final r = await _runAndCollect(pluginActionRunner, action);
       expect(r.exitCode, isNot(0));
+    });
+
+    test('declared inputs land in the env as NIXBLITZ_INPUT_<NAME>', () async {
+      final action = PluginAction(
+        label: 'show-key',
+        command: r'echo "key=$NIXBLITZ_INPUT_AUTHKEY"',
+        inputs: const [PluginActionInput(name: 'authkey', label: 'Key')],
+      );
+      final r = await _runAndCollect(
+        pluginActionRunner,
+        action,
+        inputs: const {'authkey': 'tskey-abc123'},
+      );
+      expect(r.exitCode, 0);
+      expect(r.output.join(), contains('key=tskey-abc123'));
+    });
+
+    test('missing inputs come through as empty strings, not unset', () async {
+      final action = PluginAction(
+        label: 'show-empty',
+        // Use `${VAR-fallback}` so an UNSET var would print "unset",
+        // but an empty var prints empty. We want empty.
+        command: r'echo "val=[${NIXBLITZ_INPUT_AUTHKEY-unset}]"',
+        inputs: const [PluginActionInput(name: 'authkey', label: 'Key')],
+      );
+      final r = await _runAndCollect(pluginActionRunner, action);
+      expect(r.exitCode, 0);
+      expect(r.output.join(), contains('val=[]'));
+    });
+
+    test('values not on the command line (no argv leak)', () async {
+      // Run a sentinel value through env, then `ps` ourselves and
+      // assert the sentinel never showed up in argv. Cheap guard
+      // against an accidental future change that interpolates inputs
+      // into the command string.
+      const sentinel = 'unique-sentinel-93f8a';
+      final action = PluginAction(
+        label: 'ps-self',
+        // Grab argv of the bash process via /proc/self/cmdline.
+        command: r"tr '\0' ' ' </proc/self/cmdline",
+        inputs: const [PluginActionInput(name: 'authkey', label: 'Key')],
+      );
+      final r = await _runAndCollect(
+        pluginActionRunner,
+        action,
+        inputs: const {'authkey': sentinel},
+      );
+      expect(r.exitCode, 0);
+      expect(r.output.join(), isNot(contains(sentinel)));
     });
   });
 

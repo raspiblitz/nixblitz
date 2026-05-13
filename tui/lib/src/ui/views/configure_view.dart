@@ -12,6 +12,7 @@ import '../../providers/viewport_provider.dart';
 import '../layout.dart';
 import 'configure/field_editor.dart';
 import 'configure/plugin_catalog.dart';
+import 'plugin_action_view.dart';
 import 'plugin_install_view.dart';
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,14 @@ final _installingPluginProvider = StateProvider<bool>((ref) => false);
 /// once when the install view mounts; reset alongside
 /// [_installingPluginProvider].
 final _pendingInstallUrlProvider = StateProvider<String?>((ref) => null);
+
+/// When non-null, the Configure view delegates to [PluginActionView]
+/// to run the chosen action. The configure-view body is replaced
+/// for the duration of the run, same pattern as
+/// [_installingPluginProvider] uses for the install wizard.
+final _runningPluginActionProvider = StateProvider<PluginAction?>(
+  (ref) => null,
+);
 
 /// Which column of Configure's two-column layout currently has the
 /// keyboard focus. `sidebar` is the section picker on the left;
@@ -201,6 +210,18 @@ class ConfigureView extends StatelessComponent {
       );
     }
 
+    // ── Plugin action runner takeover ────────────────────────────────
+    final runningAction = context.watch(_runningPluginActionProvider);
+    if (runningAction != null) {
+      return PluginActionView(
+        action: runningAction,
+        runner: context.read(pluginActionRunnerProvider),
+        onDismiss: () {
+          context.read(_runningPluginActionProvider.notifier).state = null;
+        },
+      );
+    }
+
     // ── Main view ────────────────────────────────────────────────────
     final configAsync = context.watch(configProvider);
     final serviceIndex = context.watch(selectedServiceIndexProvider);
@@ -276,10 +297,13 @@ class ConfigureView extends StatelessComponent {
         );
 
         // Number of navigable rows for j/k in the content column.
-        // System / Manifest entries: options.length. Plugins: catalog
-        // entries not yet installed + 1 (the "Install from URL…" row).
-        // _buildOptions returns an empty list for Plugins because its
-        // body is rendered separately via _buildPluginsContent.
+        // System / Manifest entries: fields + plugin actions (the
+        // rendered options list interleaves a non-selectable
+        // header so .length includes those — use the explicit
+        // count instead). Plugins: catalog entries not yet
+        // installed + 1 (the "Install from URL…" row). _buildOptions
+        // returns an empty list for Plugins because its body is
+        // rendered separately via _buildPluginsContent.
         final int contentRowCount;
         if (currentEntry is _PluginsEntry) {
           final installedIds = context
@@ -290,6 +314,10 @@ class ConfigureView extends StatelessComponent {
               .where((p) => !installedIds.contains(p.id))
               .length;
           contentRowCount = availableCount + 1;
+        } else if (currentEntry is _ManifestEntry) {
+          contentRowCount =
+              currentEntry.manifest.fields.length +
+              _actionsFor(context, currentEntry.manifest.id).length;
         } else {
           contentRowCount = options.length;
         }
@@ -454,10 +482,23 @@ class ConfigureView extends StatelessComponent {
       return;
     }
 
-    // Manifest entry: generic field dispatch.
+    // Manifest entry: generic field dispatch, with a trailing
+    // actions slice for plugins that declare any. Field indices
+    // come first; actions occupy `[fields.length, fields.length +
+    // actions.length)`.
     if (currentEntry is _ManifestEntry) {
       final manifest = currentEntry.manifest;
-      if (selectedOption >= manifest.fields.length) return;
+      final fieldCount = manifest.fields.length;
+      final actions = _actionsFor(context, manifest.id);
+
+      if (selectedOption >= fieldCount) {
+        final actionIndex = selectedOption - fieldCount;
+        if (actionIndex < 0 || actionIndex >= actions.length) return;
+        context.read(_runningPluginActionProvider.notifier).state =
+            actions[actionIndex];
+        return;
+      }
+
       final field = manifest.fields[selectedOption];
       final appId = manifest.id;
 
@@ -606,6 +647,7 @@ class ConfigureView extends StatelessComponent {
     return switch (entry) {
       _SystemEntry() => _buildSystemOptions(config, selectedIndex, isPending),
       _ManifestEntry(:final manifest) => _buildManifestOptions(
+        ctx,
         config,
         manifest,
         selectedIndex,
@@ -663,21 +705,54 @@ class ConfigureView extends StatelessComponent {
   // ---------- Generic manifest walker ----------
 
   List<Component> _buildManifestOptions(
+    BuildContext ctx,
     NixblitzConfig config,
     AppManifest manifest,
     int selectedIndex,
     bool Function(String) isPending,
   ) {
     final appConfig = config.appConfig(manifest.id);
+    final actions = _actionsFor(ctx, manifest.id);
+    final fieldCount = manifest.fields.length;
+
     return [
-      for (var i = 0; i < manifest.fields.length; i++)
+      for (var i = 0; i < fieldCount; i++)
         FieldDisplayRow(
           field: manifest.fields[i],
           currentValue: appConfig[manifest.fields[i].name],
           selected: selectedIndex == i,
           pending: isPending('${manifest.id}.${manifest.fields[i].name}'),
         ),
+      if (actions.isNotEmpty) ...[
+        const SizedBox(height: 1),
+        const Text(
+          'Actions',
+          style: TextStyle(
+            color: Color.fromRGB(247, 147, 26),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        for (var i = 0; i < actions.length; i++)
+          _ActionRow(
+            action: actions[i],
+            selected: selectedIndex == fieldCount + i,
+          ),
+      ],
     ];
+  }
+
+  /// Look up the installed plugin matching [appId]. Returns its
+  /// declared actions in stable order, or empty when the app is
+  /// bundled (no PluginManifest backing) or the plugin declared
+  /// none. Sort is by key so the row order doesn't depend on
+  /// `Map<String, PluginAction>` iteration semantics.
+  List<PluginAction> _actionsFor(BuildContext ctx, String appId) {
+    final installed = ctx.read(installedPluginsProvider);
+    final plugin = installed.where((p) => p.id == appId).firstOrNull;
+    if (plugin == null) return const [];
+    final entries = plugin.actions.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return entries.map((e) => e.value).toList(growable: false);
   }
 
   // ---------- Plugins (install catalog) ----------
@@ -884,6 +959,46 @@ String pluginSigShort(PluginMarker? marker) {
 // vertical list. Stateless — selection + focus come in as props; the
 // parent's onKeyEvent owns navigation.
 // ---------------------------------------------------------------------------
+
+/// Selectable row for a plugin-declared action. Renders the action's
+/// label + optional description; styled like the field rows above so
+/// the operator perceives them as part of the same list. Confirm /
+/// input handling happens in [PluginActionView] after Enter — this
+/// row is presentation only.
+class _ActionRow extends StatelessComponent {
+  final PluginAction action;
+  final bool selected;
+
+  const _ActionRow({required this.action, required this.selected});
+
+  @override
+  Component build(BuildContext context) {
+    final cursor = selected ? '> ' : '  ';
+    final labelColor = selected
+        ? const Color.fromRGB(247, 147, 26)
+        : const Color.fromRGB(220, 220, 220);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 1),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$cursor${action.label}',
+            style: TextStyle(
+              color: labelColor,
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+          if (action.description.isNotEmpty)
+            Text(
+              '    ${action.description}',
+              style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ConfigureSidebar extends StatelessComponent {
   final List<_MenuEntry> entries;
