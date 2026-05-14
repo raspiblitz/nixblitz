@@ -327,14 +327,15 @@ this derivation will be built:
 
     /// Stub HTTP client returning canned bodies keyed by full request URL.
     /// Unmatched URLs respond 500 so missing fixtures fail loud rather
-    /// than silently look like "no upstream".
-    http.Client stubHttp(Map<String, Map<String, dynamic>> byUrl) {
+    /// than silently look like "no upstream". Values can be any
+    /// JSON-encodable shape — maps for single-resource endpoints,
+    /// lists for collection endpoints.
+    http.Client stubHttp(Map<String, Object?> byUrl) {
       return MockClient((req) async {
-        final body = byUrl[req.url.toString()];
-        if (body == null) {
+        if (!byUrl.containsKey(req.url.toString())) {
           return http.Response('no fixture for ${req.url}', 500);
         }
-        return http.Response(jsonEncode(body), 200);
+        return http.Response(jsonEncode(byUrl[req.url.toString()]), 200);
       });
     }
 
@@ -469,7 +470,158 @@ this derivation will be built:
         expect(status.lightweight!.pluginsAhead, isEmpty);
       },
     );
+
+    test('version-aware probe: upstream version > pinned → ahead', () async {
+      // Stub the branch HEAD probe (returns new SHA), the manifest
+      // fetch at upstream HEAD (returns version 1.2.0), the
+      // commits-affecting-path query (returns one commit), and the
+      // manifest fetch at that introducing commit (version 1.2.0
+      // still). The plugin's marker reports version 1.1.0.
+      final upstreamSha = 'b' * 40;
+      final pinnedSha = 'a' * 40;
+      final updateCheckService = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: stubHttp({
+          'https://api.github.com/repos/example/foo/commits/main': {
+            'sha': upstreamSha,
+          },
+          'https://api.github.com/repos/example/foo/contents/plugin.json?ref=$upstreamSha':
+              _contentsResponse('1.2.0'),
+          'https://api.github.com/repos/example/foo/commits?path=plugin.json&sha=$upstreamSha&per_page=50':
+              <Map<String, dynamic>>[
+                {'sha': upstreamSha},
+              ],
+          'https://api.github.com/repos/example/foo/contents/plugin.json?ref=$pinnedSha':
+              _contentsResponse('1.1.0'),
+        }),
+        markersReader: () => [
+          _marker(url: 'github:example/foo', rev: pinnedSha, version: '1.1.0'),
+        ],
+      );
+      final exit = await updateCheckService.runLightweight();
+      expect(exit, 0);
+      final status = updateCheckService.readStatus();
+      expect(status.lightweight!.pluginsAhead, hasLength(1));
+      final ahead = status.lightweight!.pluginsAhead.single;
+      expect(ahead.currentVersion, '1.1.0');
+      expect(ahead.upstreamVersion, '1.2.0');
+      expect(ahead.isDowngrade, isFalse);
+    });
+
+    test(
+      'version-aware probe: upstream version < pinned → isDowngrade',
+      () async {
+        final upstreamSha = 'b' * 40;
+        final pinnedSha = 'a' * 40;
+        final updateCheckService = UpdateCheckService(
+          flakePath: flakePath,
+          statusPath: statusPath,
+          httpClient: stubHttp({
+            'https://api.github.com/repos/example/foo/commits/main': {
+              'sha': upstreamSha,
+            },
+            'https://api.github.com/repos/example/foo/contents/plugin.json?ref=$upstreamSha':
+                _contentsResponse('1.0.0'),
+          }),
+          markersReader: () => [
+            _marker(
+              url: 'github:example/foo',
+              rev: pinnedSha,
+              version: '1.2.0',
+            ),
+          ],
+        );
+        final exit = await updateCheckService.runLightweight();
+        expect(exit, 0);
+        final status = updateCheckService.readStatus();
+        expect(status.lightweight!.pluginsAhead, hasLength(1));
+        final ahead = status.lightweight!.pluginsAhead.single;
+        expect(ahead.isDowngrade, isTrue);
+        expect(ahead.currentVersion, '1.2.0');
+        expect(ahead.upstreamVersion, '1.0.0');
+      },
+    );
+
+    test(
+      'version-aware probe: same upstream version → no PluginAhead emitted',
+      () async {
+        // Mono-repo false-positive case: a commit lands that doesn't
+        // touch this plugin's manifest. Upstream SHA moves but the
+        // version field is unchanged. Old code reported "ahead" purely
+        // on SHA inequality; introducing-commit pinning means we
+        // suppress the row.
+        final upstreamSha = 'b' * 40;
+        final pinnedSha = 'a' * 40;
+        final updateCheckService = UpdateCheckService(
+          flakePath: flakePath,
+          statusPath: statusPath,
+          httpClient: stubHttp({
+            'https://api.github.com/repos/example/foo/commits/main': {
+              'sha': upstreamSha,
+            },
+            'https://api.github.com/repos/example/foo/contents/plugin.json?ref=$upstreamSha':
+                _contentsResponse('1.2.0'),
+          }),
+          markersReader: () => [
+            _marker(
+              url: 'github:example/foo',
+              rev: pinnedSha,
+              version: '1.2.0',
+            ),
+          ],
+        );
+        final exit = await updateCheckService.runLightweight();
+        expect(exit, 0);
+        final status = updateCheckService.readStatus();
+        expect(status.lightweight!.pluginsAhead, isEmpty);
+      },
+    );
+
+    test('unversioned plugin falls through to SHA tracking', () async {
+      // Marker has version='' (pre-version-field install). Upstream
+      // manifest fetch returns 404 (no plugin.json at this path).
+      // Both null → fall back to pure SHA comparison, ahead emitted.
+      final upstreamSha = 'b' * 40;
+      final pinnedSha = 'a' * 40;
+      final updateCheckService = UpdateCheckService(
+        flakePath: flakePath,
+        statusPath: statusPath,
+        httpClient: MockClient((req) async {
+          final url = req.url.toString();
+          if (url == 'https://api.github.com/repos/example/foo/commits/main') {
+            return http.Response(jsonEncode({'sha': upstreamSha}), 200);
+          }
+          // Everything else 404s — version-tracking unavailable.
+          return http.Response('not found', 404);
+        }),
+        markersReader: () => [
+          _marker(url: 'github:example/foo', rev: pinnedSha, version: ''),
+        ],
+      );
+      final exit = await updateCheckService.runLightweight();
+      expect(exit, 0);
+      final status = updateCheckService.readStatus();
+      expect(status.lightweight!.pluginsAhead, hasLength(1));
+      final ahead = status.lightweight!.pluginsAhead.single;
+      expect(ahead.currentRev, pinnedSha);
+      expect(ahead.upstreamRev, upstreamSha);
+      expect(ahead.currentVersion, isNull);
+      expect(ahead.upstreamVersion, isNull);
+      expect(ahead.isDowngrade, isFalse);
+    });
   });
+}
+
+/// Helper: build a Forgejo/GitHub-style contents-API response body
+/// containing a plugin.json with the given version.
+Map<String, dynamic> _contentsResponse(String version) {
+  final manifestJson = jsonEncode({
+    'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'fixture'},
+    'id': 'fixture',
+    'version': version,
+  });
+  return {'content': base64.encode(utf8.encode(manifestJson))};
 }
 
 PluginMarker _marker({
@@ -479,10 +631,11 @@ PluginMarker _marker({
   String branch = 'main',
   bool disabled = false,
   bool autoUpdate = true,
+  String version = '0.1.0',
 }) => PluginMarker(
   id: id,
   url: url,
-  version: '0.1.0',
+  version: version,
   rev: rev,
   installedAt: DateTime.utc(2026, 1, 1),
   disabled: disabled,

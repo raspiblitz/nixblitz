@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:pub_semver/pub_semver.dart';
 
 import 'package:common/src/models/nixblitz_config.dart';
+import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/models/update_status.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
@@ -163,21 +165,8 @@ class UpdateCheckService {
         final li = lockedInputForPlugin(p);
         if (li == null) continue; // unsupported transport — skip silently
         try {
-          final upstream = await _queryUpstreamRev(li);
-          if (upstream == null) {
-            errors.add('plugin ${p.id}: upstream not queryable');
-            continue;
-          }
-          if (upstream != p.rev) {
-            pluginsAhead.add(
-              PluginAhead(
-                pluginId: p.id,
-                currentRev: p.rev,
-                upstreamRev: upstream,
-                url: p.url,
-              ),
-            );
-          }
+          final ahead = await _probePlugin(p, li);
+          if (ahead != null) pluginsAhead.add(ahead);
         } catch (e, st) {
           LogService.error('UpdateCheckService: plugin ${p.id} threw', e, st);
           errors.add('plugin ${p.id}: $e');
@@ -445,6 +434,360 @@ class UpdateCheckService {
     f.writeAsStringSync(
       const JsonEncoder.withIndent('  ').convert(next.toJson()),
     );
+  }
+
+  /// Per-plugin probe driving the version-tracking flow described in
+  /// `docs/decisions/2026-05-14-plugin-version-tracking.md`. Returns
+  /// a [PluginAhead] when the plugin has a pending update (semver
+  /// upgrade, downgrade with the `isDowngrade` flag, or SHA-only
+  /// fallback for unversioned plugins). Returns null when nothing's
+  /// changed.
+  ///
+  /// Version-tracking semantics layer over the existing SHA path:
+  ///
+  /// - Both sides have a parseable `version` → compare semver, emit
+  ///   PluginAhead with `upstreamVersion`+`currentVersion` and a new
+  ///   pin candidate from the introducing-commit walk.
+  /// - Either side missing version → fall back to SHA equality
+  ///   (today's behavior).
+  /// - Upstream version parses lower than ours → soft-refuse via
+  ///   `isDowngrade=true`; row still emitted so the operator sees it.
+  /// - Pinned rev no longer reachable on the upstream branch →
+  ///   `forcePushDetected=true`. Auto-update proceeds; sign-key
+  ///   verification (out of scope here) is the real security gate.
+  Future<PluginAhead?> _probePlugin(PluginMarker marker, LockedInput li) async {
+    final upstreamRev = await _queryUpstreamRev(li);
+    if (upstreamRev == null) {
+      throw StateError('upstream not queryable');
+    }
+
+    // Try the version-tracking path first. When the upstream
+    // manifest has a parseable `version`, version comparison is
+    // authoritative; SHA equality becomes a tiebreaker. When it
+    // doesn't, we drop straight to SHA tracking — same shape as
+    // today.
+    final subdir = _subdirFor(marker.url);
+    final upstreamManifest = await _fetchManifestAt(
+      li,
+      subdir: subdir,
+      ref: upstreamRev,
+    );
+    final upstreamVersion = upstreamManifest?.parsedVersion;
+    final pinnedVersion = _parseMarkerVersion(marker);
+
+    // Force-push check: does the SHA we pinned still exist on the
+    // upstream branch? Skip when upstream SHA == pinned SHA — the
+    // pinned commit IS the branch HEAD, no reason to probe.
+    final forcePush =
+        (upstreamRev != marker.rev) &&
+        !(await _isCommitReachable(li, marker.rev));
+    if (forcePush) {
+      LogService.warn(
+        'plugin ${marker.id}: pinned rev ${marker.rev} is not reachable '
+        'on ${li.urlForDisplay}; history was likely force-pushed. '
+        'Continuing with the new upstream HEAD as the update candidate.',
+      );
+    }
+
+    // SHA-tracking fallback when either side lacks a parseable version.
+    if (upstreamVersion == null || pinnedVersion == null) {
+      if (upstreamRev == marker.rev && !forcePush) return null;
+      return PluginAhead(
+        pluginId: marker.id,
+        currentRev: marker.rev,
+        upstreamRev: upstreamRev,
+        url: marker.url,
+        currentVersion: marker.version.isEmpty ? null : marker.version,
+        upstreamVersion: upstreamManifest?.version,
+        forcePushDetected: forcePush,
+      );
+    }
+
+    // Both sides have parseable semver. Compare.
+    if (upstreamVersion == pinnedVersion) {
+      // Same version on both sides — nothing pending. If the SHA
+      // moved on its own (commit on top without a version bump),
+      // ignore it: that's the very situation the introducing-commit
+      // pin is designed to suppress.
+      return null;
+    }
+    if (upstreamVersion < pinnedVersion) {
+      // Downgrade — emit a row, flagged amber. The operator opts
+      // into rollback explicitly; we don't auto-apply.
+      return PluginAhead(
+        pluginId: marker.id,
+        currentRev: marker.rev,
+        upstreamRev: upstreamRev,
+        url: marker.url,
+        currentVersion: marker.version,
+        upstreamVersion: upstreamManifest!.version,
+        isDowngrade: true,
+        forcePushDetected: forcePush,
+      );
+    }
+
+    // Upstream is newer. Walk back to find the commit that
+    // introduced that version — that's our new pin candidate.
+    final introducing = await _findIntroducingCommit(
+      li,
+      subdir: subdir,
+      ref: upstreamRev,
+      targetVersion: upstreamVersion,
+    );
+    return PluginAhead(
+      pluginId: marker.id,
+      currentRev: marker.rev,
+      upstreamRev: introducing ?? upstreamRev,
+      url: marker.url,
+      currentVersion: marker.version,
+      upstreamVersion: upstreamManifest!.version,
+      forcePushDetected: forcePush,
+    );
+  }
+
+  /// Returns the subdir within the upstream repo where the plugin's
+  /// `plugin.json` lives, or null when the repo root is the plugin
+  /// root.
+  ///
+  /// Mirrors the parsing in [lockedInputForPlugin] (which drops
+  /// subdir info because it only needs owner/repo for the branch-
+  /// HEAD probe). For the manifest-fetch path we need the inverse.
+  static String? _subdirFor(String url) {
+    if (url.startsWith('github:')) {
+      // github:owner/repo[/subdir1/subdir2][?dir=…]. Either form is
+      // accepted; the `?dir=` form wins when both are present.
+      final body = url.substring('github:'.length);
+      final qIdx = body.indexOf('?dir=');
+      if (qIdx >= 0) return body.substring(qIdx + '?dir='.length);
+      final parts = body.split('/');
+      if (parts.length <= 2) return null;
+      return parts.sublist(2).join('/');
+    }
+    if (url.startsWith('forgejo:') || url.startsWith('gitea:')) {
+      final scheme = url.startsWith('forgejo:') ? 'forgejo:' : 'gitea:';
+      final body = url.substring(scheme.length);
+      final qIdx = body.indexOf('?dir=');
+      if (qIdx >= 0) return body.substring(qIdx + '?dir='.length);
+      // host/owner/repo[/subdir1/subdir2]
+      final parts = body.split('/');
+      if (parts.length <= 3) return null;
+      return parts.sublist(3).join('/');
+    }
+    if (url.startsWith('git+')) {
+      final qIdx = url.indexOf('?dir=');
+      if (qIdx >= 0) return url.substring(qIdx + '?dir='.length);
+    }
+    return null;
+  }
+
+  /// Parse the marker's stored version string. Empty string ⇒ the
+  /// plugin was installed before the manifest had a `version` field
+  /// (or had a malformed one); fall back to SHA tracking.
+  static Version? _parseMarkerVersion(PluginMarker marker) {
+    if (marker.version.isEmpty) return null;
+    try {
+      return Version.parse(marker.version);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// Fetch and parse the plugin's manifest at a specific ref.
+  /// Returns null on 404 (subdir renamed / deleted) or any decode
+  /// failure — the caller drops back to SHA-based tracking for that
+  /// plugin without poisoning the rest of the walk.
+  Future<PluginManifest?> _fetchManifestAt(
+    LockedInput entry, {
+    String? subdir,
+    required String ref,
+  }) async {
+    final path = subdir == null || subdir.isEmpty
+        ? 'plugin.json'
+        : '$subdir/plugin.json';
+    final content = await _fetchFileAt(entry, path: path, ref: ref);
+    if (content == null) return null;
+    try {
+      return PluginManifest.fromJsonString(content);
+    } catch (e) {
+      LogService.warn(
+        'plugin ${entry.name}: failed to parse manifest at $ref: $e',
+      );
+      return null;
+    }
+  }
+
+  /// Raw file fetch at a ref; returns the decoded text content or
+  /// null if the file isn't there (404) / decode fails. Both
+  /// GitHub's and Forgejo/Gitea's `contents` endpoints return a JSON
+  /// object with a base64-encoded `content` field and the same
+  /// shape — collapse on that.
+  Future<String?> _fetchFileAt(
+    LockedInput entry, {
+    required String path,
+    required String ref,
+  }) async {
+    Uri uri;
+    if (entry.type == 'github') {
+      uri = Uri.parse(
+        'https://api.github.com/repos/${entry.owner}/${entry.repo}'
+        '/contents/${Uri.encodeComponent(path)}?ref=$ref',
+      );
+    } else if (entry.type == 'git' && entry.host != null) {
+      uri = Uri.parse(
+        'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'
+        '/contents/${Uri.encodeComponent(path)}?ref=$ref',
+      );
+    } else {
+      return null;
+    }
+
+    final resp = await _http.get(uri).timeout(_httpTimeout);
+    if (resp.statusCode != 200) {
+      // 404 = subdir renamed / deleted / plugin file missing.
+      // 4xx / 5xx = transient API error or rate-limit.
+      // Either way we lose version-tracking for this plugin, but
+      // the SHA-only fallback in `_probePlugin` still works. Log
+      // and return null so the caller treats this plugin as
+      // unversioned for this round.
+      if (resp.statusCode != 404) {
+        LogService.warn(
+          '${entry.name}: contents API ${resp.statusCode} for $path@$ref',
+        );
+      }
+      return null;
+    }
+    final j = jsonDecode(resp.body) as Map<String, dynamic>;
+    final encoded = j['content'] as String?;
+    if (encoded == null) return null;
+    // GitHub wraps base64 content with newlines every 60 chars;
+    // strip whitespace before decoding to be safe across providers.
+    try {
+      final bytes = base64.decode(encoded.replaceAll(RegExp(r'\s+'), ''));
+      return utf8.decode(bytes);
+    } on FormatException catch (e) {
+      LogService.warn(
+        '${entry.name}: contents response not valid base64: ${e.message}',
+      );
+      return null;
+    }
+  }
+
+  /// Walk the upstream commit history backward from [ref] on commits
+  /// affecting `<subdir>/plugin.json`, looking for the most ancient
+  /// commit that still reports [targetVersion]. That's the
+  /// "introducing commit" for the version — pinning there means
+  /// subsequent post-version commits don't sneak into our trust
+  /// model under the same label.
+  ///
+  /// Cost: O(N) HTTP calls where N is the number of commits touching
+  /// `<subdir>/plugin.json` since the version bump. Typically 1-2;
+  /// capped at [maxCommits] (50 default) to bound pathological cases.
+  /// Returns null when the walk fails to identify a single
+  /// introducing commit; caller falls back to the branch HEAD SHA.
+  Future<String?> _findIntroducingCommit(
+    LockedInput entry, {
+    String? subdir,
+    required String ref,
+    required Version targetVersion,
+    int maxCommits = 50,
+  }) async {
+    final path = subdir == null || subdir.isEmpty
+        ? 'plugin.json'
+        : '$subdir/plugin.json';
+    final commits = await _listCommitsAffectingPath(
+      entry,
+      path: path,
+      ref: ref,
+      limit: maxCommits,
+    );
+    if (commits.isEmpty) return null;
+
+    String? candidate;
+    for (final sha in commits) {
+      // Newest first. The introducing commit is the OLDEST commit
+      // that still shows targetVersion (i.e., the first one walking
+      // backward where the version differs becomes the boundary,
+      // and the previous candidate is the introducing commit).
+      final m = await _fetchManifestAt(entry, subdir: subdir, ref: sha);
+      if (m?.parsedVersion == targetVersion) {
+        candidate = sha;
+        continue;
+      }
+      // Hit a commit with a different version — stop. The candidate
+      // we have is the introducing commit.
+      return candidate;
+    }
+    // Walked the whole window without seeing a version change. Either
+    // the version has been stable for the full window (return our
+    // last-seen candidate) or we ran past the cap. Return whatever
+    // we held; if commits exhausted, candidate is the oldest fetched.
+    return candidate;
+  }
+
+  Future<List<String>> _listCommitsAffectingPath(
+    LockedInput entry, {
+    required String path,
+    required String ref,
+    int limit = 50,
+  }) async {
+    Uri uri;
+    if (entry.type == 'github') {
+      uri = Uri.parse(
+        'https://api.github.com/repos/${entry.owner}/${entry.repo}/commits'
+        '?path=${Uri.encodeQueryComponent(path)}'
+        '&sha=$ref&per_page=$limit',
+      );
+    } else if (entry.type == 'git' && entry.host != null) {
+      uri = Uri.parse(
+        'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}/commits'
+        '?path=${Uri.encodeQueryComponent(path)}'
+        '&sha=$ref&limit=$limit',
+      );
+    } else {
+      return const [];
+    }
+    final resp = await _http.get(uri).timeout(_httpTimeout);
+    if (resp.statusCode != 200) {
+      throw StateError('commits API ${resp.statusCode}: ${resp.body}');
+    }
+    final list = jsonDecode(resp.body);
+    if (list is! List) return const [];
+    return [
+      for (final c in list)
+        if (c is Map<String, dynamic>) c['sha'] as String,
+    ];
+  }
+
+  /// Cheap probe: does [sha] exist on [entry]'s branch? GitHub and
+  /// Forgejo both expose `/commits/{sha}` returning 200 when the
+  /// commit is reachable. Returns false ONLY on a definitive 404 /
+  /// 422 from the provider — anything else (5xx, network, parse) is
+  /// "we don't know," which we treat as reachable to avoid
+  /// false-positive force-push banners.
+  Future<bool> _isCommitReachable(LockedInput entry, String sha) async {
+    Uri uri;
+    if (entry.type == 'github') {
+      uri = Uri.parse(
+        'https://api.github.com/repos/${entry.owner}/${entry.repo}'
+        '/commits/$sha',
+      );
+    } else if (entry.type == 'git' && entry.host != null) {
+      uri = Uri.parse(
+        'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'
+        '/git/commits/$sha',
+      );
+    } else {
+      return true; // unsupported transport — don't flag
+    }
+    try {
+      final resp = await _http.get(uri).timeout(_httpTimeout);
+      // GitHub returns 422 on malformed SHA strings; Forgejo returns
+      // 404. Both unambiguously mean "not on this branch."
+      if (resp.statusCode == 404 || resp.statusCode == 422) return false;
+      return true; // 200 ⇒ reachable; 5xx / other ⇒ unknown, assume reachable
+    } catch (_) {
+      return true; // transient network error — don't false-flag
+    }
   }
 
   Future<String?> _queryUpstreamRev(LockedInput entry) async {

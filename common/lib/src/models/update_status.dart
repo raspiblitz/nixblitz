@@ -181,6 +181,10 @@ class PluginAhead {
     required this.currentRev,
     required this.upstreamRev,
     required this.url,
+    this.currentVersion,
+    this.upstreamVersion,
+    this.isDowngrade = false,
+    this.forcePushDetected = false,
   });
 
   /// Matches `PluginMarker.id` — the on-disk directory under
@@ -197,6 +201,36 @@ class PluginAhead {
   /// from in the plugins menu.
   final String url;
 
+  /// Manifest version recorded for the currently-installed rev (the
+  /// `version` string captured at install time). Null when the
+  /// plugin's manifest had no `version` field — the operator's
+  /// plugin tracks via SHA only.
+  final String? currentVersion;
+
+  /// Manifest version string at the new pin candidate. Null when
+  /// upstream has no `version` field. Together with [currentVersion],
+  /// drives the per-plugin "1.2.0 → 1.2.4" display in Configure →
+  /// Plugins; raw strings (not `Version`) so the JSON status file
+  /// stays portable.
+  final String? upstreamVersion;
+
+  /// True when the upstream version parses lower than the locally-
+  /// pinned version (author cut a release, reverted, didn't re-bump).
+  /// The lightweight check still emits a PluginAhead row so the
+  /// operator sees the regression, but the dashboard renders it
+  /// amber and refuses to auto-apply. `nixblitz plugin refresh
+  /// --force ID` opts in to a deliberate rollback. See
+  /// `docs/decisions/2026-05-14-plugin-version-tracking.md` §5.
+  final bool isDowngrade;
+
+  /// True when the previously-pinned rev (the SHA in [currentRev])
+  /// is no longer reachable on the upstream branch — the author
+  /// force-pushed history. The check still proceeds (we don't refuse
+  /// updates on this signal; sign-key verification is the real
+  /// security mechanism), but surfaces a banner so the operator
+  /// knows their pin's history was rewritten. Logged at WARN.
+  final bool forcePushDetected;
+
   factory PluginAhead.fromJson(Map<String, dynamic> j) => PluginAhead(
     // Accept the legacy `dir_name` key as well as the current
     // `plugin_id` so a status file written by an older TUI keeps
@@ -205,6 +239,10 @@ class PluginAhead {
     currentRev: j['current_rev'] as String,
     upstreamRev: j['upstream_rev'] as String,
     url: j['url'] as String? ?? '',
+    currentVersion: j['current_version'] as String?,
+    upstreamVersion: j['upstream_version'] as String?,
+    isDowngrade: (j['is_downgrade'] as bool?) ?? false,
+    forcePushDetected: (j['force_push_detected'] as bool?) ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -212,6 +250,10 @@ class PluginAhead {
     'current_rev': currentRev,
     'upstream_rev': upstreamRev,
     'url': url,
+    if (currentVersion != null) 'current_version': currentVersion,
+    if (upstreamVersion != null) 'upstream_version': upstreamVersion,
+    if (isDowngrade) 'is_downgrade': true,
+    if (forcePushDetected) 'force_push_detected': true,
   };
 }
 
