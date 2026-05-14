@@ -199,5 +199,6 @@ Same rule applies for any other shared input in scope (`disko`, …) — if inpu
 
 - `flake.nix`'s `nixpkgs-unstable` stays separate because the Dart-workspace-member-filter patch lives there.
 - `templates/flake.nix`'s `nixos-raspberrypi` does NOT follow nixpkgs. nvmd's CI publishes the Pi 5 vendor kernel + page-size-16k jemalloc to `nixos-raspberrypi.cachix.org` built against THEIR pinned nixpkgs; following ours diverges the derivation hash, forces a multi-hour Pi-local kernel rebuild on every nixpkgs bump, and risks thermal-stressing operator hardware. The cache hit on `nixos-raspberrypi.cachix.org` is dramatically more valuable than the ~400MB of extra nixpkgs in the closure.
+- `templates/flake.nix`'s `nixpkgs` follows `nixos-raspberrypi/nixpkgs` (i.e. the reciprocal of the rule above). When `nixpkgs` advanced independently, every flake update drifted past whatever rev nvmd's cachix last published against, and Pi rebuilds hit cache misses + SIGBUS aborts on 16K pages (cache.nixos.org's standard aarch64 binaries are 4K-aligned; any rebuilt python / uv / aiohttp dep would abort on first jemalloc mmap). Aligning forward keeps the cache valid. x86 inherits nvmd's nixpkgs rev too — eval / dev target, the ~weekly lag from nvmd's tag cadence doesn't hurt.
 
 Whenever a third exception is genuinely warranted, add it here AND in a comment above the input.

@@ -2,7 +2,35 @@
   description = "NixBlitz node configuration";
 
   inputs = {
-    nixpkgs.url = "github:nixOS/nixpkgs/nixos-25.11";
+    # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
+    # come from this third-party flake. Pinned to a tag so refreshes
+    # are explicit; bump deliberately rather than tracking `main`.
+    #
+    # nvmd's CI publishes the vendor kernel + page-size-16k jemalloc
+    # to `nixos-raspberrypi.cachix.org` against THEIR pinned nixpkgs.
+    # Both halves of that alignment matter:
+    #
+    # 1. `nixos-raspberrypi` deliberately does NOT follow nixpkgs.
+    #    Following ours would diverge the derivation hash and force
+    #    a Pi-local kernel rebuild — multi-hour aarch64 pain on
+    #    every nixpkgs bump.
+    # 2. Reciprocal direction below: `nixpkgs.follows =
+    #    "nixos-raspberrypi/nixpkgs"`. When we ran with an
+    #    independent nixpkgs, every `nix flake update` advanced ours
+    #    past whatever rev nvmd's cachix last published against,
+    #    and Pi rebuilds would hit cache misses + SIGBUS aborts on
+    #    16K pages (cache.nixos.org's standard aarch64 builds are
+    #    4K-aligned). Aligning forward fixes the whole class.
+    #
+    # Tradeoff accepted: x86 builds also inherit nvmd's nixpkgs rev,
+    # which lags upstream by however long nvmd's tag cadence is
+    # (~weekly per their release pattern — fine). x86 is the eval /
+    # dev target where the lag doesn't hurt; Pi 5 is the production
+    # target where cache alignment is load-bearing.
+    nixos-raspberrypi = {
+      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
+    };
+    nixpkgs.follows = "nixos-raspberrypi/nixpkgs";
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,21 +41,6 @@
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-    # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
-    # come from this third-party flake. Pinned to a tag so refreshes
-    # are explicit; bump deliberately rather than tracking `main`.
-    #
-    # Deliberately NOT following nixpkgs (the only documented exception
-    # to that rule besides `flake.nix`'s nixpkgs-unstable). nvmd's CI
-    # publishes the vendor kernel + page-size-16k jemalloc to
-    # `nixos-raspberrypi.cachix.org` built against THEIR pinned
-    # nixpkgs; following ours diverges the derivation hash and forces
-    # a Pi-local kernel rebuild — multi-hour aarch64 pain on every
-    # nixpkgs bump. Closure cost (one extra nixpkgs snapshot, ~400MB)
-    # is well below what we save in build time + thermal load.
-    nixos-raspberrypi = {
-      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
     };
   };
 
