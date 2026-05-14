@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:pub_semver/pub_semver.dart';
+
 import 'package:common/src/models/configure/app_manifest.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/models/plugin/plugin_dep.dart';
@@ -7,6 +9,7 @@ import 'package:common/src/models/plugin/plugin_manifest_error.dart';
 import 'package:common/src/models/plugin/plugin_permissions.dart';
 import 'package:common/src/models/plugin/plugin_streamer_spec.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
+import 'package:common/src/services/log_service.dart';
 
 /// Plugin manifest schema (see `docs/decisions/plugins.md`, D1/D6/D14/D16).
 ///
@@ -84,10 +87,24 @@ class PluginManifest {
   /// unset.
   final String? url;
 
-  /// Plugin version string (e.g. `0.1.0`). Free-form; the TUI does
-  /// not parse semver. Stored on the install marker for audit.
-  /// Nullable when absent in the manifest.
+  /// Plugin version string as it appears in the manifest, verbatim.
+  /// Round-trips through JSON unchanged. Nullable when absent in
+  /// the manifest. Use this for display; use [parsedVersion] for
+  /// comparison.
   final String? version;
+
+  /// Parsed semver view of [version], or null when:
+  ///
+  /// - [version] is absent (plugin never opted in to versioning)
+  /// - [version] is present but doesn't parse as canonical semver
+  ///   (a WARN is logged at load time; the plugin still loads, just
+  ///   without participating in the introducing-commit tracking
+  ///   flow — see `docs/decisions/2026-05-14-plugin-version-tracking.md`)
+  ///
+  /// All version-comparison code paths key off this field, so a
+  /// malformed version surfaces as "unversioned" everywhere
+  /// (current SHA-based tracking applies).
+  final Version? parsedVersion;
 
   /// User-triggerable actions (Phase 4). Keys are action ids
   /// (used internally), values describe the labeled command. May
@@ -137,6 +154,7 @@ class PluginManifest {
     String? id,
     this.url,
     this.version,
+    this.parsedVersion,
     this.actions = const {},
     this.permissions = const PluginPermissions(),
     this.dashboard,
@@ -249,6 +267,7 @@ class PluginManifest {
 
     final rawVersion = json['version'];
     String? version;
+    Version? parsedVersion;
     if (rawVersion != null) {
       if (rawVersion is! String || rawVersion.isEmpty) {
         throw const PluginManifestError(
@@ -256,6 +275,23 @@ class PluginManifest {
         );
       }
       version = rawVersion;
+      // Soft-fail semver parse: a malformed `version` doesn't break
+      // the plugin, it just opts out of introducing-commit tracking
+      // (see docs/decisions/2026-05-14-plugin-version-tracking.md).
+      // The raw string still round-trips through JSON for display +
+      // audit; `parsedVersion` stays null and the SHA-based tracking
+      // path applies. Hard-fail considered and rejected: third-party
+      // plugin authors with `"version": "1.0"` (no patch) would have
+      // their plugins refuse to load after the TUI upgrade.
+      try {
+        parsedVersion = Version.parse(rawVersion);
+      } on FormatException catch (e) {
+        LogService.warn(
+          'plugin ${id ?? name}: manifest.version "$rawVersion" is not '
+          'valid semver (${e.message}); falling back to SHA-based '
+          'update tracking for this plugin',
+        );
+      }
     }
 
     final rawRequires = json['requires'];
@@ -331,6 +367,7 @@ class PluginManifest {
       id: id,
       url: url,
       version: version,
+      parsedVersion: parsedVersion,
       actions: actionMap,
       permissions: perms,
       dashboard: dashboard,

@@ -13,6 +13,12 @@ dependencies:
   path: ^1.9.1
   http: ^1.2.2
   meta: ^1.18.0
+  # Strict semver parsing for plugin manifest `version` fields and
+  # the introducing-commit version-tracking flow. Plugins that opt
+  # into semver get monotonic upgrade tracking; non-semver `version`
+  # strings warn and fall through to SHA-based tracking.
+  # See docs/decisions/2026-05-14-plugin-version-tracking.md.
+  pub_semver: ^2.1.5
   # Used by services/dashboard/colors.dart for the tile DSL's color
   # resolution. nocterm.Color is a plain RGB value object — depending
   # on it doesn't pull in widget infrastructure.

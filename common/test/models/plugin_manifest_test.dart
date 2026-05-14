@@ -674,11 +674,98 @@ void main() {
       expect(m.name, 'Blitz API');
       expect(m.url, 'git+https://forge.example/p');
       expect(m.version, '0.1.0');
+      expect(m.parsedVersion.toString(), '0.1.0');
 
       final back = PluginManifest.fromJson(m.toJson());
       expect(back.id, 'blitz-api');
       expect(back.url, 'git+https://forge.example/p');
       expect(back.version, '0.1.0');
+      expect(back.parsedVersion.toString(), '0.1.0');
+    });
+
+    test('parsedVersion is null when manifest has no version field', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+      });
+      expect(m.version, isNull);
+      expect(m.parsedVersion, isNull);
+    });
+
+    test('parsedVersion handles pre-release identifiers', () {
+      final pre = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'version': '1.2.3-beta.5',
+      });
+      expect(pre.parsedVersion!.isPreRelease, isTrue);
+
+      final release = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'version': '1.2.3',
+      });
+      // Semver: any pre-release < the corresponding release.
+      expect(pre.parsedVersion! < release.parsedVersion!, isTrue);
+    });
+
+    test('parsedVersion sorts -beta.10 after -beta.2 (numeric identifier)', () {
+      final b2 = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'version': '1.2.3-beta.2',
+      });
+      final b10 = PluginManifest.fromJson({
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+        'version': '1.2.3-beta.10',
+      });
+      // Dot-separated numeric identifier — should compare numerically,
+      // sidestepping the lexical `beta10 < beta2` gotcha.
+      expect(b2.parsedVersion! < b10.parsedVersion!, isTrue);
+    });
+
+    test(
+      'malformed version string keeps the raw value but parsedVersion null',
+      () {
+        // Plugin author typed `"1.0"` (missing patch). Soft-fail policy:
+        // we keep the raw string for display + audit, drop the parsed
+        // view, and treat the plugin as unversioned for tracking.
+        final m = PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'version': '1.0',
+        });
+        expect(m.version, '1.0');
+        expect(m.parsedVersion, isNull);
+      },
+    );
+
+    test('malformed version variants all soft-fail', () {
+      for (final bad in const [
+        'v1.2.3', // leading v
+        '1.2', // missing patch
+        '1.2.3.4', // four components
+        'not-a-version',
+      ]) {
+        final m = PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'version': bad,
+        });
+        expect(m.version, bad, reason: 'raw should round-trip for "$bad"');
+        expect(
+          m.parsedVersion,
+          isNull,
+          reason: 'parsedVersion should be null for "$bad"',
+        );
+      }
+    });
+
+    test('empty version string is rejected (not soft-failed)', () {
+      // Empty string is a manifest-level error: the field is present
+      // but explicitly says "no version." That's a malformed manifest,
+      // not a "this plugin chose not to version" signal — refuse.
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'p'},
+          'version': '',
+        }),
+        throwsA(isA<PluginManifestError>()),
+      );
     });
 
     test('manifest empty id throws PluginManifestError', () {
