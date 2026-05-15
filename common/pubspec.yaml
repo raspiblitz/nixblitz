@@ -25,7 +25,7 @@ dependencies:
   nocterm:
     git:
       url: https://forge.f44.fyi/f44/nocterm
-      ref: 6f6f5a51d337c3b5744e82c01c0fd4576bc64192
+      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
 
 dev_dependencies:
   lints: ^6.1.0
