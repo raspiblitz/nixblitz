@@ -5,6 +5,7 @@ import 'package:jaspr_riverpod/jaspr_riverpod.dart';
 import 'package:jaspr_content/jaspr_content.dart';
 import 'package:jaspr_content/theme.dart';
 
+import 'build_info.dart';
 import 'pages/home_page.dart';
 import 'pages/changelog_page.dart';
 import 'components/layout.dart' as layout;
@@ -64,6 +65,19 @@ class _AppContentState extends State<_AppContent>
       loaders: loaders,
       configResolver: (PageSource source) => PageConfig(
         parsers: [const MarkdownParser()],
+        // jaspr_content's PageLayoutBase wraps each markdown page in
+        // its OWN Document, with `<base href>` sourced from
+        // `page.data['site']['base']` (defaults to "/"). Without this
+        // override docs/*/index.html would render `<base href="/">`
+        // and shadow the prefix we set in main.server.dart. Seed
+        // site.base from the build-time kBasePath so both halves
+        // (the root-served index/changelog and the content-served
+        // docs pages) agree on the prefix.
+        dataLoaders: [
+          MemoryDataLoader({
+            'site': {'base': kBasePath.isEmpty ? '/' : '$kBasePath/'},
+          }),
+        ],
         layouts: [
           DocsLayout(
             header: div([]),

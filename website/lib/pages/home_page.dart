@@ -1,6 +1,7 @@
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
 
+import '../build_info.dart';
 import '../components/asciinema_cast.dart';
 import '../components/tile.dart';
 
@@ -235,9 +236,9 @@ class HomePage extends StatelessComponent {
     ]);
   }
 
-  Component _docLink(String href, String label, String desc) {
+  Component _docLink(String path, String label, String desc) {
     return li(classes: 'flex flex-wrap items-baseline gap-x-3', [
-      a(href: href, classes: 'keybind', [
+      a(href: href(path), classes: 'keybind', [
         span(classes: 'key', [Component.text('[>]')]),
         Component.text(' $label'),
       ]),
@@ -337,7 +338,7 @@ class _InstallationBody extends StatelessComponent {
         _step('6', 'Back up the LND seed when prompted. Done.'),
       ]),
       p(classes: 'mt-4', [
-        a(href: '/docs/installation', classes: 'keybind', [
+        a(href: href('/docs/installation'), classes: 'keybind', [
           span(classes: 'key', [Component.text('[>]')]),
           Component.text(' full installation walkthrough'),
         ]),
@@ -602,7 +603,7 @@ class _Screenshot extends StatelessComponent {
           attributes: {'aria-label': 'Open $alt fullscreen'},
           [
             img(
-              src: src,
+              src: href(src),
               classes: 'w-full block',
               attributes: {'alt': alt, 'loading': 'lazy'},
             ),
@@ -628,7 +629,7 @@ class _Screenshot extends StatelessComponent {
             ),
             div(classes: 'lightbox-content', [
               img(
-                src: src,
+                src: href(src),
                 classes: 'lightbox-image',
                 attributes: {'alt': alt},
               ),

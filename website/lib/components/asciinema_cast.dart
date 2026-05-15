@@ -1,6 +1,7 @@
 import 'package:jaspr/jaspr.dart';
 import 'package:jaspr/dom.dart';
 
+import '../build_info.dart';
 import 'tile.dart';
 
 /// Wraps an asciinema cast file in a `Tile`, paired with a caption.
@@ -38,8 +39,13 @@ class AsciinemaCast extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
+    // Resolve the cast URL through href() so callers can keep their
+    // const constructor invocations with bare `/casts/...` strings.
+    // The player loads the .cast file via fetch(), which respects
+    // the absolute path verbatim — no <base> fallback — so the
+    // prefix must be baked into the data attribute.
     final attrs = <String, String>{
-      'data-asciinema-cast': src,
+      'data-asciinema-cast': src.startsWith('/') ? href(src) : src,
       'data-cols': '$cols',
       'data-rows': '$rows',
       'data-idle-time-limit': '$idleTimeLimit',

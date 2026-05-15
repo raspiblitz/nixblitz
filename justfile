@@ -100,26 +100,38 @@ web-css-watch:
 # Serve the website locally with hot reload (http://localhost:8383)
 # Passes BUILD_VERSION + BUILD_GIT_HASH the same way `nix build .#website`
 # does so the header version string shows real git context during dev.
-web-serve: web-css
+# Optional positional argument is the BASE_PATH for previewing a
+# subpath-served build (e.g. `just web-serve /nixblitz`). The dev
+# server still binds at /, so the rendered href()-prefixed links go
+# 404 — that's the visual check that prefixing is happening at all.
+web-serve base_path="": web-css
   #!/usr/bin/env nu
   let hash = (git rev-parse --short=7 HEAD | str trim)
   let dirty = ((git status --porcelain | str length) > 0)
   let tagged = (if $dirty { $"($hash)-dirty" } else { $hash })
   cd website
-  jaspr serve --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged)
+  jaspr serve --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged) --dart-define=BASE_PATH={{base_path}}
 
 # Build the website via Nix (output symlink: ./result/)
-web-build:
-  nix build .#website
+# Optional positional argument sets the BASE_PATH override for the
+# subpath build (e.g. `just web-build /nixblitz`).
+web-build base_path="":
+  #!/usr/bin/env nu
+  if "{{base_path}}" == "" {
+    nix build .#website
+  } else {
+    nix build --expr $"\(builtins.getFlake \"(pwd)\"\).packages.x86_64-linux.website.override { basePath = \"{{base_path}}\"; }" --impure
+  }
 
 # Build the website locally with `jaspr` on PATH (faster dev iteration; output: website/build/jaspr/)
-web-build-local: web-css
+# Optional positional argument sets the BASE_PATH (see `web-serve`).
+web-build-local base_path="": web-css
   #!/usr/bin/env nu
   let hash = (git rev-parse --short=7 HEAD | str trim)
   let dirty = ((git status --porcelain | str length) > 0)
   let tagged = (if $dirty { $"($hash)-dirty" } else { $hash })
   cd website
-  jaspr build -O4 --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged)
+  jaspr build -O4 --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged) --dart-define=BASE_PATH={{base_path}}
 
 # Serve the Nix-built bundle on http://localhost:8383
 web-serve-prod: web-build

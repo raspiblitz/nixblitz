@@ -1,28 +1,41 @@
 import 'package:jaspr/server.dart';
 import 'package:jaspr/dom.dart';
 import 'app.dart';
+import 'build_info.dart';
 
 void main() {
   Jaspr.initializeApp();
   runApp(
     Document(
       title: 'NixBlitz — Bitcoin/Lightning node on NixOS',
+      // `<base href>` is a fallback for any relative URL in the
+      // page (e.g., the `styles.css` link below). Absolute paths
+      // (starting with `/`) ignore <base> — those go through href()
+      // and carry the prefix explicitly. Omit when kBasePath is
+      // empty so the canonical root build doesn't render a noisy
+      // `<base href="/">`.
+      base: kBasePath.isEmpty ? null : '$kBasePath/',
       head: [
-        link(rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'),
+        link(rel: 'icon', type: 'image/svg+xml', href: href('/favicon.svg')),
         link(rel: 'stylesheet', href: 'styles.css'),
         link(
           rel: 'stylesheet',
-          href: '/vendor/asciinema-player/asciinema-player.css',
+          href: href('/vendor/asciinema-player/asciinema-player.css'),
         ),
         // Synchronous load — the per-cast init walker below runs on
         // DOMContentLoaded and needs `AsciinemaPlayer` to already
         // exist in the global scope by then.
-        script(src: '/vendor/asciinema-player/asciinema-player.min.js'),
+        script(src: href('/vendor/asciinema-player/asciinema-player.min.js')),
         // Unregister stale ServiceWorkers from earlier PWA experiments to
         // avoid origin pollution on the dev server (localhost:8383, or
         // whatever port jaspr serve is bound to).
         RawText('''
         <script>
+        // Base path threaded from the build-time --dart-define=BASE_PATH.
+        // Inline JS routes need this because <base href> only affects
+        // relative-URL resolution by the browser; explicit JS string
+        // literals like `window.location.href = '/'` ignore <base>.
+        var __basePath = ${kBasePath.isEmpty ? "''" : "'$kBasePath'"};
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function(registrations) {
             for(let registration of registrations) {
@@ -82,9 +95,9 @@ void main() {
           // hit `r` etc. while looking at a screenshot.
           if (document.querySelector('.lightbox:target')) return;
           var routes = {
-            'h': '/',
-            'd': '/docs/installation',
-            'c': '/changelog'
+            'h': __basePath + '/',
+            'd': __basePath + '/docs/installation',
+            'c': __basePath + '/changelog'
           };
           var path = routes[e.key];
           if (path) {

@@ -8,7 +8,9 @@ const _kRepoUrl = 'https://forge.f44.fyi/f44/nixblitz_ng';
 
 /// Top-level navigation rendered both as keybind links under the header
 /// strip and as the footer hint bar. Each entry is `(key, label, href,
-/// external)`. The same data drives both; keep them in sync.
+/// external)`. Internal hrefs are stored unprefixed; [href] applies the
+/// configured BASE_PATH at render time so the same constant works for
+/// both root-served and subpath-served builds.
 const List<({String key, String label, String href, bool external})> _navItems =
     [
       (key: 'h', label: 'Home', href: '/', external: false),
@@ -25,11 +27,14 @@ class NavBar extends StatelessComponent {
 
   @override
   Component build(BuildContext context) {
-    final currentPath = context.url;
+    // context.url comes back with the base-path prefix when the site
+    // is served from a subpath. Strip it so the rest of the routing
+    // logic can work in internal-path terms.
+    final currentPath = internalPath(context.url);
 
     return header(classes: 'tui-header', [
       div(classes: 'tui-header-row', [
-        a(href: '/', classes: 'tui-brand', [Component.text('NIXBLITZ')]),
+        a(href: href('/'), classes: 'tui-brand', [Component.text('NIXBLITZ')]),
         div(classes: 'tui-breadcrumb', [
           Component.text(_breadcrumb(currentPath)),
         ]),
@@ -56,8 +61,11 @@ class NavBar extends StatelessComponent {
     String currentPath,
   ) {
     final isActive = !item.external && _isActiveRoute(item.href, currentPath);
+    // External URLs pass through verbatim; internal hrefs get the
+    // BASE_PATH prefix.
+    final renderedHref = item.external ? item.href : href(item.href);
     return a(
-      href: item.href,
+      href: renderedHref,
       classes: 'keybind${isActive ? ' active' : ''}',
       attributes: item.external
           ? {'target': '_blank', 'rel': 'noopener noreferrer'}
@@ -90,8 +98,9 @@ class Footer extends StatelessComponent {
   Component _hint(
     ({String key, String label, String href, bool external}) item,
   ) {
+    final renderedHref = item.external ? item.href : href(item.href);
     return a(
-      href: item.href,
+      href: renderedHref,
       classes: 'keybind',
       attributes: item.external
           ? {'target': '_blank', 'rel': 'noopener noreferrer'}
