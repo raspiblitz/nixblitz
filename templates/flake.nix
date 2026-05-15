@@ -1,6 +1,31 @@
 {
   description = "NixBlitz node configuration";
 
+  # NixBlitz's private binary cache hosted at https://attic.f44.fyi/nixblitz.
+  # Used for closures that don't substitute cleanly from cache.nixos.org —
+  # primarily the Pi 5's Rust-binary set (uv et al.) which bundle
+  # jemalloc-sys and need a JEMALLOC_SYS_WITH_LG_PAGE=14 rebuild that
+  # cache.nixos.org's 4K-page CI doesn't produce. See issue #24 (Attic)
+  # and the operator-facing Pi 5 SIGBUS-on-uv saga.
+  #
+  # `extra-` prefixes mean these LAYER on top of the operator's existing
+  # `substituters` + `trusted-public-keys` (notably cache.nixos.org and
+  # nixos-raspberrypi.cachix.org from `nixos-raspberrypi`'s nixConfig).
+  # If our cache is unreachable, substitution falls through; doesn't break
+  # rebuilds, just makes some derivations take the local-build path.
+  #
+  # `admin` is in `nix.settings.trusted-users` (see modules/system/base.nix)
+  # so this nixConfig is honoured without `--accept-flake-config` prompts
+  # for operator-level commands. The bootstrap path (`nix run` from the
+  # live ISO as `nixos`) does not yet pick this up — it goes through the
+  # nixblitz_ng root flake, not this one.
+  nixConfig = {
+    extra-substituters = ["https://attic.f44.fyi/nixblitz"];
+    extra-trusted-public-keys = [
+      "nixblitz:u7XgfZdWeXp1ilOIlzKzQbxWZZg9r2rVU0VBaffHtbw="
+    ];
+  };
+
   inputs = {
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
     # come from this third-party flake. Pinned to a tag so refreshes
