@@ -6,6 +6,7 @@ import 'package:common/common.dart';
 import 'package:common/src/streamers/system_stats_streamer.dart';
 import 'package:tui/src/build_info.dart';
 import 'package:tui/src/cli/check_cli.dart';
+import 'package:tui/src/cli/init_cli.dart';
 import 'package:tui/src/cli/plugin_cli.dart';
 import 'package:tui/src/ui/app.dart';
 
@@ -43,6 +44,21 @@ void main(List<String> arguments) async {
       ArgParser()
         ..addCommand('light', ArgParser())
         ..addCommand('heavy', ArgParser()),
+    )
+    ..addCommand(
+      'init',
+      ArgParser()
+        ..addOption(
+          'platform',
+          defaultsTo: 'x86',
+          allowed: ['x86', 'pi5'],
+          help: 'Target platform for the build profile (x86 or pi5).',
+        )
+        ..addFlag(
+          'force',
+          negatable: false,
+          help: 'Overwrite an existing config.json.',
+        ),
     )
     ..addCommand(
       'plugin',
@@ -109,6 +125,10 @@ void main(List<String> arguments) async {
       final code = await runCheckCli(results.command!, baseDir);
       exit(code);
     }
+    if (results.command?.name == 'init') {
+      final code = await runInitCli(results.command!, baseDir);
+      exit(code);
+    }
 
     // Hook into nocterm's error reporting (catches layout errors, paint errors, etc.)
     NoctermError.onError = (details) {
@@ -171,6 +191,22 @@ void _printHelp(String? topic) {
     );
     return;
   }
+  if (topic == 'init') {
+    print(
+      'Usage: nixblitz init [--platform x86|pi5] [--force]\n'
+      '\n'
+      'Bootstrap ~/nixblitz/ on a regular NixOS workstation without\n'
+      'entering the TUI. Writes the embedded templates + a minimal\n'
+      'config.json that routes future TUI launches straight to the\n'
+      'dashboard. Intended for build-host profiles (e.g. populating an\n'
+      'Attic binary cache via\n'
+      '`nix build .#nixosConfigurations.<host>.config.system.build.toplevel`).\n'
+      '\n'
+      '  --platform <x86|pi5>  Target platform (default: x86).\n'
+      '  --force               Overwrite an existing config.json.',
+    );
+    return;
+  }
 
   print(
     'nixblitz $buildVersionString — Bitcoin/Lightning node manager on NixOS\n'
@@ -185,6 +221,7 @@ void _printHelp(String? topic) {
     'Subcommands:\n'
     '  plugin    Manage installed plugins (add / remove / list / update / pin / unpin)\n'
     '  check     Run an update check now (light / heavy)\n'
+    '  init      Bootstrap a build-host profile at ~/nixblitz/ (skips the TUI)\n'
     '\n'
     'The TUI is the default UI; subcommands are one-shot operations\n'
     'for scripting and the systemd update-check timers. See\n'
