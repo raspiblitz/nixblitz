@@ -37,6 +37,7 @@ in {
     pkgs-unstable.forgejo-cli
     pkgs.sshpass
     pkgs.prettier
+    pkgs.attic-client
     # Terminal-session recording for the website / docs.
     # `asciinema` records sessions to .cast files (timeline + bytes).
     # `asciinema-agg` converts .cast into animated GIFs / mp4 for
