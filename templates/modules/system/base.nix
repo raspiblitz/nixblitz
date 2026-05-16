@@ -24,6 +24,28 @@ in {
     nix.settings = {
       experimental-features = ["nix-command" "flakes"];
       trusted-users = ["root" "admin"];
+
+      # NixBlitz's binary cache. Layered with `extra-` so the
+      # operator's existing substituters (cache.nixos.org from
+      # nixpkgs defaults, nixos-raspberrypi.cachix.org from the Pi
+      # 5 vendor flake) stay intact.
+      #
+      # Baked into system nix.conf rather than relying solely on
+      # `templates/flake.nix`'s `nixConfig.extra-substituters`,
+      # because flake-level config is silently ignored when
+      # `accept-flake-config = false` (the upstream default) — even
+      # for trusted users on some nix builds. System-level
+      # substituters work uniformly across every nix invocation:
+      # nixos-rebuild, plain `nix build`, `nix-store --realise`,
+      # and post-install nix-daemon work during plugin installs.
+      #
+      # If you ever want to opt OUT (e.g. run nixblitz against your
+      # own private cache), `nix.settings.extra-substituters =
+      # lib.mkForce [...];` in your host config wins.
+      extra-substituters = ["https://attic.f44.fyi/nixblitz"];
+      extra-trusted-public-keys = [
+        "nixblitz:u7XgfZdWeXp1ilOIlzKzQbxWZZg9r2rVU0VBaffHtbw="
+      ];
     };
 
     environment.systemPackages = with pkgs; [

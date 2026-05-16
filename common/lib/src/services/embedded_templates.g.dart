@@ -7,8 +7,61 @@ const String _flake = r'''
 {
   description = "NixBlitz node configuration";
 
+  # NixBlitz's private binary cache hosted at https://attic.f44.fyi/nixblitz.
+  # Used for closures that don't substitute cleanly from cache.nixos.org —
+  # primarily the Pi 5's Rust-binary set (uv et al.) which bundle
+  # jemalloc-sys and need a JEMALLOC_SYS_WITH_LG_PAGE=14 rebuild that
+  # cache.nixos.org's 4K-page CI doesn't produce. See issue #24 (Attic)
+  # and the operator-facing Pi 5 SIGBUS-on-uv saga.
+  #
+  # `extra-` prefixes mean these LAYER on top of the operator's existing
+  # `substituters` + `trusted-public-keys` (notably cache.nixos.org and
+  # nixos-raspberrypi.cachix.org from `nixos-raspberrypi`'s nixConfig).
+  # If our cache is unreachable, substitution falls through; doesn't break
+  # rebuilds, just makes some derivations take the local-build path.
+  #
+  # `admin` is in `nix.settings.trusted-users` (see modules/system/base.nix)
+  # so this nixConfig is honoured without `--accept-flake-config` prompts
+  # for operator-level commands. The bootstrap path (`nix run` from the
+  # live ISO as `nixos`) does not yet pick this up — it goes through the
+  # nixblitz_ng root flake, not this one.
+  nixConfig = {
+    extra-substituters = ["https://attic.f44.fyi/nixblitz"];
+    extra-trusted-public-keys = [
+      "nixblitz:u7XgfZdWeXp1ilOIlzKzQbxWZZg9r2rVU0VBaffHtbw="
+    ];
+  };
+
   inputs = {
-    nixpkgs.url = "github:nixOS/nixpkgs/nixos-25.11";
+    # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
+    # come from this third-party flake. Pinned to a tag so refreshes
+    # are explicit; bump deliberately rather than tracking `main`.
+    #
+    # nvmd's CI publishes the vendor kernel + page-size-16k jemalloc
+    # to `nixos-raspberrypi.cachix.org` against THEIR pinned nixpkgs.
+    # Both halves of that alignment matter:
+    #
+    # 1. `nixos-raspberrypi` deliberately does NOT follow nixpkgs.
+    #    Following ours would diverge the derivation hash and force
+    #    a Pi-local kernel rebuild — multi-hour aarch64 pain on
+    #    every nixpkgs bump.
+    # 2. Reciprocal direction below: `nixpkgs.follows =
+    #    "nixos-raspberrypi/nixpkgs"`. When we ran with an
+    #    independent nixpkgs, every `nix flake update` advanced ours
+    #    past whatever rev nvmd's cachix last published against,
+    #    and Pi rebuilds would hit cache misses + SIGBUS aborts on
+    #    16K pages (cache.nixos.org's standard aarch64 builds are
+    #    4K-aligned). Aligning forward fixes the whole class.
+    #
+    # Tradeoff accepted: x86 builds also inherit nvmd's nixpkgs rev,
+    # which lags upstream by however long nvmd's tag cadence is
+    # (~weekly per their release pattern — fine). x86 is the eval /
+    # dev target where the lag doesn't hurt; Pi 5 is the production
+    # target where cache alignment is load-bearing.
+    nixos-raspberrypi = {
+      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
+    };
+    nixpkgs.follows = "nixos-raspberrypi/nixpkgs";
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -19,21 +72,6 @@ const String _flake = r'''
     nixblitz = {
       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-    # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
-    # come from this third-party flake. Pinned to a tag so refreshes
-    # are explicit; bump deliberately rather than tracking `main`.
-    #
-    # Deliberately NOT following nixpkgs (the only documented exception
-    # to that rule besides `flake.nix`'s nixpkgs-unstable). nvmd's CI
-    # publishes the vendor kernel + page-size-16k jemalloc to
-    # `nixos-raspberrypi.cachix.org` built against THEIR pinned
-    # nixpkgs; following ours diverges the derivation hash and forces
-    # a Pi-local kernel rebuild — multi-hour aarch64 pain on every
-    # nixpkgs bump. Closure cost (one extra nixpkgs snapshot, ~400MB)
-    # is well below what we save in build time + thermal load.
-    nixos-raspberrypi = {
-      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
     };
   };
 
@@ -405,6 +443,24 @@ const String _hostsInstalledPi5 = r'''
       size = 8 * 1024;
     }
   ];
+
+  # Cap nix-daemon CPU usage so a Pi-local rebuild doesn't peg all
+  # 4 cores and starve bitcoind / lnd / the dashboard tile pollers.
+  # Default `max-jobs = "auto"` (=4 here) + default `cores = 0`
+  # (=all available) means one rustc storm can drive load average
+  # above 8 and slow `tailscale status` polls into timeouts. The
+  # split below leaves the 4th core for everything else:
+  #
+  #   max-jobs = 1  — only one derivation at a time
+  #   cores    = 3  — that derivation can spin up to 3 rustc threads
+  #
+  # Builds take longer in absolute terms, but the node stays
+  # responsive throughout — preferable for a single-board node
+  # that's also serving a live Bitcoin + Lightning stack.
+  nix.settings = {
+    max-jobs = 1;
+    cores = 3;
+  };
 }
 ''';
 
@@ -569,6 +625,28 @@ in {
     nix.settings = {
       experimental-features = ["nix-command" "flakes"];
       trusted-users = ["root" "admin"];
+
+      # NixBlitz's binary cache. Layered with `extra-` so the
+      # operator's existing substituters (cache.nixos.org from
+      # nixpkgs defaults, nixos-raspberrypi.cachix.org from the Pi
+      # 5 vendor flake) stay intact.
+      #
+      # Baked into system nix.conf rather than relying solely on
+      # `templates/flake.nix`'s `nixConfig.extra-substituters`,
+      # because flake-level config is silently ignored when
+      # `accept-flake-config = false` (the upstream default) — even
+      # for trusted users on some nix builds. System-level
+      # substituters work uniformly across every nix invocation:
+      # nixos-rebuild, plain `nix build`, `nix-store --realise`,
+      # and post-install nix-daemon work during plugin installs.
+      #
+      # If you ever want to opt OUT (e.g. run nixblitz against your
+      # own private cache), `nix.settings.extra-substituters =
+      # lib.mkForce [...];` in your host config wins.
+      extra-substituters = ["https://attic.f44.fyi/nixblitz"];
+      extra-trusted-public-keys = [
+        "nixblitz:u7XgfZdWeXp1ilOIlzKzQbxWZZg9r2rVU0VBaffHtbw="
+      ];
     };
 
     environment.systemPackages = with pkgs; [
