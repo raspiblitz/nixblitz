@@ -48,7 +48,7 @@ import '../services/check_runner.dart';
 ///    is what catches the Pi 5 case the tmpfs check misses.
 ///    Installed NixOS systems either omit `VARIANT_ID` or set
 ///    it to something else.
-bool _isInstallerEnvironment() {
+bool isInstallerEnvironment() {
   try {
     final result = Process.runSync('stat', ['-f', '-c', '%T', '/']);
     if ((result.stdout as String).trim() == 'tmpfs') return true;
@@ -330,7 +330,7 @@ class NixBlitzApp extends StatelessComponent {
     // ISO, Pi 5 sdimage installer, etc.). On any installer image
     // we always start in install mode regardless of existing
     // config so a failed install attempt can be retried.
-    final isInstaller = _isInstallerEnvironment();
+    final isInstaller = isInstallerEnvironment();
     final configPath = '$baseDir/config.json';
     final configExists = File(configPath).existsSync();
 

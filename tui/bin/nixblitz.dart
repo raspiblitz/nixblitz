@@ -10,6 +10,57 @@ import 'package:tui/src/cli/init_cli.dart';
 import 'package:tui/src/cli/plugin_cli.dart';
 import 'package:tui/src/ui/app.dart';
 
+/// Auto-refresh templates that drifted between this binary's
+/// embedded set and the operator's on-disk `~/nixblitz/`. Runs as
+/// the FIRST thing the TUI does after CLI subcommand dispatch.
+///
+/// Why up here instead of inside the apply/update flow's
+/// `_maybeAutoRewriteTemplates`: those run in the OLD binary's
+/// in-memory process. After a `nixos-rebuild switch` installs a
+/// new binary mid-flow, only the NEW binary on startup can write
+/// its own embedded templates to disk. The in-flow refresh writes
+/// the OLD binary's set, and the on-disk drift against the NEW
+/// binary persists until the operator triggers another refresh
+/// manually — which they often don't, because the rebuild succeeded
+/// and they don't realize the templates haven't caught up.
+///
+/// Running here closes that loop: every new binary's first start
+/// auto-heals any drift introduced by the version bump.
+Future<void> _autoRefreshTemplatesIfDrifted(String baseDir) async {
+  // Skip on installer images — templates haven't been scaffolded
+  // onto disk yet, drift detection is meaningless.
+  if (isInstallerEnvironment()) return;
+  // Skip on fresh / unconfigured systems — the app's refusal screen
+  // handles those cases; refreshing would overwrite nothing or
+  // create files where there's no profile yet.
+  if (!File('$baseDir/config.json').existsSync()) return;
+
+  final drift = detectTemplatesDrift(baseDir);
+  if (!drift.hasDrift) return;
+
+  LogService.info(
+    'Templates drift at startup: '
+    'modified=${drift.modified}, missing=${drift.missing}; '
+    'auto-refreshing',
+  );
+
+  try {
+    final driftedPaths = <String>[...drift.missing, ...drift.modified];
+    ScaffoldService(targetDir: baseDir).refreshTemplatesSync();
+    final git = GitService(repoDir: baseDir);
+    final committed = await git.commitPaths(
+      driftedPaths,
+      'Refresh templates from TUI (startup)',
+    );
+    LogService.info(
+      'Startup auto-refresh: ${driftedPaths.length} drifted paths, '
+      'committed=$committed',
+    );
+  } catch (e, st) {
+    LogService.error('Startup auto-refresh failed', e, st);
+  }
+}
+
 const int buildNumber = 9;
 
 void main(List<String> arguments) async {
@@ -129,6 +180,13 @@ void main(List<String> arguments) async {
       final code = await runInitCli(results.command!, baseDir);
       exit(code);
     }
+
+    // Self-heal templates drift introduced by a binary update. See
+    // the helper's docstring for why this has to run on startup of
+    // the new binary, not at the tail of the prior binary's update
+    // flow. Runs after CLI subcommand dispatch so one-shot
+    // operations (plugin / check / init) don't trigger refreshes.
+    await _autoRefreshTemplatesIfDrifted(baseDir);
 
     // Hook into nocterm's error reporting (catches layout errors, paint errors, etc.)
     NoctermError.onError = (details) {
