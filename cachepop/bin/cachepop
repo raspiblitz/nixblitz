@@ -574,6 +574,60 @@ cmd_dry_run() {
   done < <(cfg_query '.targets[].name')
 }
 
+# ── subcommand: run ──────────────────────────────────────────────────
+#
+# Operator-friendly one-shot: triggers the systemd unit, streams the
+# journal until the unit deactivates (success or failure), then prints
+# the summary. The hand-typed equivalent is:
+#
+#   sudo systemctl start nixblitz-cachepop.service
+#   journalctl -fu nixblitz-cachepop.service
+#   # ^ wait for "Finished" / "Failed", Ctrl-C
+#   cachepop summary
+#
+# `run` collapses that into one command + handles the journalctl exit
+# pattern automatically (sed -u quits when it sees systemd's
+# "Finished" or "Failed" line, breaking journalctl's pipe).
+
+cmd_run() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    die "cachepop run is for interactive operator shells, not root"
+  fi
+
+  log "starting nixblitz-cachepop.service"
+  if ! sudo systemctl start --no-block nixblitz-cachepop.service; then
+    die "systemctl start failed"
+  fi
+
+  echo "" >&2
+  echo "Tailing journal — Ctrl-C exits the tail. The service keeps" >&2
+  echo "running in the background regardless. Auto-exits and prints" >&2
+  echo "the summary when the service deactivates." >&2
+  echo "" >&2
+
+  # Give systemd a moment to register the unit start so --since=now
+  # picks up the first log line.
+  sleep 0.5
+
+  # sed -u (line-buffered) `q`-quits when it sees the systemd
+  # unit-end markers, which closes journalctl's pipe and ends the
+  # tail. `|| true` so a Ctrl-C-induced SIGPIPE doesn't bubble up.
+  journalctl -fu nixblitz-cachepop.service --since=now 2>/dev/null \
+    | sed -u \
+        -e '/Finished nixblitz Attic cache populator/q' \
+        -e "/nixblitz-cachepop.service: Failed with result/q" \
+    || true
+
+  echo "" >&2
+  if systemctl is-active --quiet nixblitz-cachepop.service; then
+    log "service still running — \`cachepop summary\` later for final state"
+    return 0
+  fi
+  log "service exited; final summary:"
+  echo "" >&2
+  cmd_summary
+}
+
 # ── subcommand: logs ──────────────────────────────────────────────────
 #
 # Thin wrapper around `journalctl -u nixblitz-cachepop.service`.
@@ -625,11 +679,13 @@ Usage: cachepop [--config PATH] <subcommand> [args...]
 Subcommands:
   init <target> --flake-attr <attr> --platform <x86|pi5> [--plugins p1,p2,...]
                           Bootstrap a per-target profile dir.
-  check                   Advance flake inputs, report drift.
+  check                   Advance flake inputs + plugin pins; report drift.
   dry-run [<target>...]   Show what would compile vs substitute (no build).
   build [<target>...]     Build each target's closure. All if none named.
   push [<target>...]      Push last build to Attic. All if none named.
   sync                    check → if drift: build + push. Service entry point.
+  run                     systemctl-start the service, tail logs to completion,
+                          print summary. Convenience for interactive use.
   status                  Raw status JSON (for scripting).
   summary                 Human-readable last-cycle summary.
   logs [-f] [-n N]        Tail the systemd journal for the service.
@@ -703,6 +759,7 @@ main() {
     build)   cmd_build   "$@" ;;
     push)    cmd_push    "$@" ;;
     sync)    cmd_sync    "$@" ;;
+    run)     cmd_run     "$@" ;;
     status)  cmd_status  "$@" ;;
     summary) cmd_summary "$@" ;;
     logs)    cmd_logs    "$@" ;;
