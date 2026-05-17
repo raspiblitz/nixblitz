@@ -82,6 +82,7 @@ self: {
     atticEndpoint = cfg.atticEndpoint;
     nixCores = cfg.cpuCores;
     nixMaxJobs = cfg.maxJobs;
+    maxTempC = cfg.maxTempC;
     targets = cfg.targets;
   });
 
@@ -184,6 +185,24 @@ in {
         module is designed for. As a bonus, single-derivation
         builds keep `cachepop logs -f` readable; parallel
         derivations interleave their output into noise.
+      '';
+    };
+
+    maxTempC = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      example = 75;
+      description = ''
+        SoC thermal guard. When `> 0`, a watchdog polls
+        `/sys/class/thermal/thermal_zone0/temp` every 10s during
+        `nix build`; if the temperature exceeds this threshold (in
+        °C) for ≥120s sustained, the build is SIGTERM'd. Operator's
+        next sync cycle retries on a cooler box.
+
+        `0` (default) disables the guard. Primarily intended for
+        the Pi 5 plugin shape (operators with marginal active
+        cooling). Build-host module deployments (water-cooled
+        gaming PC, dedicated builder) typically don't need it.
       '';
     };
 

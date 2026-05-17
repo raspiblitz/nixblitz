@@ -24,6 +24,14 @@
 #     "atticEndpoint": "https://attic.f44.fyi/",
 #     "nixCores":      12,      # --cores per derivation (0 = all)
 #     "nixMaxJobs":    "auto",  # --max-jobs (positive int or "auto")
+#     "maxTempC":      0,       # SoC thermal guard (0 = disabled).
+#                               # When set, a watchdog polls
+#                               # /sys/class/thermal/thermal_zone0/temp
+#                               # every 10s during nix build and SIGTERMs
+#                               # the build if temp exceeds the threshold
+#                               # for >=120s sustained. Primarily for the
+#                               # plugin shape (Pi 5 native build); the
+#                               # build-host module leaves it disabled.
 #     "targets": [
 #       { "name": "pi5-mainnet",
 #         "flakeAttr": "nixblitz-pi5",
@@ -66,6 +74,47 @@ atomic_write() {
 }
 
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# Thermal watchdog. Polls SoC temperature while the wrapped build
+# process is running; if temp stays above `threshold_c` for
+# `sustained_samples` consecutive 10s samples (=120s by default),
+# sends SIGTERM to the build process and exits.
+#
+# Designed for the Pi 5 plugin case where sustained native compile
+# can push the SoC over its thermal envelope on operators without
+# active cooling. Build-host module leaves maxTempC=0 (no guard).
+#
+# /sys/class/thermal/thermal_zone0/temp reports millicelsius. Missing
+# file / unreadable -> watchdog silently skips (e.g. non-Pi hardware).
+_thermal_watchdog() {
+  local build_pid=$1
+  local threshold_c=$2
+  local sustained_samples="${3:-12}"
+
+  local thermal_file="/sys/class/thermal/thermal_zone0/temp"
+  [[ -r "$thermal_file" ]] || return 0
+
+  local over_count=0
+  while kill -0 "$build_pid" 2>/dev/null; do
+    local temp_milli temp_c
+    temp_milli=$(cat "$thermal_file" 2>/dev/null || echo 0)
+    temp_c=$((temp_milli / 1000))
+    if [[ $temp_c -gt $threshold_c ]]; then
+      over_count=$((over_count + 1))
+      if [[ $over_count -ge $sustained_samples ]]; then
+        log "thermal-guard: SoC ${temp_c}C > threshold ${threshold_c}C for ${sustained_samples}×10s — aborting build"
+        kill -TERM "$build_pid" 2>/dev/null || true
+        # Give nix a moment, then escalate if needed.
+        sleep 5
+        kill -KILL "$build_pid" 2>/dev/null || true
+        return 0
+      fi
+    else
+      over_count=0
+    fi
+    sleep 10
+  done
+}
 
 # ── config loading ─────────────────────────────────────────────────────
 
@@ -390,13 +439,23 @@ _build_one() {
   # `--json` writes the result manifest to stdout; `-L` writes build
   # logs to stderr. Capturing stdout into build_json keeps the two
   # streams separated — logs flow through to journalctl unmolested.
-  local cores max_jobs
+  local cores max_jobs max_temp
   cores=$(cfg_query_or_default '.nixCores' '0')
   max_jobs=$(cfg_query_or_default '.nixMaxJobs' '"auto"')
+  max_temp=$(cfg_query_or_default '.maxTempC' '0')
 
-  log "$target: nix build $attr (cores=$cores max-jobs=$max_jobs)"
-  local build_start build_elapsed
+  local guard_msg=""
+  [[ "$max_temp" -gt 0 ]] && guard_msg=" thermal-guard=${max_temp}C"
+  log "$target: nix build $attr (cores=$cores max-jobs=$max_jobs${guard_msg})"
+
+  local build_start build_elapsed build_rc build_log
   build_start=$(date +%s)
+  build_log=$(mktemp -t cachepop-build.XXXXXX)
+
+  # Run nix build with stdout (the --json manifest) captured to a
+  # temp file and stderr passed through to the journal. Background
+  # so the thermal watchdog can run alongside.
+  #
   # --accept-flake-config: even for trusted users, Nix prompts
   # before applying a flake's nixConfig (extra-substituters /
   # trusted-public-keys). cachepop runs without a TTY → no answer
@@ -404,12 +463,35 @@ _build_one() {
   # populating a cache we'd then substitute from on the next run.
   # The consumer flake here is templates/flake.nix which cachepop
   # itself wrote/seeded; trusting its nixConfig is correct.
-  if ! build_json=$(nix build --no-link --json -L --accept-flake-config \
-        --cores "$cores" --max-jobs "$max_jobs" "$attr"); then
+  nix build --no-link --json -L --accept-flake-config \
+        --cores "$cores" --max-jobs "$max_jobs" "$attr" \
+        > "$build_log" &
+  local build_pid=$!
+
+  # Thermal watchdog (only when maxTempC > 0). Detached background;
+  # kills the build_pid if SoC temp exceeds threshold for 2 min
+  # sustained. Killed by us once the build finishes, whichever
+  # came first.
+  local watchdog_pid=""
+  if [[ "$max_temp" -gt 0 ]]; then
+    _thermal_watchdog "$build_pid" "$max_temp" &
+    watchdog_pid=$!
+  fi
+
+  wait "$build_pid"
+  build_rc=$?
+  if [[ -n "$watchdog_pid" ]]; then
+    kill "$watchdog_pid" 2>/dev/null || true
+    wait "$watchdog_pid" 2>/dev/null || true
+  fi
+  build_json=$(cat "$build_log")
+  rm -f "$build_log"
+
+  if [[ $build_rc -ne 0 ]]; then
     build_elapsed=$(($(date +%s) - build_start))
-    log "$target: nix build failed after ${build_elapsed}s (see prior stderr lines)"
+    log "$target: nix build failed after ${build_elapsed}s (see prior stderr lines; rc=$build_rc)"
     status_update "$target" "$(jq -n \
-        --arg err "build failed; see journalctl -u nixblitz-cachepop" \
+        --arg err "build failed (rc=$build_rc); see journalctl -u nixblitz-cachepop" \
         --argjson sec "$build_elapsed" \
       '{ last_exit_code: 1, last_error: $err, last_build_seconds: $sec }')"
     return 1
