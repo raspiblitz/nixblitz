@@ -30,16 +30,8 @@
     nix-filter,
     disko,
     ...
-  }: let
-    # nixosModules sit outside the per-system block — they evaluate
-    # against the consumer's pkgs, not ours. `self` is closed over so
-    # the module body can reach `self.packages.${pkgs.system}.cachepop`
-    # at consumer-eval time.
-    nixosModulesOut = {
-      cachepop = import ./cachepop/nix/module.nix self;
-    };
-  in
-    (flake-utils.lib.eachDefaultSystem (
+  }:
+    flake-utils.lib.eachDefaultSystem (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
         pkgsUnstable = nixpkgs-unstable.legacyPackages.${system};
@@ -101,10 +93,6 @@
           nixblitz = nixblitzWrapped;
           nixblitz-unwrapped = nixblitzUnwrapped;
           website = nixblitzWebsite;
-          cachepop = pkgs.callPackage ./cachepop/nix/cachepop_pkg.nix {
-            nixblitz = nixblitzWrapped;
-            attic-client = pkgs.attic-client;
-          };
         };
 
         apps.default = {
@@ -112,8 +100,5 @@
           program = "${nixblitzWrapped}/bin/nixblitz";
         };
       }
-    ))
-    // {
-      nixosModules = nixosModulesOut;
-    };
+    );
 }
