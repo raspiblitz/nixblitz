@@ -3,17 +3,21 @@ import 'dart:io';
 import 'package:args/args.dart';
 import 'package:common/common.dart';
 
-/// Entry point for `nixblitz check {light,heavy}`. Runs outside the
-/// TUI — invoked by the systemd timers that surface "X updates
-/// available" on the dashboard.
+/// Entry point for `nixblitz check`. Runs outside the TUI — invoked
+/// by the systemd timer that surfaces "X updates available" on the
+/// dashboard, or by the in-TUI `[c]` action which spawns this same
+/// binary.
 ///
 /// Exits 0 when the check ran (even if it found inputs ahead);
 /// non-zero only on infrastructural failure (network, parse, missing
-/// flake.lock).
+/// flake.lock, nix subprocess failure).
 Future<int> runCheckCli(ArgResults checkArgs, String baseDir) async {
-  final sub = checkArgs.command;
-  if (sub == null) {
-    stderr.writeln('Usage: nixblitz check <light|heavy>');
+  if (checkArgs.command != null) {
+    stderr.writeln(
+      'nixblitz check no longer takes a subcommand — the previous '
+      "`light` / `heavy` split has been collapsed into a single run.\n"
+      'Usage: nixblitz check',
+    );
     return 2;
   }
 
@@ -22,17 +26,7 @@ Future<int> runCheckCli(ArgResults checkArgs, String baseDir) async {
     statusPath: updateStatusPath,
   );
   try {
-    switch (sub.name) {
-      case 'light':
-        final code = await updateCheckService.runLightweight();
-        return code;
-      case 'heavy':
-        final code = await updateCheckService.runHeavy();
-        return code;
-      default:
-        stderr.writeln('unknown verb: ${sub.name}');
-        return 2;
-    }
+    return await updateCheckService.runCheck();
   } catch (e) {
     stderr.writeln('error: $e');
     return 1;

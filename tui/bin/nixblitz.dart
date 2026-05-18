@@ -90,12 +90,7 @@ void main(List<String> arguments) async {
       negatable: false,
       help: 'Print version information',
     )
-    ..addCommand(
-      'check',
-      ArgParser()
-        ..addCommand('light', ArgParser())
-        ..addCommand('heavy', ArgParser()),
-    )
+    ..addCommand('check', ArgParser())
     ..addCommand(
       'init',
       ArgParser()
@@ -138,7 +133,7 @@ void main(List<String> arguments) async {
   // `nixblitz help <subcommand>` work alongside the conventional
   // `--help` / `-h` flag. ArgParser doesn't model a no-dash help
   // verb natively; intercepting before parse keeps the rest of the
-  // arg shape (with subcommands like `check light`) parseable.
+  // arg shape parseable.
   if (arguments.isNotEmpty && arguments.first == 'help') {
     _printHelp(arguments.length > 1 ? arguments[1] : null);
     exit(0);
@@ -237,15 +232,14 @@ void _printHelp(String? topic) {
   }
   if (topic == 'check') {
     print(
-      'Usage: nixblitz check <light|heavy>\n'
+      'Usage: nixblitz check\n'
       '\n'
-      '  light\n'
-      '      Probe each flake input + active plugin\'s upstream HEAD\n'
-      '      via forge APIs. Fast (~5s); writes update-status.json.\n'
-      '  heavy\n'
-      '      Run a full nix flake update + nvd diff against\n'
-      '      /run/current-system in a tmpdir. Slow (1–10 min, ~125\n'
-      '      MB to /tmp); writes update-status.json.',
+      'Probe each flake input + active plugin\'s upstream HEAD via\n'
+      'forge APIs, run a full nix flake update + nvd diff against\n'
+      '/run/current-system in a tmpdir, and stage the candidate\n'
+      'flake.lock + plugin-pin updates for Apply. 1–10 min,\n'
+      '~125 MB to /tmp; writes update-status.json + populates\n'
+      '/var/lib/nixblitz-tui/staging/.',
     );
     return;
   }
@@ -278,7 +272,7 @@ void _printHelp(String? topic) {
     '\n'
     'Subcommands:\n'
     '  plugin    Manage installed plugins (add / remove / list / update / pin / unpin)\n'
-    '  check     Run an update check now (light / heavy)\n'
+    '  check     Run an update check now and stage candidate updates for Apply\n'
     '  init      Bootstrap a build-host profile at ~/nixblitz/ (skips the TUI)\n'
     '\n'
     'The TUI is the default UI; subcommands are one-shot operations\n'

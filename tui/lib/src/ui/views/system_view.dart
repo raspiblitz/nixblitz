@@ -10,23 +10,32 @@ import '../widgets/tappable.dart';
 import '../../providers/ui_state_provider.dart';
 import '../../providers/viewport_provider.dart';
 import '../../services/check_runner.dart';
-import 'update/action_gating.dart';
-import 'update_view.dart' show pendingUpdateIntentProvider, UpdateActionIntent;
 
 // ---------------------------------------------------------------------------
 // System view — sidebar: [Check, Apply].
 //
-// Combines what used to be two top-level views (Apply, Update) into one
-// place. The sidebar splits intent: read-only probes (Check) live next to
-// destructive rebuilds (Apply). Each section's body shows the relevant
-// status + actions; the operator stays inside System rather than getting
-// teleported to a separate Update screen.
+// Sidebar splits intent: read-only probes (Check) live next to destructive
+// rebuilds (Apply). Each section's body shows the relevant status + actions;
+// the operator stays inside System rather than getting teleported to a
+// separate Update screen.
 //
-// Apply actions still navigate to the pre-existing ApplyView / UpdateView
-// state machines for the rebuild streaming UX (heavy refactor to fold them
-// in is a follow-up). Check actions run inline via `nixblitz check ...`
-// subprocesses and refresh the status panel on exit.
+// Apply navigates to ApplyView for the unified review + rebuild-streaming
+// flow. Check actions run inline via `nixblitz check ...` subprocesses and
+// refresh the status panel on exit.
 // ---------------------------------------------------------------------------
+
+/// True when the last check has a cached nvd diff worth looking at —
+/// non-empty, marked as having changes. Now that the inputs-ahead
+/// probe lives in the same [CheckResult] as the diff, no separate
+/// staleness predicate is needed: if a more recent run found the
+/// lock caught up, it overwrote the diff with `noChanges=true`.
+bool _hasCachedPackageDiff(UpdateStatus status) {
+  final r = status.checkResult;
+  if (r == null || !r.ok) return false;
+  if (r.noChanges) return false;
+  if (r.diffText.trim().isEmpty) return false;
+  return true;
+}
 
 /// Which sidebar section is selected.
 enum SystemSection { check, apply, power }
@@ -84,22 +93,10 @@ class SystemView extends StatelessComponent {
     // hasCachedPackageDiff on the next navigation).
     context.watch(checkRefreshTickProvider);
 
-    // Same filter the Update view + dashboard use — single source of
-    // truth for "is this cached input-ahead claim still valid?".
-    final baseDir = context.read(baseDirProvider);
     final status = readUpdateStatus();
-    final liveInputsAhead =
-        (status.lightweight != null && status.lightweight!.ok)
-        ? UpdateCheckService.filterStillAhead(
-            status.lightweight!.inputsAhead,
-            flakePath: baseDir,
-          )
-        : <InputAhead>[];
-    final hasCachedDiff = hasCachedPackageDiff(
-      status,
-      liveInputsAhead: liveInputsAhead,
-    );
-    final hasCachedWouldBuild = status.heavy?.compileNeeded ?? false;
+    final r = status.checkResult;
+    final hasCachedDiff = _hasCachedPackageDiff(status);
+    final hasCachedWouldBuild = r?.compileNeeded ?? false;
     final armedPower = context.watch(_armedPowerActionProvider);
     final powerStatus = context.watch(_powerStatusProvider);
     final actions = _actionsFor(
@@ -294,32 +291,25 @@ class SystemView extends StatelessComponent {
   }) => switch (section) {
     SystemSection.check => [
       _SystemAction(
-        label: 'Simple check',
+        label: 'Check for updates',
         description:
-            'Polls each flake input + each installed plugin against '
-            'its pinned rev (HTTP only, no rebuild). Daily timer '
-            'runs this in the background. ~5s.',
-        run: (ctx) => runCheckSubprocess(ctx, 'light'),
-      ),
-      _SystemAction(
-        label: 'Heavy check',
-        description:
-            'Probes the new system closure off-disk via '
-            '`nix build --dry-run` and runs nvd diff when every '
-            'path is substitutable. Bails before realising the '
-            'toplevel if any path would need a local compile so '
-            'the Pi 5 doesn\'t pin all 4 cores for hours; the '
-            'would-build list is reachable via "View packages to '
-            'compile" below. Weekly timer runs this in the '
-            'background.',
-        run: (ctx) => runCheckSubprocess(ctx, 'heavy'),
+            'Probe each flake input + each installed plugin against '
+            'its pinned rev, then evaluate the new system closure off-'
+            'disk via `nix build --dry-run` + nvd diff (when every '
+            'path is substitutable). Bails before realising the '
+            'toplevel if any path would need a local compile so the '
+            'Pi 5 does not pin all 4 cores for hours; the would-build '
+            'list is reachable via "View packages to compile" below. '
+            'Stages any lock bump + plugin pin moves for the next '
+            'Apply. Daily timer runs this in the background; 1-10 min.',
+        run: (ctx) => runCheckSubprocess(ctx),
       ),
       if (hasCachedDiff)
         _SystemAction(
           label: 'View package diff',
           description:
-              'Open the nvd output from the most recent Heavy check '
-              '— full-screen, scrollable. No subprocess; reads the '
+              'Open the nvd output from the most recent check — '
+              'full-screen, scrollable. No subprocess; reads the '
               'cached diff from update-status.json. Only appears '
               'when a non-empty cached diff exists.',
           run: (ctx) => ctx.read(currentViewProvider.notifier).state =
@@ -329,73 +319,27 @@ class SystemView extends StatelessComponent {
         _SystemAction(
           label: 'View packages to compile',
           description:
-              'Open the would-build list from the most recent Heavy '
-              'check — derivations that need a local compile because '
-              'no binary-cache substitute is available. Full-screen, '
+              'Open the would-build list from the most recent check '
+              '— derivations that need a local compile because no '
+              'binary-cache substitute is available. Full-screen, '
               'scrollable. Only appears when the cached check '
               'reports compile-needed.',
           run: (ctx) => ctx.read(currentViewProvider.notifier).state =
               AppView.packageDiff,
         ),
-      _SystemAction(
-        label: 'Plugins check',
-        description:
-            'Same as Simple check but scoped to installed plugins '
-            'only — useful right after pushing a plugin update '
-            'when you want the ↑ marker to reflect upstream right '
-            'now without waiting for the daily timer.',
-        run: (ctx) => runCheckSubprocess(ctx, 'light'),
-      ),
     ],
     SystemSection.apply => [
       _SystemAction(
-        label: 'Apply config edits',
+        label: 'Apply pending changes',
         description:
-            'Runs nixos-rebuild switch against the current '
-            'config.json so unsaved edits in Configure flip from '
-            '"pending" to "applied" on the running system. The '
-            'flake.lock is left as-is — for upstream commits, '
-            'pick "Update TUI only" or "Update entire system" '
-            'below.',
+            'Opens a review screen with everything queued for the '
+            'next generation: unapplied config edits in the working '
+            'tree, staged flake.lock bumps, plugin updates, and the '
+            'package diff if the last check produced one. Confirm '
+            'to commit + nixos-rebuild switch as one atomic step. '
+            'The only path that touches the running system.',
         run: (ctx) {
           ctx.read(currentViewProvider.notifier).state = AppView.apply;
-        },
-      ),
-      _SystemAction(
-        label: 'Update TUI only',
-        description:
-            'Pulls the latest nixblitz_ng input + rebuilds. The '
-            'new binary replaces the running TUI on the next '
-            'launch; other services stay on their pinned versions.',
-        run: (ctx) {
-          ctx.read(pendingUpdateIntentProvider.notifier).state =
-              UpdateActionIntent.tuiOnly;
-          ctx.read(currentViewProvider.notifier).state = AppView.update;
-        },
-      ),
-      _SystemAction(
-        label: 'Update entire system',
-        description:
-            'Pulls every flake input, runs the heavy check for an '
-            'nvd preview, then rebuilds + activates. The full path '
-            "everyone calls 'an update' on RaspiBlitz.",
-        run: (ctx) {
-          ctx.read(pendingUpdateIntentProvider.notifier).state =
-              UpdateActionIntent.entireSystem;
-          ctx.read(currentViewProvider.notifier).state = AppView.update;
-        },
-      ),
-      _SystemAction(
-        label: 'Update plugins',
-        description:
-            'For every installed plugin whose upstream is ahead '
-            'of its pinned rev, pull the new rev + rebuild. Same '
-            'shape as Update TUI only — one click, sudo, '
-            'streamed rebuild output, done.',
-        run: (ctx) {
-          ctx.read(pendingUpdateIntentProvider.notifier).state =
-              UpdateActionIntent.updatePlugins;
-          ctx.read(currentViewProvider.notifier).state = AppView.update;
         },
       ),
     ],
@@ -506,21 +450,17 @@ class _CheckStatusPanel extends StatelessComponent {
     final running = context.watch(runningCheckProvider);
     final baseDir = context.watch(baseDirProvider);
     final status = readUpdateStatus();
-    final light = status.lightweight;
-    final heavy = status.heavy;
+    final result = status.checkResult;
     final rootInputs = readRootFlakeInputs(baseDir);
 
-    final lightReady = light != null && light.ok;
-    final lightAge = lightReady ? humanizeAge(light.checkedAt) : '—';
-    // Filter via `filterStillAhead` so cached entries whose `currentRev`
-    // no longer matches the live `flake.lock` get dropped — same path
-    // the Update view + dashboard use. The previous `tuiBinaryMatchesLock`
-    // override was too aggressive: it hid REAL upstream-ahead claims
-    // anytime the running binary happened to match the lock, including
-    // the normal "you pushed a commit and haven't pulled it yet" state.
-    final aheadInputs = lightReady
+    final ready = result != null && result.ok;
+    final age = ready ? humanizeAge(result.checkedAt) : '—';
+    // Filter via `filterStillAhead` so cached entries whose
+    // `currentRev` no longer matches the live `flake.lock` get
+    // dropped — same path the dashboard banner uses.
+    final aheadInputs = ready
         ? UpdateCheckService.filterStillAhead(
-            light.inputsAhead,
+            result.inputsAhead,
             flakePath: baseDir,
           ).map((i) => i.name).toSet()
         : const <String>{};
@@ -532,21 +472,15 @@ class _CheckStatusPanel extends StatelessComponent {
       ),
     ];
 
-    if (running != null) {
+    if (running) {
       rows.add(const SizedBox(height: 1));
-      rows.add(
-        Spinner(
-          label: running == 'heavy'
-              ? 'Running heavy check…'
-              : 'Running simple check…',
-        ),
-      );
+      rows.add(const Spinner(label: 'Running check…'));
     }
 
     rows.add(const SizedBox(height: 1));
 
     // ---------- flake inputs (header + per-input list) ----------
-    rows.add(_headerRow('flake inputs:', lightAge));
+    rows.add(_headerRow('flake inputs:', age));
     if (rootInputs.error != null) {
       rows.add(_indentedNote(rootInputs.error!));
     } else if (rootInputs.inputs.isEmpty) {
@@ -559,7 +493,7 @@ class _CheckStatusPanel extends StatelessComponent {
             name: input.name,
             isTui: isTui,
             isAhead: aheadInputs.contains(input.name),
-            unknown: !lightReady,
+            unknown: !ready,
           ),
         );
       }
@@ -568,24 +502,24 @@ class _CheckStatusPanel extends StatelessComponent {
     rows.add(const SizedBox(height: 1));
 
     // ---------- plugins row ----------
-    if (!lightReady) {
+    if (!ready) {
       rows.add(
         _topLevelRow('plugins', 'no check yet', '—', state: _RowState.unknown),
       );
     } else {
-      final n = light.pluginsAhead.length;
+      final n = result.pluginsAhead.length;
       rows.add(
         _topLevelRow(
           'plugins',
           n == 0 ? 'up to date' : '$n update${n == 1 ? "" : "s"} available',
-          lightAge,
+          age,
           state: n == 0 ? _RowState.ok : _RowState.ahead,
         ),
       );
     }
 
-    // ---------- system closure (heavy) row ----------
-    if (heavy == null || !heavy.ok) {
+    // ---------- system closure row ----------
+    if (result == null || !result.ok) {
       rows.add(
         _topLevelRow(
           'system closure',
@@ -594,33 +528,24 @@ class _CheckStatusPanel extends StatelessComponent {
           state: _RowState.unknown,
         ),
       );
-    } else if (heavy.compileNeeded) {
-      // Single-line summary in the value cell, plus an indented
-      // pointer at the action below — the full would-build list
-      // is reachable via "View packages to compile" but that
-      // wasn't obvious from the status panel alone (operators
-      // saw the count and didn't connect it to the trailing
-      // action). Inlining all the names here pushed "Plugins
-      // check" off the bottom of the pane on a Pi-sized terminal,
-      // so the drill-in action stays the primary surface; this
-      // is just signage.
-      final n = heavy.wouldBuild.length;
+    } else if (result.compileNeeded) {
+      final n = result.wouldBuild.length;
       rows.add(
         _topLevelRow(
           'system closure',
           n == 1 ? '1 needs compile' : '$n need compile',
-          humanizeAge(heavy.checkedAt),
+          humanizeAge(result.checkedAt),
           state: _RowState.ahead,
         ),
       );
       rows.add(_indentedNote('see "View packages to compile" below'));
     } else {
-      final noChange = heavy.noChanges || heavy.diffText.trim().isEmpty;
+      final noChange = result.noChanges || result.diffText.trim().isEmpty;
       rows.add(
         _topLevelRow(
           'system closure',
           noChange ? 'no system changes' : 'changes pending',
-          humanizeAge(heavy.checkedAt),
+          humanizeAge(result.checkedAt),
           state: noChange ? _RowState.ok : _RowState.ahead,
         ),
       );

@@ -9,11 +9,8 @@ import 'scrollable_log.dart';
 /// purpose — the file is the source of truth, this widget just
 /// renders it.
 ///
-/// Hosted by both [UpdateView] (as the `viewingCachedDiff` mode
-/// reached via `[v]` in selectMode) and as the top-level
-/// `AppView.packageDiff` opened from System → Check. The host
-/// decides what `Esc` does via the [onClose] callback — UpdateView
-/// returns to its select mode, System routes back to itself.
+/// Reached from System → Check → "View package diff" as
+/// `AppView.packageDiff`. Esc routes back to System.
 class CachedPackageDiff extends StatelessComponent {
   /// Invoked when the operator presses `Esc` (or `q`). Hosts use
   /// this to return to wherever the viewer was opened from.
@@ -24,34 +21,35 @@ class CachedPackageDiff extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final status = readUpdateStatus();
-    final heavy = status.heavy;
-    final ago = heavy != null ? humanizeAge(heavy.checkedAt) : 'unknown';
+    final result = status.checkResult;
+    final ago = result != null ? humanizeAge(result.checkedAt) : 'unknown';
 
     // Two body shapes share the same viewer: a populated nvd diff
     // (substitute-only path) or a "would-build" list (compile-needed
-    // path). The viewer chooses based on what the heavy check
-    // recorded — diffText takes precedence so that, if both were
-    // ever present, the operator still sees the more informative
-    // nvd output.
+    // path). diffText takes precedence so that, if both were ever
+    // present, the operator still sees the more informative nvd
+    // output.
     final compileNeeded =
-        heavy != null && heavy.diffText.trim().isEmpty && heavy.compileNeeded;
+        result != null &&
+        result.diffText.trim().isEmpty &&
+        result.compileNeeded;
     final String title;
     final List<String> lines;
     final Color? Function(String)? lineColor;
     if (compileNeeded) {
       title = 'Packages needing local compile — checked $ago';
       lines = [
-        '${heavy.wouldBuild.length} derivation${heavy.wouldBuild.length == 1 ? "" : "s"} '
+        '${result.wouldBuild.length} derivation${result.wouldBuild.length == 1 ? "" : "s"} '
             'have no binary-cache substitute and would need to be built locally.',
         'Trigger the build via System → Apply when you have time — on a Pi 5',
         'a fresh rustc storm can take several hours.',
         '',
-        ...heavy.wouldBuild,
+        ...result.wouldBuild,
       ];
       lineColor = null;
     } else {
       title = 'Cached package diff — checked $ago';
-      lines = (heavy?.diffText ?? '').split('\n');
+      lines = (result?.diffText ?? '').split('\n');
       lineColor = nvdLineColor;
     }
 
@@ -112,8 +110,8 @@ class CachedPackageDiff extends StatelessComponent {
   }
 }
 
-/// Per-line colour for `nvd diff` output. Public so the UpdateView's
-/// preview / done screens (which also render nvd output) share the
+/// Per-line colour for `nvd diff` output. Public so the Apply view's
+/// review / done screens (which also render nvd output) share the
 /// same palette without re-defining the regex tests.
 ///
 /// Orange for version changes, green for additions, red for

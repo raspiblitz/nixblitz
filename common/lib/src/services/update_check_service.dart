@@ -10,33 +10,34 @@ import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/models/update_status.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
+import 'package:common/src/services/staging_service.dart';
 import 'package:common/src/services/system_service.dart'
     show rebuildAttributeFor;
 
-/// Periodic update-availability checker, invoked by systemd timers
-/// via the `nixblitz check {light|heavy}` subcommands.
+/// Periodic update-availability checker, invoked by the systemd
+/// `nixblitz-check` timer and by the in-TUI `[c]` action.
 ///
-/// Two methods, two cadences:
+/// One method, one cadence: [runCheck] copies `~/nixblitz/` into a
+/// tmpdir, walks plugin markers + flake inputs against their
+/// upstream HEAD, runs `nix flake update` + `nix build --dry-run`
+/// + `nvd diff`, then writes a [CheckResult] to
+/// `update-status.json` and the candidate `flake.lock` /
+/// plugin-pin data / nvd diff into the staging dir
+/// (`/var/lib/nixblitz-tui/staging/`). Apply consumes the staging
+/// artifacts on the next `[a]pply`.
 ///
-/// - [runLightweight] — daily-ish. Parses `flake.lock`, calls
-///   GitHub / Forgejo APIs to discover whether each input's
-///   upstream branch HEAD has moved past our locked rev. No
-///   tarball fetch, no eval. ~5 HTTP calls per run.
-/// - [runHeavy] — weekly-ish. Copies `~/nixblitz/` into a tmpdir,
-///   runs `nix flake update` + `nix eval` + `nvd diff` there,
-///   captures the per-package version delta. Bandwidth: ~125 MB
-///   per run for a typical input set.
-///
-/// Both methods write into the same `update-status.json` (preserving
-/// the other section) so the TUI dashboard banner can read either
-/// or both.
+/// The probe step is exposed separately as [probeUpstreamMovement]
+/// for tests — it's pure-network and doesn't shell out, so unit
+/// tests can stub the HTTP client without touching nix at all.
 class UpdateCheckService {
   UpdateCheckService({
     required this.flakePath,
     required this.statusPath,
+    StagingService? stagingService,
     http.Client? httpClient,
     List<PluginMarker> Function()? markersReader,
   }) : _http = httpClient ?? http.Client(),
+       _staging = stagingService ?? StagingService(),
        _markersReader =
            markersReader ?? (() => _defaultMarkersReader(flakePath));
 
@@ -49,6 +50,7 @@ class UpdateCheckService {
   final String statusPath;
 
   final http.Client _http;
+  final StagingService _staging;
 
   /// Loads the set of installed plugin markers. Injected by tests
   /// so the plugin walk can run without seeded marker fixtures on
@@ -90,24 +92,24 @@ class UpdateCheckService {
 
   // ── Public entry points ────────────────────────────────────────
 
-  Future<int> runLightweight() async {
-    LogService.info('UpdateCheckService.runLightweight: starting');
-    final now = DateTime.now().toUtc();
-
+  /// Pure-network probe: walk root flake inputs + installed plugin
+  /// markers, query each upstream HEAD, return what's moved. No
+  /// subprocesses, no writes — exposed separately from [runCheck]
+  /// so unit tests can stub the HTTP client without touching nix.
+  Future<UpstreamProbeResult> probeUpstreamMovement() async {
     final lockFile = File('$flakePath/flake.lock');
     if (!lockFile.existsSync()) {
-      _merge(
-        LightCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'flake.lock not found at $flakePath',
-        ),
+      return UpstreamProbeResult(
+        inputsAhead: const [],
+        pluginsAhead: const [],
+        errors: ['flake.lock not found at $flakePath'],
       );
-      return 1;
     }
 
-    final List<InputAhead> ahead = [];
-    final List<String> errors = [];
+    final inputsAhead = <InputAhead>[];
+    final pluginsAhead = <PluginAhead>[];
+    final errors = <String>[];
+
     try {
       final lock =
           jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
@@ -120,7 +122,7 @@ class UpdateCheckService {
             continue;
           }
           if (upstream != entry.lockedRev) {
-            ahead.add(
+            inputsAhead.add(
               InputAhead(
                 name: entry.name,
                 currentRev: entry.lockedRev,
@@ -139,24 +141,18 @@ class UpdateCheckService {
         }
       }
     } catch (e, st) {
-      LogService.error('UpdateCheckService.runLightweight failed', e, st);
-      _merge(
-        LightCheck(
-          checkedAt: now,
-          ok: false,
-          error: 'flake.lock parse failed: $e',
-        ),
+      LogService.error(
+        'UpdateCheckService.probe: flake.lock parse failed',
+        e,
+        st,
       );
-      return 1;
+      errors.add('flake.lock parse failed: $e');
     }
 
     // Plugin walk. Each non-disabled, auto-update plugin marker
     // gets its upstream HEAD probed the same way root flake inputs
     // do. Failures here are isolated per-plugin so one bad URL
-    // doesn't sink the whole run, and marker-load failure just
-    // means "no plugin entries surfaced this run" — the inputs
-    // result still ships.
-    final List<PluginAhead> pluginsAhead = [];
+    // doesn't sink the whole run.
     try {
       final markers = _markersReader();
       for (final p in markers) {
@@ -177,45 +173,44 @@ class UpdateCheckService {
       errors.add('plugin walk: $e');
     }
 
-    _merge(
-      LightCheck(
-        checkedAt: now,
-        ok: true,
-        inputsAhead: ahead,
-        pluginsAhead: pluginsAhead,
-        error: errors.isEmpty ? null : errors.join('; '),
-      ),
+    return UpstreamProbeResult(
+      inputsAhead: inputsAhead,
+      pluginsAhead: pluginsAhead,
+      errors: errors,
     );
-    LogService.info(
-      'UpdateCheckService.runLightweight: ${ahead.length} inputs ahead, '
-      '${pluginsAhead.length} plugins ahead, '
-      '${errors.length} errors',
-    );
-    return 0;
   }
 
-  Future<int> runHeavy() async {
-    LogService.info('UpdateCheckService.runHeavy: starting');
+  /// Full check: probe upstream movement, evaluate the would-be
+  /// system in a tmpdir, write the candidate `flake.lock` /
+  /// plugin-pin data / nvd diff into staging, persist a
+  /// [CheckResult] to `update-status.json`. Returns 0 on success
+  /// (including the "needs local compile" bail), non-zero on a
+  /// fatal infrastructure error.
+  Future<int> runCheck() async {
+    LogService.info('UpdateCheckService.runCheck: starting');
     final now = DateTime.now().toUtc();
+
+    // Step 1: pure-network probe. Results merged into the final
+    // CheckResult regardless of how the heavy step goes — a
+    // network-only success is still useful signal for the
+    // dashboard banner.
+    final probe = await probeUpstreamMovement();
+
     Directory? tmp;
     try {
-      tmp = await Directory.systemTemp.createTemp('nixblitz-check-heavy-');
+      tmp = await Directory.systemTemp.createTemp('nixblitz-check-');
       final tmpFlake = '${tmp.path}/flake';
       Directory(tmpFlake).createSync();
 
-      // Copy just enough for an eval: flake.{nix,lock}, hosts/,
-      // modules/, plugins/, hardware-configuration.nix, config.json.
       stdout.writeln('• copying flake to ${tmp.path}');
       final cp = await Process.run('cp', ['-aT', flakePath, tmpFlake]);
       if (cp.exitCode != 0) {
-        _merge(
-          HeavyCheck(
-            checkedAt: now,
-            ok: false,
-            error: 'cp failed: ${cp.stderr}',
-          ),
+        return _persist(
+          now,
+          probe,
+          ok: false,
+          error: 'cp failed: ${cp.stderr}',
         );
-        return 1;
       }
 
       // 1. flake update.
@@ -225,16 +220,14 @@ class UpdateCheckService {
       // `extra-substituters = ["https://nixos-raspberrypi.cachix.org"]`
       // via `nixConfig`, and Nix only honours nixConfig from a
       // flake whose path has been "accepted" by the user. The
-      // operator's `~/nixblitz` is accepted (typically via the
-      // first `nixos-rebuild switch` they ran), but our tmpdir
-      // copy is a different path so the acceptance doesn't apply
-      // there — without this flag, dry-run runs WITHOUT the Pi
-      // cache as a substituter and reports every page-size-16k
+      // operator's `~/nixblitz` is accepted, but our tmpdir copy
+      // is a different path so the acceptance doesn't apply there
+      // — without this flag, dry-run runs WITHOUT the Pi cache as
+      // a substituter and reports every page-size-16k
       // jemalloc-affected derivation as "will be built". On the
       // real `nixos-rebuild switch` those same paths fetch from
       // cache and only the operator's truly out-of-cache packages
-      // compile. We hit this with a 108-vs-1 discrepancy that
-      // took a while to track down.
+      // compile.
       stdout.writeln('• nix flake update');
       final upd = await Process.run('nix', [
         '--accept-flake-config',
@@ -242,42 +235,41 @@ class UpdateCheckService {
         'update',
       ], workingDirectory: tmpFlake);
       if (upd.exitCode != 0) {
-        _merge(
-          HeavyCheck(
-            checkedAt: now,
-            ok: false,
-            error:
-                'nix flake update failed (exit ${upd.exitCode}): '
-                '${(upd.stderr as String).trim()}',
-          ),
+        return _persist(
+          now,
+          probe,
+          ok: false,
+          error:
+              'nix flake update failed (exit ${upd.exitCode}): '
+              '${(upd.stderr as String).trim()}',
         );
-        return 1;
       }
 
-      // 2. dry-run probe — ask Nix what *would* happen if we built
-      // the new toplevel: which paths come from cache (free) vs.
-      // which need to be compiled locally (expensive). `nvd diff`
-      // needs realised paths, so we can't *just* dry-run when the
-      // operator wants a per-package version delta; but if anything
-      // would need a local build, we bail before the CPU storm
-      // (rustc, llvm, etc. on aarch64 with no cache hits can pin
-      // all cores for hours — see the heavy-check bail in #N/A).
-      // The operator sees the would-build list, decides whether to
-      // wait, then triggers the actual build via System → Apply.
-      // Per-platform attribute. On the Pi, `nixblitz` evaluates to
-      // the x86_64-linux toplevel — which an aarch64 daemon can't
-      // substitute or build, so every derivation in its closure
-      // surfaces as "will be built" (we hit a 108-vs-1 discrepancy
-      // against the real `nixos-rebuild switch`, which uses the
-      // correct per-platform attr). Read the operator's
-      // `config.json` to pick the matching attribute the way
-      // `apply_view._continueApply` does.
+      // Stage candidate flake.lock if it actually moved relative
+      // to the live one. Even when `nix flake update` rewrites the
+      // file with no input changes, byte-equality is the right
+      // gate — if the bytes match, nixos-rebuild would build the
+      // same closure either way and there's nothing for Apply to
+      // promote.
+      final tmpLock = File('$tmpFlake/flake.lock');
+      final liveLock = File('$flakePath/flake.lock');
+      final lockBumped =
+          tmpLock.existsSync() &&
+          liveLock.existsSync() &&
+          tmpLock.readAsStringSync() != liveLock.readAsStringSync();
+      if (lockBumped) {
+        _staging.writeLockBump(tmpLock);
+      } else {
+        _staging.clearLockBump();
+      }
+
+      // 2. dry-run probe.
       final platform = _readPlatform();
       final attrName = rebuildAttributeFor(platform);
       final attr =
           '$tmpFlake#nixosConfigurations.$attrName.config.system.build.toplevel';
       LogService.info(
-        'UpdateCheckService.runHeavy: platform=$platform attr=$attrName',
+        'UpdateCheckService.runCheck: platform=$platform attr=$attrName',
       );
       stdout.writeln('• nix build --dry-run (probing cache)');
       final dry = await Process.run('nix', [
@@ -288,26 +280,20 @@ class UpdateCheckService {
         attr,
       ], workingDirectory: tmpFlake);
       if (dry.exitCode != 0) {
-        _merge(
-          HeavyCheck(
-            checkedAt: now,
-            ok: false,
-            error:
-                'nix build --dry-run failed: '
-                '${(dry.stderr as String).trim()}',
-          ),
+        return _persist(
+          now,
+          probe,
+          ok: false,
+          error:
+              'nix build --dry-run failed: '
+              '${(dry.stderr as String).trim()}',
         );
-        return 1;
       }
       final plan = parseDryRunStderr(dry.stderr as String);
       if (plan.wouldBuild.isNotEmpty) {
         stdout.writeln(
           '! ${plan.wouldBuild.length} package(s) would need local compile:',
         );
-        // Cap the printed list so a runaway dependency tree doesn't
-        // flood the runningCheck pane; the full list lives on
-        // HeavyCheck.wouldBuild and the TUI's Status panel surfaces
-        // the count.
         for (final name in plan.wouldBuild.take(20)) {
           stdout.writeln('    $name');
         }
@@ -315,22 +301,15 @@ class UpdateCheckService {
           stdout.writeln('    … (${plan.wouldBuild.length - 20} more)');
         }
         stdout.writeln('  skipping nvd diff — Apply when ready to compile.');
-        // Cache miss — local build needed. Don't realise the
-        // toplevel just to render a diff; doing so on aarch64 can
-        // take hours and that's exactly the spike we're trying to
-        // suppress in the background check. The TUI will surface
-        // the would-build names so the operator can decide.
-        _merge(
-          HeavyCheck(checkedAt: now, ok: true, wouldBuild: plan.wouldBuild),
-        );
-        return 0;
+        // Bail before realising the toplevel: on aarch64 with no
+        // cache hits, rustc/llvm storms can pin all cores for
+        // hours, which is exactly the spike the background check
+        // should suppress. The TUI surfaces the would-build names
+        // so the operator decides.
+        return _persist(now, probe, ok: true, wouldBuild: plan.wouldBuild);
       }
 
-      // 3. realise the toplevel. We only get here when dry-run says
-      // every path is substitutable, so this is bounded by network
-      // throughput, not CPU. `nix eval --raw` would skip the
-      // download entirely but then nvd can't introspect the store
-      // path; the realise step is the cost of a useful diff.
+      // 3. realise the toplevel (substitute-only when dry-run is empty).
       stdout.writeln(
         '• ${plan.wouldFetch.length} path(s) will be fetched from cache',
       );
@@ -343,25 +322,21 @@ class UpdateCheckService {
         attr,
       ], workingDirectory: tmpFlake);
       if (eval.exitCode != 0) {
-        _merge(
-          HeavyCheck(
-            checkedAt: now,
-            ok: false,
-            error: 'nix build failed: ${(eval.stderr as String).trim()}',
-          ),
+        return _persist(
+          now,
+          probe,
+          ok: false,
+          error: 'nix build failed: ${(eval.stderr as String).trim()}',
         );
-        return 1;
       }
       final newTop = (eval.stdout as String).trim();
       if (!newTop.startsWith('/nix/store/')) {
-        _merge(
-          HeavyCheck(
-            checkedAt: now,
-            ok: false,
-            error: 'nix build did not return a store path: $newTop',
-          ),
+        return _persist(
+          now,
+          probe,
+          ok: false,
+          error: 'nix build did not return a store path: $newTop',
         );
-        return 1;
       }
 
       // 4. compare to current.
@@ -371,8 +346,7 @@ class UpdateCheckService {
       ]);
       final currentTop = (readlink.stdout as String).trim();
       if (currentTop == newTop) {
-        _merge(HeavyCheck(checkedAt: now, ok: true, noChanges: true));
-        return 0;
+        return _persist(now, probe, ok: true, noChanges: true);
       }
 
       // 5. nvd diff.
@@ -383,22 +357,21 @@ class UpdateCheckService {
           newTop,
         ]);
         final diff = (nvd.stdout as String) + (nvd.stderr as String);
-        _merge(HeavyCheck(checkedAt: now, ok: true, diffText: diff));
-        return 0;
+        _staging.writeNvdDiff(diff);
+        _staging.writeNewToplevel(newTop);
+        _staging.writeCheckedAt(now);
+        return _persist(now, probe, ok: true, diffText: diff);
       } on ProcessException catch (e) {
-        _merge(
-          HeavyCheck(
-            checkedAt: now,
-            ok: false,
-            error: 'nvd not on PATH: ${e.message}',
-          ),
+        return _persist(
+          now,
+          probe,
+          ok: false,
+          error: 'nvd not on PATH: ${e.message}',
         );
-        return 1;
       }
     } catch (e, st) {
-      LogService.error('UpdateCheckService.runHeavy failed', e, st);
-      _merge(HeavyCheck(checkedAt: now, ok: false, error: '$e'));
-      return 1;
+      LogService.error('UpdateCheckService.runCheck failed', e, st);
+      return _persist(now, probe, ok: false, error: '$e');
     } finally {
       if (tmp != null) {
         try {
@@ -424,16 +397,51 @@ class UpdateCheckService {
 
   // ── Private helpers ────────────────────────────────────────────
 
-  void _merge(Object section) {
-    final existing = readStatus();
-    final next = section is LightCheck
-        ? existing.copyWith(lightweight: section)
-        : existing.copyWith(heavy: section as HeavyCheck);
+  /// Persist a [CheckResult] to `update-status.json` and (when
+  /// plugins have moved) write `staging/plugin-pins.json`. Combines
+  /// the probe-stage data ([probe]) with the heavy-stage outcome.
+  ///
+  /// Returns 0 on `ok=true`, 1 otherwise — wired straight to the
+  /// CLI exit code.
+  int _persist(
+    DateTime now,
+    UpstreamProbeResult probe, {
+    required bool ok,
+    String? error,
+    String diffText = '',
+    bool noChanges = false,
+    List<String> wouldBuild = const [],
+  }) {
+    final errors = [...probe.errors];
+    if (error != null) errors.add(error);
+    final result = CheckResult(
+      checkedAt: now,
+      ok: ok,
+      error: errors.isEmpty ? null : errors.join('; '),
+      inputsAhead: probe.inputsAhead,
+      pluginsAhead: probe.pluginsAhead,
+      diffText: diffText,
+      noChanges: noChanges,
+      wouldBuild: wouldBuild,
+    );
     final f = File(statusPath);
     f.parent.createSync(recursive: true);
     f.writeAsStringSync(
-      const JsonEncoder.withIndent('  ').convert(next.toJson()),
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert(UpdateStatus(checkResult: result).toJson()),
     );
+    if (probe.pluginsAhead.isNotEmpty) {
+      _staging.writePluginPins(probe.pluginsAhead);
+    } else {
+      _staging.clearPluginPins();
+    }
+    LogService.info(
+      'UpdateCheckService.runCheck: ok=$ok inputs=${probe.inputsAhead.length} '
+      'plugins=${probe.pluginsAhead.length} wouldBuild=${wouldBuild.length} '
+      'errors=${errors.length}',
+    );
+    return ok ? 0 : 1;
   }
 
   /// Per-plugin probe driving the version-tracking flow described in
@@ -1017,6 +1025,20 @@ class UpdateCheckService {
   void close() {
     _http.close();
   }
+}
+
+/// Result of [UpdateCheckService.probeUpstreamMovement]. Bundles the
+/// inputs-ahead and plugins-ahead lists plus any per-entry errors
+/// the probe collected (one bad URL doesn't sink the whole walk).
+class UpstreamProbeResult {
+  const UpstreamProbeResult({
+    required this.inputsAhead,
+    required this.pluginsAhead,
+    required this.errors,
+  });
+  final List<InputAhead> inputsAhead;
+  final List<PluginAhead> pluginsAhead;
+  final List<String> errors;
 }
 
 /// Result of parsing `nix build --dry-run` stderr. Both lists hold

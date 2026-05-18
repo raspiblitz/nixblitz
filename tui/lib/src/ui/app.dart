@@ -12,7 +12,6 @@ import 'views/debug_view.dart';
 import 'views/install_view.dart';
 import 'views/setup_view.dart';
 import 'views/system_view.dart';
-import 'views/update_view.dart';
 import 'shutdown.dart';
 import 'widgets/cached_package_diff.dart';
 import 'widgets/footer_hints.dart';
@@ -276,7 +275,6 @@ List<FooterHint> _hintsFor(BuildContext context, AppView view) {
     case AppView.install:
     case AppView.setup:
     case AppView.apply:
-    case AppView.update:
     case AppView.packageDiff:
     case AppView.configTooNew:
       return const [];
@@ -751,7 +749,6 @@ class _ShellState extends State<_Shell> {
                       AppView.configure => const ConfigureView(),
                       AppView.system => const SystemView(),
                       AppView.apply => const ApplyView(),
-                      AppView.update => const UpdateView(),
                       AppView.packageDiff => CachedPackageDiff(
                         onClose: () =>
                             context.read(currentViewProvider.notifier).state =

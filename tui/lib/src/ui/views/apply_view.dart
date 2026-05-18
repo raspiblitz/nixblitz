@@ -5,34 +5,39 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../format.dart';
 import '../shutdown.dart';
 import '../widgets/rebuild_outcome_widgets.dart';
 import '../widgets/scrollable_log.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
+import '../../services/check_runner.dart';
 
-/// Review pending config/template changes, then commit + rebuild as one step,
-/// or discard them. Reachable from the dashboard via `[a]`. The git working
-/// tree is the staging area — `ConfigureView` writes straight to `config.json`
-/// without committing, and this view is where those dirty files turn into a
-/// commit + a live system change.
+/// Review everything queued for the next generation — local config
+/// edits in the working tree, candidate flake.lock + plugin pins
+/// staged by the periodic check, the cached nvd diff — then commit
+/// + rebuild as one atomic step, or discard the lot. The only path
+/// that touches the running system. Reachable from System → Apply
+/// (and the `[a]` / `[u]` dashboard hotkeys, both of which land on
+/// the System tab).
 enum _ApplyMode { review, running, done }
 
 final _applyModeProvider = StateProvider<_ApplyMode>(
   (ref) => _ApplyMode.review,
 );
 final _applyDiffProvider = StateProvider<String?>((ref) => null);
+final _applyStagedProvider = StateProvider<StagedChanges?>((ref) => null);
 final _applyOutputProvider = StateProvider<List<String>>((ref) => []);
 final _applyExitCodeProvider = StateProvider<int?>((ref) => null);
 final _applyBinaryUpdatedProvider = StateProvider<bool>((ref) => false);
 
-/// Color a single line of unified `git diff --no-color` output.
-/// - '+' lines (additions) → green, but leave the '+++ b/foo' file header alone
-/// - '-' lines (deletions) → red, same carve-out for '--- a/foo'
-/// - '@@ …' hunk headers   → cyan
-/// - 'diff --git', 'index '  → dim grey
-/// - anything else → null (fall back to the widget's default)
-Color? _diffLineColor(String line) {
+/// Color a single line in the review pane. Section headers (lines
+/// starting with `▸`) come out orange so they pop above the per-row
+/// content; git diff lines retain the standard green / red / cyan
+/// palette so the working-tree section still reads like a familiar
+/// `git diff`.
+Color? _reviewLineColor(String line) {
+  if (line.startsWith('▸')) return const Color.fromRGB(247, 147, 26);
   if (line.startsWith('+++') || line.startsWith('---')) {
     return const Color.fromRGB(140, 140, 170);
   }
@@ -56,6 +61,7 @@ class _ApplyViewState extends State<ApplyView> {
   StreamSubscription<String>? _outputSub;
   bool _diffLoading = false;
   bool _started = false;
+  final StagingService _staging = StagingService();
 
   @override
   void dispose() {
@@ -63,10 +69,19 @@ class _ApplyViewState extends State<ApplyView> {
     super.dispose();
   }
 
-  void _loadDiff() {
+  void _loadReviewState() {
     if (_diffLoading) return;
     _diffLoading = true;
     final git = context.read(gitServiceProvider);
+    // Staging read is sync — kick it off immediately so the review
+    // screen has lock/plugin sections rendered before the async git
+    // diff resolves.
+    try {
+      context.read(_applyStagedProvider.notifier).state = _staging.read();
+    } catch (e, st) {
+      LogService.error('Failed to read staging', e, st);
+      context.read(_applyStagedProvider.notifier).state = StagedChanges.empty();
+    }
     git
         .diff()
         .then((text) {
@@ -86,6 +101,7 @@ class _ApplyViewState extends State<ApplyView> {
     _diffLoading = false;
     context.read(_applyModeProvider.notifier).state = _ApplyMode.review;
     context.read(_applyDiffProvider.notifier).state = null;
+    context.read(_applyStagedProvider.notifier).state = null;
     context.read(_applyOutputProvider.notifier).state = [];
     context.read(_applyExitCodeProvider.notifier).state = null;
     context.read(_applyBinaryUpdatedProvider.notifier).state = false;
@@ -202,6 +218,43 @@ class _ApplyViewState extends State<ApplyView> {
     }
   }
 
+  /// Copy any staged `flake.lock` from `/var/lib/nixblitz-tui/staging/`
+  /// into the operator's `~/nixblitz/`. Plugin marker promotion is
+  /// done separately via [_promoteStagedPlugins] — refreshing plugins
+  /// is an async per-id git clone, while the lock copy is a single
+  /// byte-for-byte file move.
+  void _promoteStagedLock(String baseDirPath) {
+    final lockSrc = File(_staging.lockPath);
+    if (!lockSrc.existsSync()) return;
+    try {
+      lockSrc.copySync('$baseDirPath/flake.lock');
+      _append('  promoted staged flake.lock');
+    } catch (e, st) {
+      LogService.error('apply: lock promotion failed', e, st);
+      _append('  ! lock promotion failed: $e — continuing with build');
+    }
+  }
+
+  /// Refresh each plugin whose pin moved between checks. Failures are
+  /// non-fatal — one bad upstream doesn't sink the whole Apply.
+  Future<void> _promoteStagedPlugins(StagedChanges staged) async {
+    if (staged.pluginPins.isEmpty) return;
+    final pluginService = context.read(pluginServiceProvider);
+    for (final pin in staged.pluginPins) {
+      _append('  refreshing plugin ${pin.pluginId}');
+      try {
+        final updated = await pluginService.refresh(pin.pluginId);
+        _append(
+          '    ${updated.id}: ${pin.currentRev.substring(0, 7)} → '
+          '${updated.rev.substring(0, 7)}',
+        );
+      } catch (e, st) {
+        LogService.error('apply: plugin refresh ${pin.pluginId} failed', e, st);
+        _append('    ! ${pin.pluginId} refresh failed: $e — skipped');
+      }
+    }
+  }
+
   void _continueApply(
     String baseDirPath,
     GitService git,
@@ -214,10 +267,19 @@ class _ApplyViewState extends State<ApplyView> {
       // paths before the main commit. Failure is non-fatal — the build
       // will error loudly if templates are still wrong.
       _maybeAutoRewriteTemplates(baseDirPath, git)
-          .then((_) {
-            _append('> git add -A && git commit -m "Apply settings"');
+          .then((_) async {
+            final staged =
+                context.read(_applyStagedProvider) ?? _staging.read();
+            if (staged.lockBumpAvailable || staged.pluginPins.isNotEmpty) {
+              _append('');
+              _append('> promoting staged updates');
+              _promoteStagedLock(baseDirPath);
+              await _promoteStagedPlugins(staged);
+            }
+            _append('');
+            _append('> git add -A && git commit -m "Apply pending changes"');
             git
-                .commitAll('Apply settings')
+                .commitAll('Apply pending changes')
                 .then((committed) {
                   _append(
                     committed
@@ -266,6 +328,18 @@ class _ApplyViewState extends State<ApplyView> {
                                   .state =
                               updated;
                           await _recordApplied(git, attr);
+                          // Staging artifacts were promoted into the
+                          // working tree before the commit; wipe the
+                          // staging dir so the next check repopulates
+                          // from scratch. Failure to clear is logged
+                          // but doesn't fail Apply — the next check
+                          // overwrites stale entries.
+                          try {
+                            _staging.clearAll();
+                          } catch (e, st) {
+                            LogService.warn('apply: clear staging failed: $e');
+                            LogService.error('apply: clearAll trace', e, st);
+                          }
                         }
                         context.read(_applyExitCodeProvider.notifier).state =
                             code;
@@ -339,6 +413,15 @@ class _ApplyViewState extends State<ApplyView> {
   void _discard() {
     try {
       final git = context.read(gitServiceProvider);
+      // Wipe staging too — discarding "all pending changes" means
+      // the lock bump + plugin pin candidates as well as the dirty
+      // working tree. Operator can re-run a check to repopulate.
+      try {
+        _staging.clearAll();
+      } catch (e, st) {
+        LogService.warn('Discard: clearing staging failed: $e');
+        LogService.error('Discard: clearAll trace', e, st);
+      }
       git
           .discardAll()
           .then((ok) {
@@ -357,6 +440,15 @@ class _ApplyViewState extends State<ApplyView> {
       LogService.error('Discard threw', e, st);
       _leave();
     }
+  }
+
+  /// Trigger a fresh `nixblitz check` subprocess. The subprocess
+  /// writes into `update-status.json` + staging; once it exits the
+  /// `checkRefreshTickProvider` bumps, which Apply watches in
+  /// [_buildReview] to re-read the staging state.
+  void _onCheckRequested() {
+    if (context.read(runningCheckProvider)) return;
+    runCheckSubprocess(context);
   }
 
   @override
@@ -379,6 +471,10 @@ class _ApplyViewState extends State<ApplyView> {
         _startApply();
         return true;
       }
+      if (event.logicalKey == LogicalKey.keyC) {
+        _onCheckRequested();
+        return true;
+      }
       if (event.logicalKey == LogicalKey.keyD) {
         _discard();
         return true;
@@ -390,15 +486,103 @@ class _ApplyViewState extends State<ApplyView> {
     }
   }
 
-  Component _buildReview() {
-    final diff = context.watch(_applyDiffProvider);
+  /// Build the prefix lines that describe staged + working-tree
+  /// changes, prepended to the git diff in the scrollable area. Each
+  /// section is gated on the corresponding state being non-empty.
+  List<String> _buildReviewPrefix({
+    required String diff,
+    required StagedChanges staged,
+  }) {
+    final out = <String>[];
+    final hasConfigEdits = diff.trim().isNotEmpty;
 
-    if (diff == null) {
-      Future.microtask(_loadDiff);
+    if (hasConfigEdits) {
+      out.add('▸ Local config edits (uncommitted)');
+      out.add('');
     }
 
-    final lines = (diff ?? '').split('\n');
-    final hasChanges = diff != null && diff.trim().isNotEmpty;
+    if (staged.lockBumpAvailable) {
+      final age = staged.checkedAt == null
+          ? ''
+          : ' (checked ${humanizeAge(staged.checkedAt!)})';
+      out.add('▸ Upstream pin updates$age');
+      // The candidate flake.lock lives in staging; for the diff
+      // summary we mirror inputsAhead from the cached CheckResult so
+      // the operator sees the named inputs rather than just "a lock
+      // bump exists". Read from update-status.json directly.
+      final status = readUpdateStatus();
+      final inputs = status.checkResult?.inputsAhead ?? const [];
+      if (inputs.isEmpty) {
+        out.add('  (candidate flake.lock differs from current)');
+      } else {
+        for (final i in inputs) {
+          final curr = i.currentRev.length >= 7
+              ? i.currentRev.substring(0, 7)
+              : i.currentRev;
+          final next = i.upstreamRev.length >= 7
+              ? i.upstreamRev.substring(0, 7)
+              : i.upstreamRev;
+          out.add('  ${i.name}: $curr → $next');
+        }
+      }
+      out.add('');
+    }
+
+    if (staged.pluginPins.isNotEmpty) {
+      out.add('▸ Plugin updates');
+      for (final p in staged.pluginPins) {
+        final fromV = p.currentVersion;
+        final toV = p.upstreamVersion;
+        final versionPart = (fromV != null && toV != null && fromV != toV)
+            ? '$fromV → $toV'
+            : '${p.currentRev.substring(0, 7)} → ${p.upstreamRev.substring(0, 7)}';
+        final tags = <String>[
+          if (p.isDowngrade) 'DOWNGRADE',
+          if (p.forcePushDetected) 'force-pushed',
+        ];
+        out.add(
+          '  ${p.pluginId}: $versionPart'
+          '${tags.isEmpty ? "" : "  [${tags.join(", ")}]"}',
+        );
+      }
+      out.add('');
+    }
+
+    if (staged.nvdDiff != null && staged.nvdDiff!.trim().isNotEmpty) {
+      out.add('▸ Package diff (nvd)');
+      for (final line in staged.nvdDiff!.split('\n')) {
+        if (line.trim().isEmpty) continue;
+        out.add('  $line');
+      }
+      out.add('');
+    }
+
+    if (hasConfigEdits) {
+      out.add('▸ Working tree diff');
+    }
+    return out;
+  }
+
+  Component _buildReview() {
+    // Re-read staging when a background check finishes.
+    context.watch(checkRefreshTickProvider);
+    final diff = context.watch(_applyDiffProvider);
+    final staged = context.watch(_applyStagedProvider);
+    final running = context.watch(runningCheckProvider);
+
+    if (diff == null || staged == null) {
+      Future.microtask(_loadReviewState);
+    }
+
+    final stagedSafe = staged ?? StagedChanges.empty();
+    final diffSafe = diff ?? '';
+    final prefix = _buildReviewPrefix(diff: diffSafe, staged: stagedSafe);
+    final diffLines = diffSafe.trim().isEmpty
+        ? const <String>[]
+        : diffSafe.split('\n');
+    final allLines = [...prefix, ...diffLines];
+    final hasChanges =
+        diff != null && (allLines.isNotEmpty || stagedSafe.isNotEmpty);
 
     final body = Container(
       padding: const EdgeInsets.all(2),
@@ -413,16 +597,25 @@ class _ApplyViewState extends State<ApplyView> {
             ),
           ),
           const SizedBox(height: 1),
-          if (diff == null)
-            const Text('Loading diff...')
+          if (running) ...[
+            const Spinner(label: 'Running check…'),
+            const SizedBox(height: 1),
+          ],
+          if (diff == null || staged == null)
+            const Text('Loading…')
           else if (!hasChanges) ...[
             const Text('No pending changes — press [Esc] to return.'),
             ..._noPendingHint(context),
+            const SizedBox(height: 1),
+            const Text(
+              '[c] Check for updates   [Esc] Back',
+              style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+            ),
           ] else
             Expanded(
               child: ScrollableLog(
-                lines: lines,
-                lineColor: _diffLineColor,
+                lines: allLines,
+                lineColor: _reviewLineColor,
                 focused: true,
                 onKeyEvent: _handleReviewNonScrollKey,
               ),
@@ -430,8 +623,8 @@ class _ApplyViewState extends State<ApplyView> {
           if (hasChanges) ...[
             const SizedBox(height: 1),
             const Text(
-              '[↑/↓ j/k] scroll   [PgUp/PgDn] page   '
-              '[a] Apply   [d] Discard   [Esc] Back',
+              '[↑/↓ j/k] scroll   [a] Apply   [c] Check   '
+              '[d] Discard all   [Esc] Back',
               style: TextStyle(color: Color.fromRGB(150, 150, 180)),
             ),
           ],
@@ -530,43 +723,27 @@ class _ApplyViewState extends State<ApplyView> {
     );
   }
 
-  /// Contextual hint rendered under "No pending changes" when the
-  /// operator actually has something to deploy — it's just not a
-  /// working-tree edit. Catches the common confusion where Simple
-  /// Check flagged the TUI / nixpkgs / plugins as upstream-ahead
-  /// and the operator reached for "Apply config edits" expecting
-  /// the upstream commits to come along.
-  ///
-  /// Empty list when nothing's ahead — keeps the screen clean.
+  /// Hint rendered under "No pending changes" when a check has
+  /// flagged upstream movement but no working-tree edit is queued.
+  /// Phase 4 of the redesign will replace this with the multi-
+  /// section review screen that surfaces staged lock bumps + plugin
+  /// pins directly; this hint stays as a stopgap until then.
   List<Component> _noPendingHint(BuildContext context) {
     final status = readUpdateStatus();
-    final light = status.lightweight;
-    if (light == null || !light.ok) return const [];
+    final r = status.checkResult;
+    if (r == null || !r.ok) return const [];
     final stillAhead = UpdateCheckService.filterStillAhead(
-      light.inputsAhead,
+      r.inputsAhead,
       flakePath: context.read(baseDirProvider),
     );
-    final tuiAhead = stillAhead.any((i) => i.name == kTuiInputName);
-    final otherAhead = stillAhead.any((i) => i.name != kTuiInputName);
-    final pluginsAhead = light.pluginsAhead.isNotEmpty;
-    if (!tuiAhead && !otherAhead && !pluginsAhead) return const [];
-
-    final hints = <String>[];
-    if (otherAhead) {
-      hints.add('"Update entire system" (pulls all flake inputs)');
-    } else if (tuiAhead) {
-      hints.add('"Update TUI only" (pulls the new nixblitz commit)');
-    }
-    if (pluginsAhead) {
-      hints.add('"Update plugins" (pulls plugin upstreams + rebuild)');
-    }
+    if (stillAhead.isEmpty && r.pluginsAhead.isEmpty) return const [];
 
     return [
       const SizedBox(height: 1),
-      Text(
-        'Upstream commits available — back to System → Apply and '
-        'pick ${hints.join(" or ")}.',
-        style: const TextStyle(color: Color.fromRGB(220, 180, 100)),
+      const Text(
+        'Upstream commits available — run System → Check first to '
+        'stage them, then return here.',
+        style: TextStyle(color: Color.fromRGB(220, 180, 100)),
       ),
     ];
   }

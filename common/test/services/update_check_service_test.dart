@@ -299,13 +299,13 @@ this derivation will be built:
     });
   });
 
-  group('UpdateCheckService.runLightweight (plugins)', () {
+  group('UpdateCheckService.probeUpstreamMovement (plugins)', () {
     late Directory tmp;
     late String flakePath;
     late String statusPath;
 
     setUp(() {
-      tmp = Directory.systemTemp.createTempSync('nbz-update-light-plugins-');
+      tmp = Directory.systemTemp.createTempSync('nbz-probe-plugins-');
       flakePath = tmp.path;
       statusPath = '${tmp.path}/update-status.json';
       // Empty flake.lock — root has no inputs, so the inputs loop is
@@ -339,10 +339,22 @@ this derivation will be built:
       });
     }
 
-    test('runLightweight walks active auto-update plugins', () async {
-      final updateCheckService = UpdateCheckService(
+    UpdateCheckService svcWith({
+      required http.Client httpClient,
+      required List<PluginMarker> Function() markersReader,
+    }) {
+      return UpdateCheckService(
         flakePath: flakePath,
         statusPath: statusPath,
+        // Isolate staging writes from /var/lib in tests.
+        stagingService: StagingService(basePath: '${tmp.path}/staging'),
+        httpClient: httpClient,
+        markersReader: markersReader,
+      );
+    }
+
+    test('walks active auto-update plugins', () async {
+      final svc = svcWith(
         httpClient: stubHttp({
           'https://api.github.com/repos/example/foo/commits/main': {
             'sha': 'b' * 40,
@@ -352,21 +364,16 @@ this derivation will be built:
           _marker(id: 'fixture', url: 'github:example/foo', rev: 'a' * 40),
         ],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.ok, isTrue);
-      expect(status.lightweight!.pluginsAhead, hasLength(1));
-      expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'b' * 40);
-      expect(status.lightweight!.pluginsAhead.single.currentRev, 'a' * 40);
-      expect(status.lightweight!.pluginsAhead.single.pluginId, 'fixture');
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, hasLength(1));
+      expect(r.pluginsAhead.single.upstreamRev, 'b' * 40);
+      expect(r.pluginsAhead.single.currentRev, 'a' * 40);
+      expect(r.pluginsAhead.single.pluginId, 'fixture');
     });
 
-    test('runLightweight skips pinned (autoUpdate=false) plugins', () async {
+    test('skips pinned (autoUpdate=false) plugins', () async {
       var httpCalls = 0;
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
+      final svc = svcWith(
         httpClient: MockClient((req) async {
           httpCalls++;
           return http.Response('should not be called', 500);
@@ -375,18 +382,14 @@ this derivation will be built:
           _marker(url: 'github:example/foo', rev: 'a' * 40, autoUpdate: false),
         ],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.pluginsAhead, isEmpty);
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
 
-    test('runLightweight skips disabled plugins', () async {
+    test('skips disabled plugins', () async {
       var httpCalls = 0;
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
+      final svc = svcWith(
         httpClient: MockClient((req) async {
           httpCalls++;
           return http.Response('should not be called', 500);
@@ -395,20 +398,16 @@ this derivation will be built:
           _marker(url: 'github:example/foo', rev: 'a' * 40, disabled: true),
         ],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.pluginsAhead, isEmpty);
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
 
-    test('runLightweight per-plugin error does not abort run', () async {
+    test('per-plugin error does not abort run', () async {
       // Plugin "bad" returns 500 → throws inside _queryUpstreamRev,
       // caller catches and records an error. Plugin "good" still gets
       // walked and emits a PluginAhead entry.
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
+      final svc = svcWith(
         httpClient: stubHttp({
           'https://api.github.com/repos/example/good/commits/main': {
             'sha': 'd' * 40,
@@ -420,56 +419,42 @@ this derivation will be built:
           _marker(id: 'good-plugin', url: 'github:example/good', rev: 'c' * 40),
         ],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.ok, isTrue);
-      expect(status.lightweight!.pluginsAhead, hasLength(1));
-      expect(status.lightweight!.pluginsAhead.single.pluginId, 'good-plugin');
-      expect(status.lightweight!.pluginsAhead.single.upstreamRev, 'd' * 40);
-      expect(status.lightweight!.error, isNotNull);
-      expect(status.lightweight!.error, contains('bad-plugin'));
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, hasLength(1));
+      expect(r.pluginsAhead.single.pluginId, 'good-plugin');
+      expect(r.pluginsAhead.single.upstreamRev, 'd' * 40);
+      expect(r.errors, isNotEmpty);
+      expect(r.errors.any((e) => e.contains('bad-plugin')), isTrue);
     });
 
-    test('runLightweight skips plugins with unsupported transport', () async {
+    test('skips plugins with unsupported transport', () async {
       var httpCalls = 0;
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
+      final svc = svcWith(
         httpClient: MockClient((req) async {
           httpCalls++;
           return http.Response('should not be called', 500);
         }),
         markersReader: () => [_marker(url: 'file:///tmp/local', rev: 'a' * 40)],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.pluginsAhead, isEmpty);
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, isEmpty);
       expect(httpCalls, 0);
     });
 
-    test(
-      'runLightweight emits no PluginAhead when upstream matches pin',
-      () async {
-        final updateCheckService = UpdateCheckService(
-          flakePath: flakePath,
-          statusPath: statusPath,
-          httpClient: stubHttp({
-            'https://api.github.com/repos/example/foo/commits/main': {
-              'sha': 'a' * 40,
-            },
-          }),
-          markersReader: () => [
-            _marker(url: 'github:example/foo', rev: 'a' * 40),
-          ],
-        );
-        final exit = await updateCheckService.runLightweight();
-        expect(exit, 0);
-        final status = updateCheckService.readStatus();
-        expect(status.lightweight!.pluginsAhead, isEmpty);
-      },
-    );
+    test('emits no PluginAhead when upstream matches pin', () async {
+      final svc = svcWith(
+        httpClient: stubHttp({
+          'https://api.github.com/repos/example/foo/commits/main': {
+            'sha': 'a' * 40,
+          },
+        }),
+        markersReader: () => [
+          _marker(url: 'github:example/foo', rev: 'a' * 40),
+        ],
+      );
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, isEmpty);
+    });
 
     test('version-aware probe: upstream version > pinned → ahead', () async {
       // Stub the branch HEAD probe (returns new SHA), the manifest
@@ -479,9 +464,7 @@ this derivation will be built:
       // still). The plugin's marker reports version 1.1.0.
       final upstreamSha = 'b' * 40;
       final pinnedSha = 'a' * 40;
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
+      final svc = svcWith(
         httpClient: stubHttp({
           'https://api.github.com/repos/example/foo/commits/main': {
             'sha': upstreamSha,
@@ -499,11 +482,9 @@ this derivation will be built:
           _marker(url: 'github:example/foo', rev: pinnedSha, version: '1.1.0'),
         ],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.pluginsAhead, hasLength(1));
-      final ahead = status.lightweight!.pluginsAhead.single;
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, hasLength(1));
+      final ahead = r.pluginsAhead.single;
       expect(ahead.currentVersion, '1.1.0');
       expect(ahead.upstreamVersion, '1.2.0');
       expect(ahead.isDowngrade, isFalse);
@@ -514,9 +495,7 @@ this derivation will be built:
       () async {
         final upstreamSha = 'b' * 40;
         final pinnedSha = 'a' * 40;
-        final updateCheckService = UpdateCheckService(
-          flakePath: flakePath,
-          statusPath: statusPath,
+        final svc = svcWith(
           httpClient: stubHttp({
             'https://api.github.com/repos/example/foo/commits/main': {
               'sha': upstreamSha,
@@ -532,51 +511,38 @@ this derivation will be built:
             ),
           ],
         );
-        final exit = await updateCheckService.runLightweight();
-        expect(exit, 0);
-        final status = updateCheckService.readStatus();
-        expect(status.lightweight!.pluginsAhead, hasLength(1));
-        final ahead = status.lightweight!.pluginsAhead.single;
+        final r = await svc.probeUpstreamMovement();
+        expect(r.pluginsAhead, hasLength(1));
+        final ahead = r.pluginsAhead.single;
         expect(ahead.isDowngrade, isTrue);
         expect(ahead.currentVersion, '1.2.0');
         expect(ahead.upstreamVersion, '1.0.0');
       },
     );
 
-    test(
-      'version-aware probe: same upstream version → no PluginAhead emitted',
-      () async {
-        // Mono-repo false-positive case: a commit lands that doesn't
-        // touch this plugin's manifest. Upstream SHA moves but the
-        // version field is unchanged. Old code reported "ahead" purely
-        // on SHA inequality; introducing-commit pinning means we
-        // suppress the row.
-        final upstreamSha = 'b' * 40;
-        final pinnedSha = 'a' * 40;
-        final updateCheckService = UpdateCheckService(
-          flakePath: flakePath,
-          statusPath: statusPath,
-          httpClient: stubHttp({
-            'https://api.github.com/repos/example/foo/commits/main': {
-              'sha': upstreamSha,
-            },
-            'https://api.github.com/repos/example/foo/contents/plugin.json?ref=$upstreamSha':
-                _contentsResponse('1.2.0'),
-          }),
-          markersReader: () => [
-            _marker(
-              url: 'github:example/foo',
-              rev: pinnedSha,
-              version: '1.2.0',
-            ),
-          ],
-        );
-        final exit = await updateCheckService.runLightweight();
-        expect(exit, 0);
-        final status = updateCheckService.readStatus();
-        expect(status.lightweight!.pluginsAhead, isEmpty);
-      },
-    );
+    test('version-aware probe: same upstream version → no PluginAhead', () async {
+      // Mono-repo false-positive case: a commit lands that doesn't
+      // touch this plugin's manifest. Upstream SHA moves but the
+      // version field is unchanged. Old code reported "ahead" purely
+      // on SHA inequality; introducing-commit pinning means we
+      // suppress the row.
+      final upstreamSha = 'b' * 40;
+      final pinnedSha = 'a' * 40;
+      final svc = svcWith(
+        httpClient: stubHttp({
+          'https://api.github.com/repos/example/foo/commits/main': {
+            'sha': upstreamSha,
+          },
+          'https://api.github.com/repos/example/foo/contents/plugin.json?ref=$upstreamSha':
+              _contentsResponse('1.2.0'),
+        }),
+        markersReader: () => [
+          _marker(url: 'github:example/foo', rev: pinnedSha, version: '1.2.0'),
+        ],
+      );
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, isEmpty);
+    });
 
     test('unversioned plugin falls through to SHA tracking', () async {
       // Marker has version='' (pre-version-field install). Upstream
@@ -584,9 +550,7 @@ this derivation will be built:
       // Both null → fall back to pure SHA comparison, ahead emitted.
       final upstreamSha = 'b' * 40;
       final pinnedSha = 'a' * 40;
-      final updateCheckService = UpdateCheckService(
-        flakePath: flakePath,
-        statusPath: statusPath,
+      final svc = svcWith(
         httpClient: MockClient((req) async {
           final url = req.url.toString();
           if (url == 'https://api.github.com/repos/example/foo/commits/main') {
@@ -599,11 +563,9 @@ this derivation will be built:
           _marker(url: 'github:example/foo', rev: pinnedSha, version: ''),
         ],
       );
-      final exit = await updateCheckService.runLightweight();
-      expect(exit, 0);
-      final status = updateCheckService.readStatus();
-      expect(status.lightweight!.pluginsAhead, hasLength(1));
-      final ahead = status.lightweight!.pluginsAhead.single;
+      final r = await svc.probeUpstreamMovement();
+      expect(r.pluginsAhead, hasLength(1));
+      final ahead = r.pluginsAhead.single;
       expect(ahead.currentRev, pinnedSha);
       expect(ahead.upstreamRev, upstreamSha);
       expect(ahead.currentVersion, isNull);

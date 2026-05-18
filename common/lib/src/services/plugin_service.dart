@@ -745,10 +745,9 @@ class PluginService {
   }
 }
 
-/// Aggregate result from [PluginService.refreshAll]. The Update-view
-/// integration in `tui/lib/src/ui/views/update_view.dart` walks
+/// Aggregate result from [PluginService.refreshAll]. The TUI walks
 /// these three lists to render successes / warnings / skipped lines
-/// in the existing log surface.
+/// in the bulk refresh log surface.
 class PluginRefreshAllResult {
   /// Plugins whose refresh advanced the pin to a newer rev.
   final List<PluginMarker> advanced;

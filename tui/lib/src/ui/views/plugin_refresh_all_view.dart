@@ -20,9 +20,8 @@ class PluginRefreshAllView extends StatefulComponent {
   /// false when they hit Esc (back out without rebuild, or mid-
   /// refresh cancel). [result] is non-null only when refreshAll
   /// completed without a top-level throw — caller uses it to
-  /// decide whether to chain into a rebuild (e.g. UpdateView does
-  /// this for the "Update plugins" intent when `confirmed` is
-  /// true and `result.advanced` is non-empty).
+  /// decide whether to chain into a rebuild when `confirmed` is
+  /// true and `result.advanced` is non-empty.
   final void Function(PluginRefreshAllResult? result, {required bool confirmed})
   onDone;
 

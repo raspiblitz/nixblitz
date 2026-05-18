@@ -13,18 +13,14 @@ enum AppView {
   /// older standalone Apply / Update tabs.
   system,
 
-  /// Kept reachable from [system]'s "Apply pending changes" action
-  /// until the rebuild-streaming + done-screen state machine is
-  /// folded directly into [SystemView]. Not surfaced in the top
-  /// menu.
+  /// Reached from [system]'s "Apply pending changes" action. Hosts
+  /// the review + rebuild-streaming + done state machine for every
+  /// mutating operation — the only path that touches a generation.
+  /// Not surfaced in the top menu.
   apply,
 
-  /// Same story as [apply]: still routable from [system] for the
-  /// update / refresh actions; not in the top menu anymore.
-  update,
-
   /// Full-screen viewer for the cached `nvd diff` from the last
-  /// heavy check. Reached from `system → Check → View package diff`;
+  /// check. Reached from `system → Check → View package diff`;
   /// Esc routes back to [system]. Not in the top menu; transient.
   packageDiff,
   debug,
@@ -74,14 +70,12 @@ final modalActiveProvider = Provider<bool>((ref) {
 });
 
 /// View-declared "I'm in a non-resumable rebuild flow" flag. Apply
-/// and Update flip this on when they enter the post-commit /
-/// rebuild-running window and clear it when they reach a terminal
-/// state (done, fail, reset to select). The shell consumes it to
-/// gate the `q` quit shortcut behind a two-press confirm — an
-/// operator fat-fingering `q` instead of `a` during an Apply must
-/// not nuke a half-finished rebuild silently. (See
-/// `docs/superpowers/specs/.../merry-tinkering-pine.md` and the
-/// `last-applied.json` flow for the rationale.)
+/// flips this on when it enters the post-commit / rebuild-running
+/// window and clears it when it reaches a terminal state (done,
+/// fail, reset to review). The shell consumes it to gate the `q`
+/// quit shortcut behind a two-press confirm — an operator
+/// fat-fingering `q` instead of `a` during an Apply must not nuke
+/// a half-finished rebuild silently.
 final viewBusyProvider = StateProvider<bool>((ref) => false);
 
 /// Composed signal: any view declares itself busy, or a sudo prompt

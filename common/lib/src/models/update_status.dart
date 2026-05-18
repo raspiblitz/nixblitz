@@ -1,17 +1,9 @@
 /// Result of the periodic update checker, surfaced on the dashboard
-/// as a "X updates available" banner. Two independent sections, each
-/// updated by its own systemd timer:
+/// as an "X updates available" banner.
 ///
-/// - `lightweight`: cheap upstream-HEAD checks via GitHub / Forgejo
-///   APIs. Daily-ish. Only knows "an input has moved", not what
-///   packages changed.
-/// - `heavy`: full `nix flake update` + eval + `nvd diff` in a temp
-///   working copy. Weekly-ish. Captures the per-package version
-///   delta in [HeavyCheck.diffText].
-///
-/// Both sections may be absent (file missing on a fresh install) or
-/// stale (last timer run failed). The dashboard renders defensively
-/// off whichever section is present.
+/// One section: [CheckResult]. The section may be absent (file
+/// missing on a fresh install) or stale (last timer run failed).
+/// The dashboard renders defensively off `checkResult` when present.
 library;
 
 import 'dart:convert';
@@ -19,14 +11,14 @@ import 'dart:io';
 
 /// Attribute name of the flake input that pins the running TUI's
 /// own source — matches `templates/flake.nix:13`. Spelled out once
-/// here so consumers (System Check panel, Update view's status
-/// block, action_gating) don't drift if the input is ever renamed.
+/// here so consumers (System Check panel, dashboard banner) don't
+/// drift if the input is ever renamed.
 const String kTuiInputName = 'nixblitz';
 
 /// Where the periodic checker writes its result. systemd-tmpfiles
 /// creates the directory with admin:admin ownership; the
-/// `nixblitz check {light,heavy}` commands run as `admin` and write
-/// here, the TUI reads from it.
+/// `nixblitz check` command runs as `admin` and writes here, the
+/// TUI reads from it.
 ///
 /// Overridable via the `NIXBLITZ_UPDATE_STATUS_PATH` env var so
 /// running the binary on a dev box (no systemd-tmpfiles seeding the
@@ -53,64 +45,85 @@ UpdateStatus readUpdateStatus({String? path}) {
 }
 
 class UpdateStatus {
-  const UpdateStatus({this.lightweight, this.heavy});
+  const UpdateStatus({this.checkResult});
 
   factory UpdateStatus.empty() => const UpdateStatus();
 
-  final LightCheck? lightweight;
-  final HeavyCheck? heavy;
+  final CheckResult? checkResult;
 
   factory UpdateStatus.fromJson(Map<String, dynamic> json) => UpdateStatus(
-    lightweight: json['lightweight'] is Map<String, dynamic>
-        ? LightCheck.fromJson(json['lightweight'] as Map<String, dynamic>)
-        : null,
-    heavy: json['heavy'] is Map<String, dynamic>
-        ? HeavyCheck.fromJson(json['heavy'] as Map<String, dynamic>)
+    checkResult: json['check_result'] is Map<String, dynamic>
+        ? CheckResult.fromJson(json['check_result'] as Map<String, dynamic>)
         : null,
   );
 
   Map<String, dynamic> toJson() => {
-    if (lightweight != null) 'lightweight': lightweight!.toJson(),
-    if (heavy != null) 'heavy': heavy!.toJson(),
+    if (checkResult != null) 'check_result': checkResult!.toJson(),
   };
 
-  UpdateStatus copyWith({LightCheck? lightweight, HeavyCheck? heavy}) =>
-      UpdateStatus(
-        lightweight: lightweight ?? this.lightweight,
-        heavy: heavy ?? this.heavy,
-      );
+  UpdateStatus copyWith({CheckResult? checkResult}) =>
+      UpdateStatus(checkResult: checkResult ?? this.checkResult);
 }
 
-class LightCheck {
-  const LightCheck({
+/// Outcome of one `nixblitz check` run. Combines what used to be
+/// the lightweight upstream-HEAD probe ([inputsAhead],
+/// [pluginsAhead]) with the heavier eval + `nvd diff`
+/// ([diffText], [noChanges], [wouldBuild]).
+///
+/// Side-effects of the check write to the staging dir
+/// (`/var/lib/nixblitz-tui/staging/`); this object is the cached
+/// summary the dashboard reads.
+class CheckResult {
+  const CheckResult({
     required this.checkedAt,
     required this.ok,
     this.error,
     this.inputsAhead = const [],
     this.pluginsAhead = const [],
+    this.diffText = '',
+    this.noChanges = false,
+    this.wouldBuild = const [],
   });
 
   final DateTime checkedAt;
 
-  /// True when the run completed without infrastructural errors
-  /// (network, JSON parse, missing flake.lock). [inputsAhead] can
-  /// be empty even when ok=true — that's the "everything up to date"
-  /// case.
+  /// True when the run completed without a fatal error. A check that
+  /// bailed early because local builds would be needed still reports
+  /// `ok: true` and populates [wouldBuild] — "needs compile" is not
+  /// a failure mode.
   final bool ok;
 
-  /// Human-readable summary of why ok=false. Null on success.
   final String? error;
 
   /// Inputs whose upstream tip has moved past the locally-locked
-  /// commit. Empty list ⇒ nothing to update.
+  /// commit. Empty list ⇒ nothing to update on the flake side.
   final List<InputAhead> inputsAhead;
 
   /// Installed plugins (auto_update=true, pinnedRev != null) whose
-  /// upstream HEAD has moved past the rev recorded in `config.json`.
-  /// Empty list ⇒ nothing to update.
+  /// upstream HEAD has moved. Empty list ⇒ no plugin updates.
   final List<PluginAhead> pluginsAhead;
 
-  factory LightCheck.fromJson(Map<String, dynamic> j) => LightCheck(
+  /// `nvd diff` output. Empty when [noChanges] is true, [ok] is
+  /// false, or [compileNeeded] is true (the check refuses to compile
+  /// derivations just to render a diff — the operator triggers the
+  /// actual build via Apply).
+  final String diffText;
+
+  /// True when the new toplevel store path matched
+  /// `/run/current-system` — upstream pins moved but the resolved
+  /// system didn't change.
+  final bool noChanges;
+
+  /// Derivation names that `nix build --dry-run` reported as "will
+  /// be built" — not substitutable from any configured binary cache.
+  /// Non-empty list means the check skipped its own `nix build` step
+  /// to avoid pinning the CPU for a potentially multi-hour compile.
+  final List<String> wouldBuild;
+
+  /// Convenience: true when [wouldBuild] is non-empty.
+  bool get compileNeeded => wouldBuild.isNotEmpty;
+
+  factory CheckResult.fromJson(Map<String, dynamic> j) => CheckResult(
     checkedAt: DateTime.parse(j['checked_at'] as String),
     ok: j['ok'] as bool? ?? true,
     error: j['error'] as String?,
@@ -120,14 +133,22 @@ class LightCheck {
     pluginsAhead: ((j['plugins_ahead'] as List?) ?? const [])
         .map((e) => PluginAhead.fromJson(e as Map<String, dynamic>))
         .toList(),
+    diffText: j['diff_text'] as String? ?? '',
+    noChanges: j['no_changes'] as bool? ?? false,
+    wouldBuild: (j['would_build'] as List?)?.cast<String>() ?? const <String>[],
   );
 
   Map<String, dynamic> toJson() => {
     'checked_at': checkedAt.toIso8601String(),
     'ok': ok,
     if (error != null) 'error': error,
-    'inputs_ahead': inputsAhead.map((e) => e.toJson()).toList(),
-    'plugins_ahead': pluginsAhead.map((e) => e.toJson()).toList(),
+    if (inputsAhead.isNotEmpty)
+      'inputs_ahead': inputsAhead.map((e) => e.toJson()).toList(),
+    if (pluginsAhead.isNotEmpty)
+      'plugins_ahead': pluginsAhead.map((e) => e.toJson()).toList(),
+    'diff_text': diffText,
+    'no_changes': noChanges,
+    if (wouldBuild.isNotEmpty) 'would_build': wouldBuild,
   };
 }
 
@@ -168,10 +189,10 @@ class InputAhead {
   };
 }
 
-/// Like [InputAhead] but for an installed plugin. The lightweight
-/// check probes each `autoUpdate=true` plugin's upstream HEAD
-/// against the rev recorded on its [PluginMarker] and emits one of
-/// these per plugin that has moved.
+/// Like [InputAhead] but for an installed plugin. The check probes
+/// each `autoUpdate=true` plugin's upstream HEAD against the rev
+/// recorded on its `PluginMarker` and emits one of these per plugin
+/// that has moved.
 ///
 /// Pinned plugins (`autoUpdate == false`) are intentionally skipped
 /// — the operator opted out of automatic refreshes for them.
@@ -201,34 +222,25 @@ class PluginAhead {
   /// from in the plugins menu.
   final String url;
 
-  /// Manifest version recorded for the currently-installed rev (the
-  /// `version` string captured at install time). Null when the
-  /// plugin's manifest had no `version` field — the operator's
-  /// plugin tracks via SHA only.
+  /// Manifest version recorded for the currently-installed rev. Null
+  /// when the plugin's manifest had no `version` field — the
+  /// operator's plugin tracks via SHA only.
   final String? currentVersion;
 
-  /// Manifest version string at the new pin candidate. Null when
-  /// upstream has no `version` field. Together with [currentVersion],
-  /// drives the per-plugin "1.2.0 → 1.2.4" display in Configure →
-  /// Plugins; raw strings (not `Version`) so the JSON status file
-  /// stays portable.
+  /// Manifest version string at the new pin candidate.
   final String? upstreamVersion;
 
   /// True when the upstream version parses lower than the locally-
   /// pinned version (author cut a release, reverted, didn't re-bump).
-  /// The lightweight check still emits a PluginAhead row so the
-  /// operator sees the regression, but the dashboard renders it
-  /// amber and refuses to auto-apply. `nixblitz plugin refresh
-  /// --force ID` opts in to a deliberate rollback. See
-  /// `docs/decisions/2026-05-14-plugin-version-tracking.md` §5.
+  /// The check still emits a PluginAhead row so the operator sees
+  /// the regression, but the dashboard renders it amber and refuses
+  /// to auto-apply.
   final bool isDowngrade;
 
-  /// True when the previously-pinned rev (the SHA in [currentRev])
-  /// is no longer reachable on the upstream branch — the author
-  /// force-pushed history. The check still proceeds (we don't refuse
-  /// updates on this signal; sign-key verification is the real
-  /// security mechanism), but surfaces a banner so the operator
-  /// knows their pin's history was rewritten. Logged at WARN.
+  /// True when the previously-pinned rev is no longer reachable on
+  /// the upstream branch — the author force-pushed history. The
+  /// check still proceeds; sign-key verification is the real
+  /// security mechanism. Logged at WARN.
   final bool forcePushDetected;
 
   factory PluginAhead.fromJson(Map<String, dynamic> j) => PluginAhead(
@@ -254,74 +266,5 @@ class PluginAhead {
     if (upstreamVersion != null) 'upstream_version': upstreamVersion,
     if (isDowngrade) 'is_downgrade': true,
     if (forcePushDetected) 'force_push_detected': true,
-  };
-}
-
-class HeavyCheck {
-  const HeavyCheck({
-    required this.checkedAt,
-    required this.ok,
-    this.error,
-    this.diffText = '',
-    this.noChanges = false,
-    this.wouldBuild = const [],
-  });
-
-  final DateTime checkedAt;
-
-  /// True when the eval (+ nvd diff, when reached) completed
-  /// cleanly. False ⇒ the new lock would not even evaluate — see
-  /// [error]. NOTE: a heavy check that bailed early because local
-  /// builds would be needed still reports `ok: true` and populates
-  /// [wouldBuild]; "needs compile" is not a failure mode.
-  final bool ok;
-
-  final String? error;
-
-  /// `nvd diff` output. Empty when [noChanges] is true, [ok] is
-  /// false, or [compileNeeded] is true (in which case the heavy
-  /// check refused to compile derivations just to render a diff —
-  /// the operator triggers the actual build via Apply).
-  final String diffText;
-
-  /// True when the new toplevel store path matched
-  /// `/run/current-system` — the upstream pins moved but the resolved
-  /// system didn't change.
-  final bool noChanges;
-
-  /// Derivation names (e.g. `rustc-1.87.0`, `cargo-foo-0.1.0`) that
-  /// `nix build --dry-run` reported as "will be built" — i.e. not
-  /// substitutable from any configured binary cache. Non-empty list
-  /// means the heavy check skipped its own `nix build` step to
-  /// avoid pinning the CPU for what's potentially a multi-hour
-  /// compile; the operator decides whether to proceed via
-  /// `nixos-rebuild switch` (System → Apply).
-  ///
-  /// Names are short ("derivation name", the part after the store
-  /// hash) so a list of a few dozen still fits a sensible UI. The
-  /// list is sorted alphabetically for stability across runs.
-  final List<String> wouldBuild;
-
-  /// True when [wouldBuild] is non-empty. Convenience for the UI
-  /// gating logic so callers don't need to remember the
-  /// "empty list = no compile" convention.
-  bool get compileNeeded => wouldBuild.isNotEmpty;
-
-  factory HeavyCheck.fromJson(Map<String, dynamic> j) => HeavyCheck(
-    checkedAt: DateTime.parse(j['checked_at'] as String),
-    ok: j['ok'] as bool? ?? true,
-    error: j['error'] as String?,
-    diffText: j['diff_text'] as String? ?? '',
-    noChanges: j['no_changes'] as bool? ?? false,
-    wouldBuild: (j['would_build'] as List?)?.cast<String>() ?? const <String>[],
-  );
-
-  Map<String, dynamic> toJson() => {
-    'checked_at': checkedAt.toIso8601String(),
-    'ok': ok,
-    if (error != null) 'error': error,
-    'diff_text': diffText,
-    'no_changes': noChanges,
-    if (wouldBuild.isNotEmpty) 'would_build': wouldBuild,
   };
 }

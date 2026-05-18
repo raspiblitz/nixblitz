@@ -71,13 +71,13 @@ class _DashboardViewState extends State<DashboardView> {
     );
 
     final updateStatus = readUpdateStatus();
-    final light = updateStatus.lightweight;
+    final result = updateStatus.checkResult;
     final updateSources = <String>[];
-    if (light != null && light.ok && light.inputsAhead.isNotEmpty) {
+    if (result != null && result.ok && result.inputsAhead.isNotEmpty) {
       // filterStillAhead drops phantom updates whose lock has
       // already advanced since the cached check.
       final stillAhead = UpdateCheckService.filterStillAhead(
-        light.inputsAhead,
+        result.inputsAhead,
         flakePath: context.read(baseDirProvider),
       );
       updateSources.addAll(stillAhead.map((e) => e.name));
