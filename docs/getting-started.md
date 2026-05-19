@@ -285,9 +285,9 @@ Footer hints show shortcuts. Some only appear when relevant:
 - `[?]` Help
 
 Tab completion for the `nixblitz` CLI subcommands (plugin / check
-/ update / init) is opt-in — run `nixblitz install-completion-files`
-once and restart your shell. See dev-loop.md for the home-manager
-workaround if `~/.bashrc` is read-only.
+/ update / init) is on by default — the package's postInstall
+drops completion scripts at the standard NixOS auto-source paths,
+so `nixblitz <TAB>` works immediately after a rebuild.
 
 Walk through Configure for a moment. Tab through the service
 sections; toggle a value; hit Esc to return. The dashboard now

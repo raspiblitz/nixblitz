@@ -87,6 +87,13 @@ gen-manifests:
 gen-app-schemas:
   dart run scripts/gen_app_config_schemas.dart
 
+# Regenerate shell completion scripts (tui/completions/nixblitz.{bash,zsh}).
+# These are generic shell stubs that call `nixblitz completion` at
+# runtime; they only need regeneration when the cli_completion
+# package is bumped, not when our command tree changes.
+gen-completions:
+  dart run scripts/gen_completion_scripts.dart
+
 # Compile Tailwind CSS for the website (web/input.css → web/styles.css)
 web-css:
   #!/usr/bin/env nu

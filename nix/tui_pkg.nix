@@ -94,6 +94,13 @@ buildDartApplication {
   # pick up the freshly-installed binary without the user re-typing the
   # command. On non-NixOS (e.g. `nix run` on the live ISO) we fall back
   # to the sibling nixblitz-bin in the same /nix/store path.
+  #
+  # Also installs shell completion scripts at the standard NixOS
+  # auto-source paths. The scripts themselves are generic shell stubs
+  # (committed at tui/completions/) that call `nixblitz completion`
+  # at runtime; cli_completion handles the actual command-tree
+  # completion in-process. Operators on NixOS get tab completion
+  # without ever running `install-completion-files`.
   postInstall = ''
     cat > $out/bin/nixblitz <<'EOF'
     #!/usr/bin/env bash
@@ -112,6 +119,11 @@ buildDartApplication {
     done
     EOF
     chmod +x $out/bin/nixblitz
+
+    install -Dm644 tui/completions/nixblitz.bash \
+      $out/share/bash-completion/completions/nixblitz
+    install -Dm644 tui/completions/nixblitz.zsh \
+      $out/share/zsh/site-functions/_nixblitz
   '';
 
   meta = with lib; {

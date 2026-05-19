@@ -275,42 +275,35 @@ plugin failed, so CI / scripts can branch on success.
 
 ## Tab completion
 
-The `nixblitz` binary ships with bash + zsh completion via
-`cli_completion`. Install (one-time, per shell) by running:
+Bash + zsh completion ships declaratively with the Nix package.
+`nixblitz`'s postInstall drops the generic completion stubs at:
+
+- `$out/share/bash-completion/completions/nixblitz`
+- `$out/share/zsh/site-functions/_nixblitz`
+
+Both are standard NixOS auto-source locations — operators get
+`nixblitz <TAB>` working as soon as the package is installed, no
+RC-file mutation, no per-user setup. The stubs are committed at
+`tui/completions/nixblitz.{bash,zsh}` so the package is fully
+reproducible from source.
+
+The stubs are generic — they call `nixblitz completion -- ...` at
+runtime, and cli_completion's `HandleCompletionRequestCommand`
+serves the actual subcommand tree. Adding a new subcommand to
+the CLI requires no script regeneration. The committed scripts
+only need regeneration when the `cli_completion` package's
+template changes (a package bump), via:
 
 ```bash
-nixblitz install-completion-files
-# then restart your shell or `source ~/.bashrc` / `source ~/.zshrc`
+just gen-completions    # → tui/completions/nixblitz.{bash,zsh}
 ```
 
-After that, `nixblitz <TAB>` lists subcommands; `nixblitz update
-<TAB>` lists `tui / plugins / system`; etc. Uninstall via
-`nixblitz uninstall-completion-files`.
-
-Auto-install is intentionally off — the `nixblitz` binary won't
-mutate your RC files just because you ran a subcommand. This
-matters in particular for the systemd timer which spawns
-`nixblitz check` as the `admin` user.
-
-**Home-manager workaround.** On dev workstations where
-`~/.bashrc` is a symlink into `/nix/store` (home-manager's typical
-setup), the append step fails with a "Read-only file system"
-warning. The completion scripts in
-`~/.dart-cli-completion/{nixblitz.bash,bash-config.bash}` are
-still written; you just need to wire the source line through
-home-manager instead. Drop this into your `home.nix` (or zsh
-equivalent):
-
-```nix
-programs.bash.bashrcExtra = ''
-  [ -f $HOME/.dart-cli-completion/bash-config.bash ] && \
-    . $HOME/.dart-cli-completion/bash-config.bash
-'';
-```
-
-This is dev-machine ergonomics only — the installed nixblitz node
-doesn't use home-manager, so `install-completion-files` works
-there without ceremony.
+For dev runs on non-Nix machines, the hidden
+`nixblitz install-completion-files` command still exists as an
+escape hatch — it writes the same stubs to
+`~/.dart-cli-completion/` and tries to source them from
+`~/.bashrc`. On home-manager systems this last step warns about
+the read-only RC file; the scripts themselves are still written.
 
 ## Working with `jj`
 
