@@ -340,6 +340,32 @@ class _ApplyViewState extends State<ApplyView> {
                             LogService.warn('apply: clear staging failed: $e');
                             LogService.error('apply: clearAll trace', e, st);
                           }
+                          // The cached CheckResult described a delta
+                          // we just consumed — inputsAhead, diffText,
+                          // wouldBuild all reflect pre-apply state.
+                          // Without wiping it the dashboard banner +
+                          // Check panel keep claiming "N need compile"
+                          // hours after the apply landed; bump the
+                          // refresh tick so any watching view re-reads.
+                          // The daily timer or a manual [c] repopulates.
+                          try {
+                            final statusFile = File(updateStatusPath);
+                            if (statusFile.existsSync()) {
+                              statusFile.deleteSync();
+                            }
+                            context
+                                .read(checkRefreshTickProvider.notifier)
+                                .state++;
+                          } catch (e, st) {
+                            LogService.warn(
+                              'apply: clear update-status failed: $e',
+                            );
+                            LogService.error(
+                              'apply: status delete trace',
+                              e,
+                              st,
+                            );
+                          }
                         }
                         context.read(_applyExitCodeProvider.notifier).state =
                             code;
