@@ -237,6 +237,29 @@ Writes the embedded templates + a minimal `config.json` into
 cachepop hosts and CI runners where the full install flow isn't
 appropriate.
 
+## Rolling forward the TUI only
+
+When you've pushed a fix to `nixblitz_ng` and want it on a node
+without going through the full check + Apply flow:
+
+```bash
+nixblitz update tui
+```
+
+Bumps just the `nixblitz` flake input, commits the lock as a
+one-file commit (separable from any later Apply), runs
+`sudo nixos-rebuild switch` with stdio inherited so sudo prompts
+on your terminal and the rebuild output streams through. On
+success, wipes `update-status.json` + `staging/` so the next TUI
+launch reflects current state.
+
+Refuses if `~/nixblitz/` has uncommitted changes — that path goes
+through the TUI's Apply view so the dirty config edit gets
+reviewed alongside the bump rather than landing as a side
+effect. Operators with a normal mix of pending changes should
+keep using Apply (`[a]` from the dashboard); the multi-section
+review screen is the safety net.
+
 ## Working with `jj`
 
 The repo uses [Jujutsu](https://github.com/martinvonz/jj) on top

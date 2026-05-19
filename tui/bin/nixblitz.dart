@@ -8,6 +8,7 @@ import 'package:tui/src/build_info.dart';
 import 'package:tui/src/cli/check_cli.dart';
 import 'package:tui/src/cli/init_cli.dart';
 import 'package:tui/src/cli/plugin_cli.dart';
+import 'package:tui/src/cli/update_cli.dart';
 import 'package:tui/src/ui/app.dart';
 
 /// Auto-refresh templates that drifted between this binary's
@@ -91,6 +92,7 @@ void main(List<String> arguments) async {
       help: 'Print version information',
     )
     ..addCommand('check', ArgParser())
+    ..addCommand('update', ArgParser()..addCommand('tui', ArgParser()))
     ..addCommand(
       'init',
       ArgParser()
@@ -171,6 +173,10 @@ void main(List<String> arguments) async {
       final code = await runCheckCli(results.command!, baseDir);
       exit(code);
     }
+    if (results.command?.name == 'update') {
+      final code = await runUpdateCli(results.command!, baseDir);
+      exit(code);
+    }
     if (results.command?.name == 'init') {
       final code = await runInitCli(results.command!, baseDir);
       exit(code);
@@ -243,6 +249,20 @@ void _printHelp(String? topic) {
     );
     return;
   }
+  if (topic == 'update') {
+    print(
+      'Usage: nixblitz update <target>\n'
+      '\n'
+      '  tui\n'
+      '      Bump just the nixblitz flake input + rebuild. Useful\n'
+      '      when you have already pushed a fix to nixblitz_ng and\n'
+      '      want to roll it forward on this node without going\n'
+      '      through the full check + Apply flow. Refuses if the\n'
+      '      working tree is dirty — config edits go through the\n'
+      '      TUI\'s Apply view.',
+    );
+    return;
+  }
   if (topic == 'init') {
     print(
       'Usage: nixblitz init [--platform x86|pi5] [--force]\n'
@@ -273,6 +293,7 @@ void _printHelp(String? topic) {
     'Subcommands:\n'
     '  plugin    Manage installed plugins (add / remove / list / update / pin / unpin)\n'
     '  check     Run an update check now and stage candidate updates for Apply\n'
+    '  update    One-shot rebuild for a single target (tui only, today)\n'
     '  init      Bootstrap a build-host profile at ~/nixblitz/ (skips the TUI)\n'
     '\n'
     'The TUI is the default UI; subcommands are one-shot operations\n'
