@@ -264,9 +264,14 @@ box; you opt in via `nixblitz plugin add ...`.
 Footer hints show shortcuts. Some only appear when relevant:
 
 - `[c]` Configure — open the typed-options editor
-- `[a]` Apply — review pending changes + commit + rebuild
-  (only shown when there are pending changes)
-- `[u]` Update — pull TUI + plugin + flake updates
+- `[a]` Apply — open System tab, review everything queued for
+  the next generation (config edits, upstream pin updates,
+  plugin updates, package diff), confirm, commit + rebuild as
+  one atomic step. The only path that mutates the running
+  system.
+- `[u]` Update — same destination as `[a]`. Kept as a hotkey
+  alias so muscle memory from before the unification still
+  works.
 - `[r]` Refresh templates — only shown when the binary's
   embedded templates differ from `~/nixblitz/templates/`
   (e.g. you updated the TUI and the new binary ships a fix
@@ -281,21 +286,26 @@ Footer hints show shortcuts. Some only appear when relevant:
 
 Walk through Configure for a moment. Tab through the service
 sections; toggle a value; hit Esc to return. The dashboard now
-shows an orange `1 pending change` banner. Press `[a]` to review
-the diff. The Apply view shows the unified `git diff` against
-`~/nixblitz/config.json`. Commit + rebuild with `[a]` again.
+shows an orange `1 pending change` banner. Press `[a]` to land on
+the System tab's Apply pane. The review screen lists everything
+queued for the next generation — your config edit at the top,
+plus any upstream pin updates / plugin updates / package diff the
+periodic check has staged. Confirm and the whole bundle commits +
+rebuilds atomically.
 
-That's the loop: edit → diff → apply.
+That's the loop: edit → review everything that's about to land →
+apply.
 
-A second banner may also appear above the tiles after a few hours:
+A second banner may appear above the tiles after a few hours:
 **`updates available: nixpkgs, … — checked Xh ago`**. This is the
-periodic update-check service — a daily lightweight cron-style
-timer hits each flake input's upstream HEAD, and a weekly heavy
-timer additionally evaluates the new system + runs `nvd diff` for
-a per-package version delta. Both write to
-`/var/lib/nixblitz-tui/update-status.json`; the dashboard reads it
-each render. Run **`nixblitz check light`** or **`nixblitz check
-heavy`** at any shell to trigger them on demand.
+periodic update check — a daily timer probes each flake input +
+plugin's upstream HEAD, runs `nix flake update` + `nix build
+--dry-run` + `nvd diff` in a tmpdir, and stages any lock / pin
+moves under `/var/lib/nixblitz-tui/staging/` for the next Apply
+to promote. Result lands in
+`/var/lib/nixblitz-tui/update-status.json`; the dashboard reads
+it each render. Run **`nixblitz check`** at any shell to trigger
+it on demand.
 
 ## Access the running node
 

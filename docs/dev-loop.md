@@ -196,27 +196,46 @@ old generations are recoverable via `git revert`.
 
 ## Manual update checks
 
-Two systemd timers seed the dashboard banner at daily / weekly
-cadence (see [architecture.md](architecture.md) → "Periodic update
-checks"). To trigger them on demand from a shell:
+A daily systemd timer seeds the dashboard banner (see
+[architecture.md](architecture.md) → "Periodic update checks"). To
+trigger it on demand from a shell:
 
 ```bash
-nixblitz check light       # ~kB upstream-HEAD via GitHub/Forgejo APIs
-nixblitz check heavy       # ~125MB nix flake update + nvd diff in tmpdir
+nixblitz check     # probe upstream + nix flake update + nvd diff in tmpdir
+                   # ~125 MB tarball traffic, 1-10 min on Pi 5
 ```
 
 For dev runs on a non-NixOS host where `/var/lib/nixblitz-tui/` is
-unwritable:
+unwritable, redirect both the status file and the staging dir:
 
 ```bash
-NIXBLITZ_UPDATE_STATUS_PATH=/tmp/nbz-status.json nixblitz check light
+NIXBLITZ_UPDATE_STATUS_PATH=/tmp/nbz-status.json \
+NIXBLITZ_STAGING_PATH=/tmp/nbz-staging \
+  nixblitz check
 cat /tmp/nbz-status.json | jq
+ls /tmp/nbz-staging
 ```
 
-The corresponding systemd units (on the installed system) are
-`nixblitz-check-{light,heavy}.{service,timer}` and can be
-inspected the usual way: `systemctl status`, `systemctl start`,
-`journalctl -u …`.
+The systemd unit (on the installed system) is
+`nixblitz-check.{service,timer}` and can be inspected the usual
+way: `systemctl status nixblitz-check`, `systemctl start
+nixblitz-check`, `journalctl -u nixblitz-check`.
+
+## Build-host bootstrap
+
+For setting up a workstation that builds nixblitz closures (e.g.
+populating an Attic cache via `nix build .#nixosConfigurations.X
+.config.system.build.toplevel`) without going through the install
+wizard:
+
+```bash
+nixblitz init --platform x86  # or --platform pi5
+```
+
+Writes the embedded templates + a minimal `config.json` into
+`~/nixblitz/` and exits — no TUI launch, no rebuild. Useful for
+cachepop hosts and CI runners where the full install flow isn't
+appropriate.
 
 ## Working with `jj`
 

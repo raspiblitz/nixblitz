@@ -138,8 +138,10 @@ just run-dev       # widget previews — see dev-loop.md
 ```
 
 The flake on disk is a verbatim copy of the embedded templates;
-upgrading the TUI lets you propagate template changes via
-`Update → Refresh Nix templates`. No manual file edits.
+upgrading the TUI propagates template changes automatically — the
+Apply preflight detects drift and rewrites the dirty paths before
+the rebuild commits (see "Templates drift detection" below). No
+manual file edits required.
 
 `config.json` lives at `~/nixblitz/config.json` and is the
 single thing the operator changes. The flake's host config calls
@@ -150,18 +152,32 @@ the result into every module's `enable` flag and option set.
 
 When the operator hits `[a]` Apply:
 
-1. **Diff**: the TUI shows `git diff` of `~/nixblitz/`. Both
-   `config.json` edits and any auto-applied template refreshes
-   appear as a unified diff.
+1. **Review**: the TUI assembles a single screen listing
+   everything queued for the next generation in four sections
+   — local config edits (working-tree `git diff`), staged
+   upstream pin updates (candidate `flake.lock` from the
+   periodic check), staged plugin updates (`plugin-pins.json`),
+   and the cached package diff (`nvd diff`). Operator confirms
+   with `[a]` or discards with `[d]`.
 2. **Authorize**: `SudoSession.ensureFresh()` — modal prompt if
    the cached sudo timestamp lapsed; silent otherwise.
-3. **Commit**: `git add -A && git commit -m "Apply settings"` —
-   creates a recoverable point.
-4. **Rebuild**: `sudo nixos-rebuild switch --flake ~/nixblitz#nixblitz`
+3. **Promote staging**: copy `staging/flake.lock` into the
+   working tree; for each entry in `staging/plugin-pins.json`,
+   refresh that plugin via `PluginService.refresh` (full clone
+   then marker write, signature-checked).
+4. **Commit**: `git add -A && git commit -m "Apply pending changes"`
+   — captures config edits + lock bump + plugin marker writes
+   in one recoverable point.
+5. **Rebuild**: `sudo nixos-rebuild switch --flake ~/nixblitz#<attr>`
    streams output line-by-line to the Apply view.
-5. **Classify**: a regex-based outcome classifier reads the rebuild
+6. **Classify**: a regex-based outcome classifier reads the rebuild
    output and reports success / partial (some units failed but
    activation finished) / failure.
+7. **Clear cached state**: on success, the staging dir +
+   `update-status.json` get wiped — the cached `CheckResult`
+   described a delta we just consumed, so leaving it in place
+   would make the dashboard banner lie ("22 packages need
+   compile") until the next timer fire.
 
 Rollback: `git revert <apply-commit>` then re-Apply. NixOS
 generations also stick around — `sudo nixos-rebuild switch
@@ -217,8 +233,8 @@ The drift count folds into the NodeTile's `system updates` row
 (it bumps the count by 1 with no per-name entry) so the operator
 sees a single "X to apply" indicator regardless of whether the
 trigger is a flake-input bump, a templates-only release, or both.
-Apply / Update both auto-rewrite drifted templates as a preflight
-before invoking `nixos-rebuild`, so drift never has its own
+Apply auto-rewrites drifted templates as a preflight before
+invoking `nixos-rebuild`, so drift never has its own
 operator-facing concept or keybind.
 
 This is intentionally separate from config-schema migrations
@@ -256,24 +272,38 @@ admin password could exist.
 
 ## Periodic update checks
 
-Two systemd timers run on the installed system to surface "X
-updates available" on the dashboard without the operator having to
-trigger an Update flow:
+A single systemd timer runs on the installed system to surface "X
+updates available" on the dashboard and prepare the next Apply
+without the operator having to trigger anything:
 
-| Timer                        | Cadence | What it does                                                                                                                           |
-| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `nixblitz-check-light.timer` | daily   | Calls each flake input's upstream API (GitHub / Forgejo) for the branch HEAD; compares to our locked rev. ~5 HTTP calls, ~kB transfer. |
-| `nixblitz-check-heavy.timer` | weekly  | Copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix eval` + `nvd diff` there. ~125 MB tarball fetch + 30-60s eval.        |
+| Timer                  | Cadence | What it does                                                                                                                                                          |
+| ---------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nixblitz-check.timer` | daily   | Probes each flake input + plugin against upstream HEAD, copies `~/nixblitz/` to a tmpdir, runs `nix flake update` + `nix build --dry-run` + `nvd diff`. 1-10 min run. |
 
-Both run as `User=admin` and write to
-`/var/lib/nixblitz-tui/update-status.json` (created with
-`admin:users` ownership by `systemd.tmpfiles`). The TUI dashboard
-reads this file on every render and shows a banner above the tile
-grid; absence of the file (fresh install) means no banner.
+Runs as `User=admin` and writes to two locations:
+
+- `/var/lib/nixblitz-tui/update-status.json` — cached `CheckResult`
+  (input + plugin movement, nvd diff, would-build list). The TUI
+  dashboard reads this on every render and shows a banner above
+  the tile grid; absence of the file (fresh install, or wiped
+  after a successful Apply) means no banner.
+- `/var/lib/nixblitz-tui/staging/` — candidate `flake.lock` +
+  `plugin-pins.json` + cached `nvd-diff.txt` + `new-toplevel` +
+  `checked-at`. Apply reads these in the review screen and
+  promotes them into the working tree as the first step of a
+  rebuild. The staging dir is kept independent of the operator's
+  flake working tree so a daily timer fire never mutates
+  `~/nixblitz/flake.lock` behind the operator's back — the
+  "fetched but not yet upgraded" half of an apt-update /
+  apt-upgrade split, adapted for nix.
+
+Both paths are created with `admin:users` ownership by
+`systemd.tmpfiles` (`templates/modules/system/update-check.nix`).
 
 Module: `templates/modules/system/update-check.nix`. Service:
-`common/lib/src/services/update_check_service.dart`. CLI invocations
-the timer wraps: `nixblitz check light` and `nixblitz check heavy`.
+`common/lib/src/services/update_check_service.dart`. Staging
+read/write: `common/lib/src/services/staging_service.dart`. CLI
+the timer wraps: `nixblitz check` (no subcommand).
 
 ## Plugin model
 

@@ -85,13 +85,13 @@ class HomePage extends StatelessComponent {
           alt:
               'The System view: sidebar splits Check / Apply / Power; '
               'the Check pane shows a "Last check" status panel with '
-              'flake inputs, plugin updates, and a "108 need compile" '
-              'system-closure signal, plus the action list (Simple '
-              'check, Heavy check, View packages to compile, Plugins '
-              'check).',
+              'flake inputs (resolved + follows-only entries dimmed), '
+              'plugin updates, and a "9 need compile" system-closure '
+              'signal, plus the action list (Check for updates, View '
+              'package diff, View packages to compile).',
           caption:
-              'System — read-only checks, destructive applies, and '
-              'shutdown / reboot on a single sidebar.',
+              'System — read-only checks, the single Apply path, and '
+              'shutdown / reboot on one sidebar.',
         ),
       ),
       _section(
@@ -456,7 +456,9 @@ class _ConfigureApplyBody extends StatelessComponent {
         ]),
         li([
           Component.text(
-            'Press `[a]` Apply. Review the unified `git diff`, confirm.',
+            'Press `[a]` Apply. Review the unified screen — local config '
+            'diff, any staged upstream pin moves, plugin updates, package '
+            'diff — then confirm.',
           ),
         ]),
         li([
@@ -489,38 +491,43 @@ class _UpdateBody extends StatelessComponent {
       p(classes: 'mb-3', [
         Component.text(
           'Press `[a]` (Apply) or `[u]` (Update) from the dashboard. Both '
-          'land on the System view, whose sidebar splits read-only Check '
-          'probes, destructive Apply / Update rebuilds, and Power '
-          '(shutdown / reboot) into three sections.',
+          'land on the System view; the sidebar splits read-only Check '
+          'probes, destructive Apply (the only path that touches a '
+          'generation), and Power (shutdown / reboot).',
         ),
       ]),
       ul(classes: 'space-y-2', [
         li([
           Component.text(
-            'Daily lightweight check (`nixblitz check light`) hits each input\'s API for branch HEAD.',
+            'A daily `nixblitz check` timer probes each flake input + plugin '
+            'against upstream HEAD, runs `nix build --dry-run` + `nvd diff` '
+            'against the cache, and stages any lock / pin / nvd deltas '
+            'under `/var/lib/nixblitz-tui/staging/`. Run it on demand via '
+            'the Check menu.',
           ),
         ]),
         li([
           Component.text(
-            'Weekly heavy check probes the cache via `nix build --dry-run`; '
-            'runs `nvd diff` for a per-package version delta when every path '
-            'is substitutable, otherwise reports a would-build list so a '
-            'compile-needed rebuild doesn\'t catch you by surprise.',
+            'A dashboard banner surfaces what\'s queued: `updates available '
+            '— checked Xh ago`. Empty when nothing\'s pending.',
           ),
         ]),
         li([
           Component.text(
-            'A dashboard banner surfaces results: `updates available — checked Xh ago`.',
+            'Apply opens a single review screen listing everything queued '
+            'for the next generation — local config edits, upstream pin '
+            'updates, plugin updates, package diff — before any mutation. '
+            'Confirm and the whole bundle commits + rebuilds atomically. '
+            'No silent side effects: if it\'s on the screen, it lands.',
           ),
         ]),
         li([
           Component.text(
-            'Any unapplied Configure changes are applied during the same rebuild — one transaction.',
-          ),
-        ]),
-        li([
-          Component.text(
-            'Plugin updates flow through the same path: `nixblitz plugin refresh` per plugin or system-wide.',
+            'A compile-needed bail aborts the dry-run probe before '
+            'realising the toplevel when any path isn\'t substitutable, '
+            'so a rustc storm on Pi 5 never sneaks up on the operator. '
+            'The would-build list is reachable via "View packages to '
+            'compile."',
           ),
         ]),
       ]),
