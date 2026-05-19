@@ -8,71 +8,129 @@ import 'package:common/common.dart';
 /// TUI — one-shot equivalent of the System → Apply path for a
 /// single, well-scoped target.
 ///
-/// Only `tui` is wired today (advances just the `nixblitz` flake
-/// input + rebuilds). Future expansion (`update plugins`,
-/// `update system`) lives behind the same subcommand surface so
-/// the CLI shape doesn't churn when more targets land.
+/// Three targets:
+///
+/// - `tui` — bump just the `nixblitz` flake input + rebuild.
+/// - `plugins` — refresh every auto-update plugin's pin + rebuild.
+/// - `system` — bump every flake input + rebuild.
+///
+/// All three share the same gate (refuse if working tree dirty),
+/// the same rebuild path (`sudo nixos-rebuild switch` with
+/// inherited stdio so sudo prompts on the operator's terminal),
+/// and the same post-success cleanup (wipe `update-status.json`
+/// + staging so the dashboard banner doesn't lie next launch).
 ///
 /// Exits 0 on success or "already up to date"; non-zero on
 /// infrastructural failure (dirty tree, network, rebuild crash).
 Future<int> runUpdateCli(ArgResults updateArgs, String baseDir) async {
   final sub = updateArgs.command;
   if (sub == null) {
-    stderr.writeln('Usage: nixblitz update <tui>');
+    stderr.writeln('Usage: nixblitz update <tui|plugins|system>');
     return 2;
   }
   switch (sub.name) {
     case 'tui':
-      return _updateTui(baseDir);
+      return _updateFlakeInput(
+        baseDir,
+        input: 'nixblitz',
+        commitMessage: 'Update nixblitz flake input',
+        label: 'TUI',
+      );
+    case 'system':
+      return _updateFlakeInput(
+        baseDir,
+        input: null,
+        commitMessage: 'Update all flake inputs',
+        label: 'system',
+      );
+    case 'plugins':
+      return _updatePlugins(baseDir);
     default:
       stderr.writeln('unknown target: ${sub.name}');
-      stderr.writeln('Usage: nixblitz update <tui>');
+      stderr.writeln('Usage: nixblitz update <tui|plugins|system>');
       return 2;
   }
 }
 
-/// Bump just the `nixblitz` flake input + rebuild. The targeted
-/// shape of "I just pushed a fix to nixblitz_ng and want it on
-/// this node" — sidesteps the full check + Apply flow when the
-/// operator already knows exactly what they're rolling forward.
-///
-/// Refuses to run with a dirty working tree: the no-silent-apply
-/// guarantee that the TUI's Apply view enforces visually has to
-/// hold here too, or this command becomes the back door we
-/// structurally closed in the unification refactor.
-Future<int> _updateTui(String baseDir) async {
-  final git = GitService(repoDir: baseDir);
-
-  // Gate on a clean working tree. Any pending config edit means
-  // the operator needs to go through Apply (where they see the
-  // edit + the lock bump together) rather than have it land as
-  // a side effect of a TUI bump.
+/// Refuses on a dirty working tree, prints the dirty paths so the
+/// operator knows what's blocking. Shared gate across all three
+/// `update` subcommands so the no-silent-apply guarantee that the
+/// TUI's Apply view enforces visually holds at the CLI too.
+Future<bool> _requireCleanTree(String baseDir, GitService git) async {
   final dirty = await git.status();
-  if (dirty.isNotEmpty) {
-    stderr.writeln(
-      'Refusing to update: ~/nixblitz/ has uncommitted changes.\n'
-      'Open the TUI and run Apply (review screen will show your edits '
-      'alongside the lock bump), or discard them first with '
-      '`git -C $baseDir restore .`',
-    );
-    stderr.writeln('');
-    stderr.writeln('Uncommitted paths:');
-    for (final line in dirty.take(20)) {
-      stderr.writeln('  $line');
-    }
-    if (dirty.length > 20) {
-      stderr.writeln('  … (${dirty.length - 20} more)');
-    }
-    return 1;
+  if (dirty.isEmpty) return true;
+  stderr.writeln(
+    'Refusing to update: ~/nixblitz/ has uncommitted changes.\n'
+    'Open the TUI and run Apply (review screen will show your edits '
+    'alongside the bump), or discard them first with '
+    '`git -C $baseDir restore .`',
+  );
+  stderr.writeln('');
+  stderr.writeln('Uncommitted paths:');
+  for (final line in dirty.take(20)) {
+    stderr.writeln('  $line');
   }
+  if (dirty.length > 20) {
+    stderr.writeln('  … (${dirty.length - 20} more)');
+  }
+  return false;
+}
 
-  // 1. Bump just the nixblitz input.
-  stdout.writeln('> nix flake update nixblitz');
-  final upd = await Process.run('nix', [
-    'flake',
-    'update',
-    'nixblitz',
-  ], workingDirectory: baseDir);
+/// `sudo nixos-rebuild switch --flake <baseDir>#<attr>` with stdio
+/// inherited. Picks the rebuild attribute via [_readPlatform]'s
+/// fallback so the CLI doesn't disagree with the in-TUI Apply path
+/// about which target to build.
+Future<int> _runRebuild(String baseDir) async {
+  final platform = _readPlatform(baseDir);
+  final attr = rebuildAttributeFor(platform);
+  stdout.writeln('');
+  stdout.writeln('> sudo nixos-rebuild switch --flake $baseDir#$attr');
+  stdout.writeln('');
+  final rebuild = await Process.start('sudo', [
+    'nixos-rebuild',
+    'switch',
+    '--flake',
+    '$baseDir#$attr',
+  ], mode: ProcessStartMode.inheritStdio);
+  return rebuild.exitCode;
+}
+
+/// Wipe the cached check state. Called after every successful
+/// rebuild from this CLI — the staged candidates have either been
+/// promoted into the working tree (via Apply) or sidestepped (via
+/// `update`), and the dashboard banner shouldn't keep referencing
+/// pre-rebuild state. Non-fatal: the next check overwrites.
+void _clearCheckState() {
+  try {
+    final statusFile = File(updateStatusPath);
+    if (statusFile.existsSync()) statusFile.deleteSync();
+    StagingService().clearAll();
+  } catch (e) {
+    stderr.writeln('warning: failed to clear cached check state: $e');
+  }
+}
+
+/// Bump one (or all) flake inputs and rebuild. Shared by
+/// `update tui` and `update system` — they only differ in which
+/// input is passed to `nix flake update` and what the resulting
+/// commit message says.
+Future<int> _updateFlakeInput(
+  String baseDir, {
+  required String? input,
+  required String commitMessage,
+  required String label,
+}) async {
+  final git = GitService(repoDir: baseDir);
+  if (!await _requireCleanTree(baseDir, git)) return 1;
+
+  // 1. Bump the flake input(s). `nix flake update <input>` with
+  // an explicit input restricts the update to that one; with no
+  // argument it advances every input.
+  final updArgs = input == null
+      ? <String>['flake', 'update']
+      : <String>['flake', 'update', input];
+  stdout.writeln('> nix ${updArgs.join(' ')}');
+  final upd = await Process.run('nix', updArgs, workingDirectory: baseDir);
   stdout.write(upd.stdout);
   stderr.write(upd.stderr);
   if (upd.exitCode != 0) {
@@ -80,9 +138,9 @@ Future<int> _updateTui(String baseDir) async {
     return upd.exitCode;
   }
 
-  // 2. Did the lock actually move? `nix flake update` rewrites the
-  // file with a fresh timestamp regardless, so git is the source
-  // of truth for "anything to rebuild."
+  // 2. Did the lock actually move? `nix flake update` rewrites
+  // the file with a fresh timestamp regardless, so git is the
+  // source of truth for "anything to rebuild."
   final diff = await Process.run('git', [
     'diff',
     '--quiet',
@@ -91,7 +149,7 @@ Future<int> _updateTui(String baseDir) async {
   ], workingDirectory: baseDir);
   if (diff.exitCode == 0) {
     stdout.writeln('');
-    stdout.writeln('nixblitz already at upstream — nothing to rebuild.');
+    stdout.writeln('$label already at upstream — nothing to rebuild.');
     return 0;
   }
 
@@ -110,55 +168,101 @@ Future<int> _updateTui(String baseDir) async {
   final commit = await Process.run('git', [
     'commit',
     '-m',
-    'Update nixblitz flake input',
+    commitMessage,
   ], workingDirectory: baseDir);
   if (commit.exitCode != 0) {
     stderr.writeln('git commit failed: ${commit.stderr}');
     return commit.exitCode;
   }
 
-  // 4. Resolve rebuild attribute from on-disk platform. Mirrors
-  // the same fallback the TUI's Apply view uses.
-  final platform = _readPlatform(baseDir);
-  final attr = rebuildAttributeFor(platform);
-
-  stdout.writeln('');
-  stdout.writeln('> sudo nixos-rebuild switch --flake $baseDir#$attr');
-  stdout.writeln('');
-
-  // Inherit stdio so sudo can prompt on the operator's terminal
-  // and the rebuild output streams straight through. The CLI is
-  // already attached to a TTY (or piped, in which case sudo will
-  // fail loudly which is correct).
-  final rebuild = await Process.start('sudo', [
-    'nixos-rebuild',
-    'switch',
-    '--flake',
-    '$baseDir#$attr',
-  ], mode: ProcessStartMode.inheritStdio);
-  final code = await rebuild.exitCode;
+  // 4. Rebuild.
+  final code = await _runRebuild(baseDir);
   if (code != 0) {
     stderr.writeln('');
     stderr.writeln('nixos-rebuild switch failed (exit $code)');
     return code;
   }
 
-  // 5. Wipe stale check state so the dashboard banner doesn't
-  // keep claiming "updates available" for inputs we just bumped
-  // (or for the unrelated inputs the last check probed). Same
-  // semantic as the Apply view's post-rebuild cleanup.
-  try {
-    final statusFile = File(updateStatusPath);
-    if (statusFile.existsSync()) statusFile.deleteSync();
-    StagingService().clearAll();
-  } catch (e) {
-    // Non-fatal — the next check overwrites stale entries.
-    stderr.writeln('warning: failed to clear cached check state: $e');
+  _clearCheckState();
+  stdout.writeln('');
+  stdout.writeln('$label updated.');
+  return 0;
+}
+
+/// Refresh every auto-update plugin's pin, then commit + rebuild.
+/// Per-plugin failures are non-fatal: the rebuild proceeds with
+/// whichever plugins advanced. Pinned plugins (autoUpdate=false)
+/// are skipped — operators opted out of bulk refresh for those.
+Future<int> _updatePlugins(String baseDir) async {
+  final git = GitService(repoDir: baseDir);
+  if (!await _requireCleanTree(baseDir, git)) return 1;
+
+  final pluginService = PluginService(baseDir: baseDir);
+  stdout.writeln('> nixblitz plugin update --all (excluding pinned)');
+  final result = await pluginService.refreshAll(includePinned: false);
+
+  // Print per-category summary so the operator sees which plugins
+  // moved, which were already current, and which failed.
+  if (result.advanced.isNotEmpty) {
+    stdout.writeln('');
+    stdout.writeln('Advanced:');
+    for (final p in result.advanced) {
+      stdout.writeln('  ${p.id} → ${p.rev.substring(0, 7)}');
+    }
+  }
+  if (result.unchanged.isNotEmpty) {
+    stdout.writeln('');
+    stdout.writeln('Already at upstream:');
+    for (final p in result.unchanged) {
+      stdout.writeln('  ${p.id}');
+    }
+  }
+  if (result.skipped.isNotEmpty) {
+    stdout.writeln('');
+    stdout.writeln('Skipped (pinned):');
+    for (final p in result.skipped) {
+      stdout.writeln('  ${p.id}');
+    }
+  }
+  if (result.failures.isNotEmpty) {
+    stdout.writeln('');
+    stdout.writeln('Failed:');
+    for (final f in result.failures) {
+      stdout.writeln('  ${f.plugin.id}: ${f.error}');
+    }
   }
 
+  if (result.advanced.isEmpty) {
+    stdout.writeln('');
+    stdout.writeln('No plugin pins moved — nothing to rebuild.');
+    // Failures without any advances still exit non-zero so CI /
+    // scripts can branch on success.
+    return result.failures.isEmpty ? 0 : 1;
+  }
+
+  // refreshAll already wrote the new plugin files + markers +
+  // regen'd plugin loader. Commit the working tree as one
+  // recoverable point.
   stdout.writeln('');
-  stdout.writeln('TUI updated. The new binary lands on next launch.');
-  return 0;
+  stdout.writeln('> git add -A && git commit -m "Update plugins"');
+  final committed = await git.commitAll('Update plugins');
+  if (!committed) {
+    stderr.writeln('git commit failed — nothing staged?');
+    return 1;
+  }
+
+  final code = await _runRebuild(baseDir);
+  if (code != 0) {
+    stderr.writeln('');
+    stderr.writeln('nixos-rebuild switch failed (exit $code)');
+    return code;
+  }
+
+  _clearCheckState();
+  stdout.writeln('');
+  final n = result.advanced.length;
+  stdout.writeln('Plugins updated ($n plugin${n == 1 ? "" : "s"} advanced).');
+  return result.failures.isEmpty ? 0 : 1;
 }
 
 /// Best-effort platform read for picking the rebuild attribute.

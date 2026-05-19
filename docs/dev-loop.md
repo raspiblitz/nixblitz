@@ -237,28 +237,41 @@ Writes the embedded templates + a minimal `config.json` into
 cachepop hosts and CI runners where the full install flow isn't
 appropriate.
 
-## Rolling forward the TUI only
+## Targeted one-shot updates
 
-When you've pushed a fix to `nixblitz_ng` and want it on a node
-without going through the full check + Apply flow:
+`nixblitz update <target>` skips the TUI for the common case where
+you already know exactly what you want to roll forward. Three
+targets:
 
 ```bash
-nixblitz update tui
+nixblitz update tui       # bump nixblitz flake input + rebuild
+nixblitz update plugins   # refresh every auto-update plugin + rebuild
+nixblitz update system    # bump every flake input + rebuild
 ```
 
-Bumps just the `nixblitz` flake input, commits the lock as a
-one-file commit (separable from any later Apply), runs
-`sudo nixos-rebuild switch` with stdio inherited so sudo prompts
-on your terminal and the rebuild output streams through. On
-success, wipes `update-status.json` + `staging/` so the next TUI
-launch reflects current state.
+All three share the same shape:
 
-Refuses if `~/nixblitz/` has uncommitted changes — that path goes
-through the TUI's Apply view so the dirty config edit gets
-reviewed alongside the bump rather than landing as a side
+1. **Bump:** `nix flake update` (scoped to the target) or
+   `PluginService.refreshAll` for `plugins`.
+2. **Commit:** the lock bump or plugin marker writes go in as one
+   recoverable commit, separable from any later Apply.
+3. **Rebuild:** `sudo nixos-rebuild switch` with stdio inherited
+   so sudo prompts on your terminal and the rebuild output
+   streams through.
+4. **Cleanup:** on success, wipes `update-status.json` + `staging/`
+   so the next TUI launch reflects current state.
+
+Each refuses if `~/nixblitz/` has uncommitted changes — that
+path goes through the TUI's Apply view so the dirty config edit
+gets reviewed alongside the bump rather than landing as a side
 effect. Operators with a normal mix of pending changes should
 keep using Apply (`[a]` from the dashboard); the multi-section
 review screen is the safety net.
+
+`update plugins` treats per-plugin failures as non-fatal: pinned
+plugins are skipped, and a network failure on one plugin doesn't
+sink the rebuild for the others. Exit code reflects whether any
+plugin failed, so CI / scripts can branch on success.
 
 ## Working with `jj`
 

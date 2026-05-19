@@ -92,7 +92,13 @@ void main(List<String> arguments) async {
       help: 'Print version information',
     )
     ..addCommand('check', ArgParser())
-    ..addCommand('update', ArgParser()..addCommand('tui', ArgParser()))
+    ..addCommand(
+      'update',
+      ArgParser()
+        ..addCommand('tui', ArgParser())
+        ..addCommand('plugins', ArgParser())
+        ..addCommand('system', ArgParser()),
+    )
     ..addCommand(
       'init',
       ArgParser()
@@ -251,15 +257,25 @@ void _printHelp(String? topic) {
   }
   if (topic == 'update') {
     print(
-      'Usage: nixblitz update <target>\n'
+      'Usage: nixblitz update <tui|plugins|system>\n'
       '\n'
       '  tui\n'
       '      Bump just the nixblitz flake input + rebuild. Useful\n'
       '      when you have already pushed a fix to nixblitz_ng and\n'
       '      want to roll it forward on this node without going\n'
-      '      through the full check + Apply flow. Refuses if the\n'
-      '      working tree is dirty — config edits go through the\n'
-      '      TUI\'s Apply view.',
+      '      through the full check + Apply flow.\n'
+      '  plugins\n'
+      '      Refresh every auto-update plugin\'s pin (pinned\n'
+      '      plugins skipped) + rebuild. Per-plugin failures are\n'
+      '      non-fatal; the rebuild proceeds with whichever\n'
+      '      plugins advanced.\n'
+      '  system\n'
+      '      Bump every flake input + rebuild. The old "Update\n'
+      '      entire system" path. Use this when you want\n'
+      '      everything moved forward at once.\n'
+      '\n'
+      'All three refuse if the working tree is dirty — config\n'
+      'edits go through the TUI\'s Apply view.',
     );
     return;
   }
@@ -293,7 +309,7 @@ void _printHelp(String? topic) {
     'Subcommands:\n'
     '  plugin    Manage installed plugins (add / remove / list / update / pin / unpin)\n'
     '  check     Run an update check now and stage candidate updates for Apply\n'
-    '  update    One-shot rebuild for a single target (tui only, today)\n'
+    '  update    One-shot rebuild for a single target (tui / plugins / system)\n'
     '  init      Bootstrap a build-host profile at ~/nixblitz/ (skips the TUI)\n'
     '\n'
     'The TUI is the default UI; subcommands are one-shot operations\n'
