@@ -90,8 +90,17 @@ void runCheckSubprocess(BuildContext ctx) {
 /// or unparseable — distinguished from "empty list" so the caller
 /// can render a clear error instead of a blank list.
 class RootInputsResult {
-  const RootInputsResult({required this.inputs, required this.error});
+  const RootInputsResult({
+    required this.inputs,
+    required this.follows,
+    required this.error,
+  });
   final List<LockedInput> inputs;
+
+  /// `inputs.X.follows = "Y/Z"` declarations. Surfaced for display
+  /// so operators see e.g. `nixpkgs (follows nixos-raspberrypi/nixpkgs)`
+  /// rather than wondering why nixpkgs is missing from the list.
+  final List<FollowsInput> follows;
 
   /// `null` on success; otherwise a short, operator-readable string
   /// explaining what went wrong (missing file / parse error).
@@ -100,15 +109,16 @@ class RootInputsResult {
 
 /// Enumerate the operator's root flake inputs from
 /// `<baseDir>/flake.lock`. Wraps [UpdateCheckService.parseRootInputs]
-/// with file-level error handling so the Check panel can render
-/// rows even when the daily check hasn't populated
-/// `update-status.json` yet.
+/// (+ [UpdateCheckService.parseRootFollows]) with file-level error
+/// handling so the Check panel can render rows even when the daily
+/// check hasn't populated `update-status.json` yet.
 RootInputsResult readRootFlakeInputs(String baseDir) {
   try {
     final lockFile = File('$baseDir/flake.lock');
     if (!lockFile.existsSync()) {
       return RootInputsResult(
         inputs: const [],
+        follows: const [],
         error: 'no flake.lock at $baseDir',
       );
     }
@@ -116,9 +126,14 @@ RootInputsResult readRootFlakeInputs(String baseDir) {
         jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
     return RootInputsResult(
       inputs: UpdateCheckService.parseRootInputs(lock),
+      follows: UpdateCheckService.parseRootFollows(lock),
       error: null,
     );
   } catch (e) {
-    return RootInputsResult(inputs: const [], error: 'flake.lock parse: $e');
+    return RootInputsResult(
+      inputs: const [],
+      follows: const [],
+      error: 'flake.lock parse: $e',
+    );
   }
 }

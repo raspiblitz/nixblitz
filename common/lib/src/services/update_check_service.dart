@@ -939,6 +939,36 @@ class UpdateCheckService {
     return out;
   }
 
+  /// Sibling to [parseRootInputs] for the *follows* entries — inputs
+  /// declared as `inputs.foo.follows = "bar/baz"` in `flake.nix`,
+  /// which appear in the lock as a list value under `root.inputs`
+  /// rather than a node-name string. They share another node's lock
+  /// (so there's no independent rev to probe), but operators expect
+  /// to see them in the inputs list — hiding them produces the
+  /// "where's nixpkgs?" puzzlement when nixpkgs follows
+  /// nixos-raspberrypi.
+  ///
+  /// Returns one [FollowsInput] per such entry, with `target` joined
+  /// by `/` so `nixpkgs.follows = ["nixos-raspberrypi", "nixpkgs"]`
+  /// renders as `nixos-raspberrypi/nixpkgs` in the panel.
+  static List<FollowsInput> parseRootFollows(Map<String, dynamic> lock) {
+    final nodes = lock['nodes'] as Map<String, dynamic>?;
+    if (nodes == null) return const [];
+    final root = nodes['root'] as Map<String, dynamic>?;
+    if (root == null) return const [];
+    final rootInputs = (root['inputs'] as Map<String, dynamic>?) ?? const {};
+
+    final out = <FollowsInput>[];
+    for (final e in rootInputs.entries) {
+      final v = e.value;
+      if (v is! List) continue;
+      final segs = v.whereType<String>().toList();
+      if (segs.isEmpty) continue;
+      out.add(FollowsInput(name: e.key, target: segs.join('/')));
+    }
+    return out;
+  }
+
   /// Translates a plugin marker's url/branch/rev into the same
   /// shape [_queryUpstreamRev] expects. Returns `null` when the plugin
   /// uses a transport we can't probe (file://, https:// without a
@@ -1132,6 +1162,17 @@ String _derivationShortName(String storePath) {
     name = name.substring(0, name.length - 4);
   }
   return name;
+}
+
+/// A root flake input declared as `inputs.X.follows = "Y/Z"` —
+/// shares another input's lock, so there's no separate upstream
+/// pin to probe. Surfaced for display only; consumers who do HEAD
+/// probes (the check service) iterate [UpdateCheckService.parseRootInputs]
+/// not this list.
+class FollowsInput {
+  const FollowsInput({required this.name, required this.target});
+  final String name;
+  final String target;
 }
 
 /// Record of a flake input we know how to query upstream against.

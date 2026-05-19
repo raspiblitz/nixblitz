@@ -483,7 +483,7 @@ class _CheckStatusPanel extends StatelessComponent {
     rows.add(_headerRow('flake inputs:', age));
     if (rootInputs.error != null) {
       rows.add(_indentedNote(rootInputs.error!));
-    } else if (rootInputs.inputs.isEmpty) {
+    } else if (rootInputs.inputs.isEmpty && rootInputs.follows.isEmpty) {
       rows.add(_indentedNote('no root inputs in flake.lock'));
     } else {
       for (final input in rootInputs.inputs) {
@@ -496,6 +496,13 @@ class _CheckStatusPanel extends StatelessComponent {
             unknown: !ready,
           ),
         );
+      }
+      // Follows entries share another input's lock — no separate
+      // pin to probe — but operators expect to see e.g. `nixpkgs`
+      // listed. Render them after the resolved inputs, dimmed,
+      // with no ahead/up-to-date status.
+      for (final follow in rootInputs.follows) {
+        rows.add(_followsRow(name: follow.name, target: follow.target));
       }
     }
 
@@ -638,6 +645,32 @@ class _CheckStatusPanel extends StatelessComponent {
         ),
         Expanded(
           child: Text(stateText, style: TextStyle(color: valueColor)),
+        ),
+      ],
+    );
+  }
+
+  /// Indented row for a follows input. No status icon (the input
+  /// has no independent rev), dimmed name, value reads
+  /// `(follows <target>)` so the operator can see the relationship.
+  Component _followsRow({required String name, required String target}) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 26,
+          child: Row(
+            children: [
+              const SizedBox(width: 4),
+              const Text('  ', style: TextStyle(color: _dimCol)),
+              Text(name, style: const TextStyle(color: _dimCol)),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Text(
+            '(follows $target)',
+            style: const TextStyle(color: _dimCol),
+          ),
         ),
       ],
     );
