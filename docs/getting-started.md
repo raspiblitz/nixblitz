@@ -284,6 +284,11 @@ Footer hints show shortcuts. Some only appear when relevant:
   exit)
 - `[?]` Help
 
+Tab completion for the `nixblitz` CLI subcommands (plugin / check
+/ update / init) is opt-in — run `nixblitz install-completion-files`
+once and restart your shell. See dev-loop.md for the home-manager
+workaround if `~/.bashrc` is read-only.
+
 Walk through Configure for a moment. Tab through the service
 sections; toggle a value; hit Esc to return. The dashboard now
 shows an orange `1 pending change` banner. Press `[a]` to land on

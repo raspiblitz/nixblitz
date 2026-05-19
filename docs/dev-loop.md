@@ -273,6 +273,45 @@ plugins are skipped, and a network failure on one plugin doesn't
 sink the rebuild for the others. Exit code reflects whether any
 plugin failed, so CI / scripts can branch on success.
 
+## Tab completion
+
+The `nixblitz` binary ships with bash + zsh completion via
+`cli_completion`. Install (one-time, per shell) by running:
+
+```bash
+nixblitz install-completion-files
+# then restart your shell or `source ~/.bashrc` / `source ~/.zshrc`
+```
+
+After that, `nixblitz <TAB>` lists subcommands; `nixblitz update
+<TAB>` lists `tui / plugins / system`; etc. Uninstall via
+`nixblitz uninstall-completion-files`.
+
+Auto-install is intentionally off — the `nixblitz` binary won't
+mutate your RC files just because you ran a subcommand. This
+matters in particular for the systemd timer which spawns
+`nixblitz check` as the `admin` user.
+
+**Home-manager workaround.** On dev workstations where
+`~/.bashrc` is a symlink into `/nix/store` (home-manager's typical
+setup), the append step fails with a "Read-only file system"
+warning. The completion scripts in
+`~/.dart-cli-completion/{nixblitz.bash,bash-config.bash}` are
+still written; you just need to wire the source line through
+home-manager instead. Drop this into your `home.nix` (or zsh
+equivalent):
+
+```nix
+programs.bash.bashrcExtra = ''
+  [ -f $HOME/.dart-cli-completion/bash-config.bash ] && \
+    . $HOME/.dart-cli-completion/bash-config.bash
+'';
+```
+
+This is dev-machine ergonomics only — the installed nixblitz node
+doesn't use home-manager, so `install-completion-files` works
+there without ceremony.
+
 ## Working with `jj`
 
 The repo uses [Jujutsu](https://github.com/martinvonz/jj) on top
