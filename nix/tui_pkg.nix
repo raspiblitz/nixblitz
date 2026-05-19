@@ -124,6 +124,13 @@ buildDartApplication {
       $out/share/bash-completion/completions/nixblitz
     install -Dm644 tui/completions/nixblitz.zsh \
       $out/share/zsh/site-functions/_nixblitz
+    # nushell 0.99+ auto-sources files in NU_VENDOR_AUTOLOAD_DIRS,
+    # which NixOS wires up via environment.pathsToLink. The
+    # completer is hand-written (cli_completion only ships bash +
+    # zsh upstream) but uses the same COMP_LINE + COMP_POINT
+    # protocol — see scripts/gen_completion_scripts.dart.
+    install -Dm644 tui/completions/nixblitz.nu \
+      $out/share/nushell/vendor/autoload/nixblitz.nu
   '';
 
   meta = with lib; {

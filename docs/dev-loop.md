@@ -275,24 +275,31 @@ plugin failed, so CI / scripts can branch on success.
 
 ## Tab completion
 
-Bash + zsh completion ships declaratively with the Nix package.
-`nixblitz`'s postInstall drops the generic completion stubs at:
+Bash + zsh + nushell completion ships declaratively with the Nix
+package. `nixblitz`'s postInstall drops the generic completion
+stubs at:
 
 - `$out/share/bash-completion/completions/nixblitz`
 - `$out/share/zsh/site-functions/_nixblitz`
+- `$out/share/nushell/vendor/autoload/nixblitz.nu`
 
-Both are standard NixOS auto-source locations — operators get
-`nixblitz <TAB>` working as soon as the package is installed, no
-RC-file mutation, no per-user setup. The stubs are committed at
-`tui/completions/nixblitz.{bash,zsh}` so the package is fully
-reproducible from source.
+All three are standard NixOS auto-source locations — operators
+get `nixblitz <TAB>` working as soon as the package is installed,
+no RC-file mutation, no per-user setup. The stubs are committed
+at `tui/completions/nixblitz.{bash,zsh,nu}` so the package is
+fully reproducible from source.
 
-The stubs are generic — they call `nixblitz completion -- ...` at
-runtime, and cli_completion's `HandleCompletionRequestCommand`
-serves the actual subcommand tree. Adding a new subcommand to
-the CLI requires no script regeneration. The committed scripts
-only need regeneration when the `cli_completion` package's
-template changes (a package bump), via:
+The stubs are generic — each one calls `nixblitz completion --`
+at runtime with `COMP_LINE` + `COMP_POINT` set, and
+cli_completion's `HandleCompletionRequestCommand` serves the
+actual subcommand tree from inside the binary. Adding a new
+subcommand to the CLI requires no script regeneration.
+
+cli_completion's `ShellCompletionConfiguration` ships bash + zsh
+templates upstream; the nushell stub is hand-written in
+`scripts/gen_completion_scripts.dart` since the package doesn't
+support nushell natively. All three only need regeneration when
+the protocol changes (rare), via:
 
 ```bash
 just gen-completions    # → tui/completions/nixblitz.{bash,zsh}
