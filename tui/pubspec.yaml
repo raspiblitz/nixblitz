@@ -10,6 +10,7 @@ resolution: workspace
 
 dependencies:
   args: ^2.7.0
+  cli_completion: ^0.5.1
   riverpod: ^3.2.1
   # nocterm is pinned to the fork while the bare-Esc deferral fix
   # for fragmented CSI sequences (Ghostty / kernel-TTY arrow keys

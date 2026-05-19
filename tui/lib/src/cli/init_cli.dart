@@ -1,12 +1,12 @@
 import 'dart:io';
 
-import 'package:args/args.dart';
+import 'package:args/command_runner.dart';
 import 'package:common/common.dart';
 
 const _supportedPlatforms = {'x86', 'pi5'};
 
-/// Entry point for `nixblitz init`. Bootstraps a build-host profile
-/// at [baseDir] without entering the TUI:
+/// `nixblitz init` — bootstraps a build-host profile at [baseDir]
+/// without entering the TUI:
 ///
 /// - Writes the embedded NixOS module templates.
 /// - Writes a minimal `config.json` with the chosen platform and
@@ -18,13 +18,47 @@ const _supportedPlatforms = {'x86', 'pi5'};
 /// Intended for operators using a regular NixOS workstation (not the
 /// live ISO) as a build profile — e.g. populating an Attic binary
 /// cache via `nix build .#nixosConfigurations.<host>.config.system.build.toplevel`.
-/// Exits non-zero if [baseDir]/config.json already exists unless
-/// `--force` is passed (in which case templates are refreshed and
-/// the config is overwritten).
-Future<int> runInitCli(ArgResults initArgs, String baseDir) async {
-  final platform = initArgs['platform'] as String;
-  final force = initArgs['force'] as bool;
+class InitCommand extends Command<int> {
+  InitCommand(this.baseDir) {
+    argParser
+      ..addOption(
+        'platform',
+        defaultsTo: 'x86',
+        allowed: _supportedPlatforms.toList(),
+        help: 'Target platform for the build profile (x86 or pi5).',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help: 'Overwrite an existing config.json.',
+      );
+  }
 
+  final String baseDir;
+
+  @override
+  final String name = 'init';
+
+  @override
+  final String description =
+      'Bootstrap a build-host profile at ~/nixblitz/ (skips the TUI).';
+
+  @override
+  Future<int> run() {
+    final args = argResults!;
+    return _runInit(
+      baseDir,
+      platform: args['platform'] as String,
+      force: args['force'] as bool,
+    );
+  }
+}
+
+Future<int> _runInit(
+  String baseDir, {
+  required String platform,
+  required bool force,
+}) async {
   if (!_supportedPlatforms.contains(platform)) {
     stderr.writeln(
       'unknown platform: $platform (expected one of: '

@@ -1,55 +1,94 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:args/args.dart';
+import 'package:args/command_runner.dart';
 import 'package:common/common.dart';
 
-/// Entry point for `nixblitz update <target>`. Runs outside the
-/// TUI — one-shot equivalent of the System → Apply path for a
-/// single, well-scoped target.
-///
-/// Three targets:
-///
-/// - `tui` — bump just the `nixblitz` flake input + rebuild.
-/// - `plugins` — refresh every auto-update plugin's pin + rebuild.
-/// - `system` — bump every flake input + rebuild.
-///
-/// All three share the same gate (refuse if working tree dirty),
-/// the same rebuild path (`sudo nixos-rebuild switch` with
-/// inherited stdio so sudo prompts on the operator's terminal),
-/// and the same post-success cleanup (wipe `update-status.json`
-/// + staging so the dashboard banner doesn't lie next launch).
-///
-/// Exits 0 on success or "already up to date"; non-zero on
-/// infrastructural failure (dirty tree, network, rebuild crash).
-Future<int> runUpdateCli(ArgResults updateArgs, String baseDir) async {
-  final sub = updateArgs.command;
-  if (sub == null) {
-    stderr.writeln('Usage: nixblitz update <tui|plugins|system>');
-    return 2;
+/// `nixblitz update <target>` — one-shot equivalent of the
+/// System → Apply path for a single, well-scoped target. Three
+/// subcommands wrap the same shape: refuse on dirty tree, bump,
+/// commit, `sudo nixos-rebuild switch` with inherited stdio, wipe
+/// stale check state on success.
+class UpdateCommand extends Command<int> {
+  UpdateCommand(String baseDir) {
+    addSubcommand(UpdateTuiCommand(baseDir));
+    addSubcommand(UpdatePluginsCommand(baseDir));
+    addSubcommand(UpdateSystemCommand(baseDir));
   }
-  switch (sub.name) {
-    case 'tui':
-      return _updateFlakeInput(
-        baseDir,
-        input: 'nixblitz',
-        commitMessage: 'Update nixblitz flake input',
-        label: 'TUI',
-      );
-    case 'system':
-      return _updateFlakeInput(
-        baseDir,
-        input: null,
-        commitMessage: 'Update all flake inputs',
-        label: 'system',
-      );
-    case 'plugins':
-      return _updatePlugins(baseDir);
-    default:
-      stderr.writeln('unknown target: ${sub.name}');
-      stderr.writeln('Usage: nixblitz update <tui|plugins|system>');
-      return 2;
-  }
+
+  @override
+  final String name = 'update';
+
+  @override
+  final String description =
+      'One-shot rebuild for a single target (tui / plugins / system).';
+}
+
+/// `nixblitz update tui` — bumps the `nixblitz` flake input. The
+/// "I just pushed a fix to nixblitz_ng and want it on this node"
+/// path; sidesteps the full check + Apply flow when the operator
+/// already knows exactly what they're rolling forward.
+class UpdateTuiCommand extends Command<int> {
+  UpdateTuiCommand(this.baseDir);
+
+  final String baseDir;
+
+  @override
+  final String name = 'tui';
+
+  @override
+  final String description =
+      'Bump the nixblitz flake input + rebuild. Refuses if the working tree is dirty.';
+
+  @override
+  Future<int> run() => _updateFlakeInput(
+    baseDir,
+    input: 'nixblitz',
+    commitMessage: 'Update nixblitz flake input',
+    label: 'TUI',
+  );
+}
+
+/// `nixblitz update plugins` — refreshes every auto-update plugin
+/// (pinned plugins skipped) and rebuilds.
+class UpdatePluginsCommand extends Command<int> {
+  UpdatePluginsCommand(this.baseDir);
+
+  final String baseDir;
+
+  @override
+  final String name = 'plugins';
+
+  @override
+  final String description =
+      'Refresh every auto-update plugin + rebuild. Per-plugin failures are non-fatal.';
+
+  @override
+  Future<int> run() => _updatePlugins(baseDir);
+}
+
+/// `nixblitz update system` — bumps every flake input. The old
+/// "Update entire system" path; for "everything moved forward at
+/// once."
+class UpdateSystemCommand extends Command<int> {
+  UpdateSystemCommand(this.baseDir);
+
+  final String baseDir;
+
+  @override
+  final String name = 'system';
+
+  @override
+  final String description =
+      'Bump every flake input + rebuild. The "Update entire system" path.';
+
+  @override
+  Future<int> run() => _updateFlakeInput(
+    baseDir,
+    input: null,
+    commitMessage: 'Update all flake inputs',
+    label: 'system',
+  );
 }
 
 /// Refuses on a dirty working tree, prints the dirty paths so the

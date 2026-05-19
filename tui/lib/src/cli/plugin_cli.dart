@@ -2,49 +2,199 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:args/command_runner.dart';
 import 'package:common/common.dart';
 
 import '../ui/widgets/signature_label.dart';
 
-/// Entry point for `nixblitz plugin <verb> ...`. Runs outside the
-/// TUI (no `runApp`, no terminal takeover) so it can print and exit.
-///
-/// Supported verbs in Phase 1: `add`, `remove`, `list`. `pin /
-/// unpin / update` land in Phase 5 alongside the Update-view
-/// integration (see docs/decisions/plugins.md D11).
-Future<int> runPluginCli(ArgResults pluginArgs, String baseDir) async {
-  final sub = pluginArgs.command;
-  if (sub == null) {
-    stderr.writeln(
-      'Usage: nixblitz plugin <add|remove|list|update|pin|unpin> ...',
-    );
-    return 2;
+/// `nixblitz plugin <verb>` — plugin management. Runs outside the
+/// TUI (no `runApp`, no terminal takeover) so each verb can print
+/// and exit.
+class PluginCommand extends Command<int> {
+  PluginCommand(String baseDir) {
+    addSubcommand(PluginAddCommand(baseDir));
+    addSubcommand(PluginRemoveCommand(baseDir));
+    addSubcommand(PluginListCommand(baseDir));
+    addSubcommand(PluginUpdateCommand(baseDir));
+    addSubcommand(PluginPinCommand(baseDir));
+    addSubcommand(PluginUnpinCommand(baseDir));
   }
 
-  final pluginService = PluginService(baseDir: baseDir);
+  @override
+  final String name = 'plugin';
 
+  @override
+  final String description =
+      'Manage installed plugins (add / remove / list / update / pin / unpin).';
+}
+
+/// Shared catch-all wrapper: any thrown exception from a plugin
+/// verb prints `error: <e>` and exits non-zero. Each subcommand
+/// runs its own logic inside [body] and lets PluginService throw
+/// freely.
+Future<int> _runWithErrorReport(Future<int> Function() body) async {
   try {
-    switch (sub.name) {
-      case 'add':
-        return await _runAdd(pluginService, sub);
-      case 'remove':
-        return await _runRemove(pluginService, sub);
-      case 'list':
-        return await _runList(pluginService, sub);
-      case 'update':
-        return await _runRefresh(pluginService, sub);
-      case 'pin':
-        return await _runPin(pluginService, sub, pin: true);
-      case 'unpin':
-        return await _runPin(pluginService, sub, pin: false);
-      default:
-        stderr.writeln('unknown verb: ${sub.name}');
-        return 2;
-    }
+    return await body();
   } catch (e) {
     stderr.writeln('error: $e');
     return 1;
   }
+}
+
+class PluginAddCommand extends Command<int> {
+  PluginAddCommand(this.baseDir) {
+    argParser
+      ..addOption('branch', defaultsTo: 'main', help: 'Branch to clone.')
+      ..addOption('subdir', help: 'Plugin subdirectory inside the cloned repo.')
+      ..addFlag(
+        'yes',
+        abbr: 'y',
+        negatable: false,
+        help: 'Skip the consent prompt.',
+      )
+      ..addFlag(
+        'insecure',
+        negatable: false,
+        help: 'Allow non-https sources (file://, bare paths).',
+      );
+  }
+
+  final String baseDir;
+
+  @override
+  final String name = 'add';
+
+  @override
+  final String description = 'Install a plugin from a git URL.';
+
+  @override
+  String get invocation =>
+      'nixblitz plugin add <url> [--branch X] [--subdir Y] [-y] [--insecure]';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runAdd(PluginService(baseDir: baseDir), argResults!),
+  );
+}
+
+class PluginRemoveCommand extends Command<int> {
+  PluginRemoveCommand(this.baseDir);
+
+  final String baseDir;
+
+  @override
+  final String name = 'remove';
+
+  @override
+  final String description =
+      'Soft-delete a plugin (tombstone preserves the pin).';
+
+  @override
+  String get invocation => 'nixblitz plugin remove <id>';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runRemove(PluginService(baseDir: baseDir), argResults!),
+  );
+}
+
+class PluginListCommand extends Command<int> {
+  PluginListCommand(this.baseDir) {
+    argParser.addFlag(
+      'all',
+      negatable: false,
+      help: 'Include disabled plugins.',
+    );
+  }
+
+  final String baseDir;
+
+  @override
+  final String name = 'list';
+
+  @override
+  final String description = 'List active plugins; --all also shows disabled.';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runList(PluginService(baseDir: baseDir), argResults!),
+  );
+}
+
+class PluginUpdateCommand extends Command<int> {
+  PluginUpdateCommand(this.baseDir) {
+    argParser
+      ..addFlag(
+        'all',
+        negatable: false,
+        help: 'Refresh every auto-update plugin (instead of one by id).',
+      )
+      ..addFlag(
+        'insecure',
+        negatable: false,
+        help: 'Allow non-https sources during the clone.',
+      );
+  }
+
+  final String baseDir;
+
+  @override
+  final String name = 'update';
+
+  @override
+  final String description =
+      "Pull a plugin's upstream into its pinned rev (or all auto-update plugins with --all).";
+
+  @override
+  String get invocation =>
+      'nixblitz plugin update <id> [--insecure]\n'
+      '       nixblitz plugin update --all [--insecure]';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runRefresh(PluginService(baseDir: baseDir), argResults!),
+  );
+}
+
+class PluginPinCommand extends Command<int> {
+  PluginPinCommand(this.baseDir);
+
+  final String baseDir;
+
+  @override
+  final String name = 'pin';
+
+  @override
+  final String description =
+      "Freeze the plugin at its current rev (auto_update=false).";
+
+  @override
+  String get invocation => 'nixblitz plugin pin <id>';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runPin(PluginService(baseDir: baseDir), argResults!, pin: true),
+  );
+}
+
+class PluginUnpinCommand extends Command<int> {
+  PluginUnpinCommand(this.baseDir);
+
+  final String baseDir;
+
+  @override
+  final String name = 'unpin';
+
+  @override
+  final String description = 'Re-enable auto-updates for the plugin.';
+
+  @override
+  String get invocation => 'nixblitz plugin unpin <id>';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runPin(PluginService(baseDir: baseDir), argResults!, pin: false),
+  );
 }
 
 Future<int> _runAdd(PluginService svc, ArgResults args) async {

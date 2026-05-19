@@ -527,7 +527,14 @@
       "yaml"
     ],
     "timezone": ["http", "path"],
-    "tui": ["args", "riverpod", "nocterm", "nocterm_riverpod", "common"],
+    "tui": [
+      "args",
+      "cli_completion",
+      "riverpod",
+      "nocterm",
+      "nocterm_riverpod",
+      "common"
+    ],
     "typed_data": ["collection"],
     "unified_analytics": [
       "clock",
@@ -566,7 +573,14 @@
     },
     "tui": {
       "dev": ["lints", "test"],
-      "main": ["args", "riverpod", "nocterm", "nocterm_riverpod", "common"]
+      "main": [
+        "args",
+        "cli_completion",
+        "riverpod",
+        "nocterm",
+        "nocterm_riverpod",
+        "common"
+      ]
     },
     "website": {
       "dev": [
