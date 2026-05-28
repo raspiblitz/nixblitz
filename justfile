@@ -6,17 +6,21 @@ set positional-arguments
 default:
 	just --list
 
-# Run all Dart tests
+# Run all Dart tests (common + tui) + the plugin-consistency invariant
 test trace="":
   #!/usr/bin/env nu
   if ("{{trace}}" == "-t" or "{{trace}}" == "--trace") {
-    cd common
     $env.DART_VM_OPTIONS = "--enable-asserts"
+    cd common
+    dart test
+    cd ../tui
     dart test
     cd ..
     bash tests/scripts/check-plugin-consistency.sh
   } else if ("{{trace}}" == "") {
     cd common
+    dart test
+    cd ../tui
     dart test
     cd ..
     bash tests/scripts/check-plugin-consistency.sh

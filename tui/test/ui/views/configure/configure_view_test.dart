@@ -7,126 +7,109 @@ import 'package:tui/src/ui/views/configure_view.dart';
 ///
 /// The view itself is a nocterm component and cannot be widget-tested in
 /// isolation (nocterm does not provide a headless test renderer). Instead
-/// these tests exercise the three layers the view delegates to:
+/// these tests exercise the layers the view delegates to:
 ///
-///   1. AppManifestRegistry population — checks that bundled manifests
-///      produce the expected menu order (alphabetical by id with System +
-///      Plugins pinned at the ends).
+///   1. AppManifestRegistry population — registry machinery (allApps
+///      order, get-by-id, field lookup).
 ///
-///   2. Generic field rendering helpers — checks that for a given manifest
-///      and config, the right field values are emitted (delegates to
-///      FieldDisplayRow logic already tested in field_editor_test.dart, so
-///      we just validate the data-side).
+///   2. Generic field rendering helpers — for a given field + value the
+///      right display string is emitted (delegates to FieldDisplayRow
+///      logic already tested in field_editor_test.dart).
 ///
-///   3. Pending-change tracking — checks that `setAppOption` produces a
-///      new config whose `diffKeysFrom` the original contains the changed
-///      key (the mechanism the view's `pendingChangeKeysProvider` uses).
+///   3. Pending-change tracking — `setAppOption` produces a new config
+///      whose `diffKeysFrom` the original contains the changed key (the
+///      mechanism the view's `pendingChangeKeysProvider` uses).
 ///
-///   4. Apply / Cancel semantics — checks that applying a pending value
-///      commits via `setAppOption`, and that "cancel" (not calling
-///      updateConfig) leaves the config unchanged.
+///   4. Apply / Cancel semantics — applying a pending value commits via
+///      `setAppOption`; "cancel" (not calling updateConfig) leaves the
+///      config unchanged.
+///
+/// bitcoind / lnd / cln / blitz-web are plugins now, so
+/// `bundledAppManifests` is empty. The registry/rendering tests use the
+/// [_fixtureManifest] below instead of sourcing those apps' bundled
+/// manifests — keeping them about the machinery, not about which apps
+/// happen to ship in the binary.
+AppManifest _fixtureManifest({String id = 'demo-app'}) => AppManifest(
+  id: id,
+  label: 'Demo App',
+  fields: const [
+    BoolField(name: 'enabled', label: 'Enabled', defaultValue: true),
+    EnumField(
+      name: 'network',
+      label: 'Network',
+      choices: ['mainnet', 'testnet', 'regtest'],
+      defaultValue: 'mainnet',
+    ),
+    StringField(name: 'alias', label: 'Alias', defaultValue: ''),
+    IntField(name: 'prune_size_gb', label: 'Prune size (GB)', defaultValue: 0),
+  ],
+);
+
 void main() {
   // ── 1. Registry population ──────────────────────────────────────────────
 
   group('AppManifestRegistry population', () {
-    late AppManifestRegistry registry;
-
-    setUp(() {
-      registry = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
+    test('allApps preserves bundled-then-plugin order', () {
+      final registry = AppManifestRegistry(
+        bundled: [
+          _fixtureManifest(id: 'alpha'),
+          _fixtureManifest(id: 'zebra'),
+        ],
+        plugin: [_fixtureManifest(id: 'plug')],
       );
-    });
-
-    test('bundled app IDs are sorted alphabetically', () {
-      final ids = registry.allApps.map((m) => m.id).toList();
-      final sorted = [...ids]..sort();
-      expect(ids, sorted);
-    });
-
-    test('all four bundled apps are present', () {
-      // blitz_api was a built-in in earlier phases; it's now a plugin
-      // (~/dev/blitz/nixblitz-plugin-blitz-api) and ships its own
-      // config_schema.
-      final ids = registry.allApps.map((m) => m.id).toSet();
-      expect(ids, containsAll(['bitcoind', 'lnd', 'cln', 'blitz_web']));
-    });
-
-    test('menu entries are: System + 4 apps + Plugins = 6 total', () {
-      // System (1) + 4 apps + Plugins (1) = 6
-      expect(registry.allApps.length, 4);
-    });
-
-    test('each bundled app has at least one field', () {
-      for (final m in registry.allApps) {
-        expect(m.fields, isNotEmpty, reason: '${m.id} has no fields');
-      }
-    });
-
-    test('bitcoind manifest has 4 fields in order', () {
-      final m = registry.get('bitcoind')!;
-      expect(m.fields.map((f) => f.name).toList(), [
-        'enabled',
-        'network',
-        'pruned',
-        'prune_size_gb',
+      expect(registry.allApps.map((m) => m.id).toList(), [
+        'alpha',
+        'zebra',
+        'plug',
       ]);
     });
 
-    test('lnd manifest has 2 fields: enabled + alias', () {
-      final m = registry.get('lnd')!;
-      expect(m.fields.map((f) => f.name).toList(), ['enabled', 'alias']);
+    test('get(id) finds a manifest by id; null when absent', () {
+      final registry = AppManifestRegistry(
+        bundled: [_fixtureManifest(id: 'demo-app')],
+        plugin: const [],
+      );
+      expect(registry.get('demo-app')?.id, 'demo-app');
+      expect(registry.get('nope'), isNull);
     });
 
-    test('cln manifest has 1 field: enabled', () {
-      final m = registry.get('cln')!;
-      expect(m.fields.map((f) => f.name).toList(), ['enabled']);
+    test('empty bundled + empty plugin yields no apps', () {
+      final registry = AppManifestRegistry(bundled: const [], plugin: const []);
+      expect(registry.allApps, isEmpty);
+    });
+
+    test('manifest.field(name) resolves each declared field type', () {
+      final m = _fixtureManifest();
+      expect(m.field('enabled'), isA<BoolField>());
+      expect(m.field('network'), isA<EnumField>());
+      expect(m.field('alias'), isA<StringField>());
+      expect(m.field('prune_size_gb'), isA<IntField>());
+      expect(m.field('missing'), isNull);
     });
   });
 
   // ── 2. Field value rendering ────────────────────────────────────────────
 
   group('Field value rendering via formatFieldValue', () {
-    final config = NixblitzConfig.defaults();
+    final manifest = _fixtureManifest();
 
-    test('bitcoind enabled renders as "on"', () {
-      final m = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      ).get('bitcoind')!;
-      final field = m.field('enabled')!;
-      final value = config.appOption<bool>('bitcoind', 'enabled');
-      expect(formatFieldValue(field, value), 'on');
+    test('BoolField true renders as "on"', () {
+      expect(formatFieldValue(manifest.field('enabled')!, true), 'on');
     });
 
-    test('bitcoind network renders as "mainnet"', () {
-      final m = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      ).get('bitcoind')!;
-      final field = m.field('network')!;
-      final value = config.appOption<String>('bitcoind', 'network');
-      expect(formatFieldValue(field, value), 'mainnet');
+    test('BoolField false renders as "off"', () {
+      expect(formatFieldValue(manifest.field('enabled')!, false), 'off');
     });
 
-    test('lnd enabled renders as "off"', () {
-      final m = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      ).get('lnd')!;
-      final field = m.field('enabled')!;
-      final value = config.appOption<bool>('lnd', 'enabled');
-      expect(formatFieldValue(field, value), 'off');
+    test('EnumField renders the selected choice', () {
+      expect(
+        formatFieldValue(manifest.field('network')!, 'mainnet'),
+        'mainnet',
+      );
     });
 
-    test('lnd alias renders as empty string by default', () {
-      final m = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      ).get('lnd')!;
-      final field = m.field('alias')!;
-      final value = config.appOption<String>('lnd', 'alias');
-      expect(formatFieldValue(field, value), '');
+    test('StringField empty renders as empty string', () {
+      expect(formatFieldValue(manifest.field('alias')!, ''), '');
     });
 
     test('SecretField masks non-empty value as bullets', () {
@@ -179,41 +162,12 @@ void main() {
     });
 
     test('pending key format matches manifest field path', () {
-      // The view uses '${manifest.id}.${field.name}' to check isPending.
-      // Verify diffKeysFrom emits the same format.
-      final registry = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      );
+      // The view checks isPending via '${manifest.id}.${field.name}'.
+      // Verify diffKeysFrom emits that exact format. Uses an enum
+      // change (the other diff tests above cover bool / string / int).
       final original = NixblitzConfig.defaults();
-      for (final m in registry.allApps) {
-        for (final f in m.fields) {
-          final currentValue = original.appConfig(m.id)[f.name];
-          // Only test fields that have a non-null value to change.
-          if (currentValue == null) continue;
-          // Produce a trivially different value to trigger a diff.
-          dynamic newValue;
-          if (f is BoolField) {
-            newValue = !(currentValue as bool);
-          } else if (f is EnumField) {
-            final choices = f.choices;
-            final idx = choices.indexOf(currentValue as String);
-            newValue = choices[(idx + 1) % choices.length];
-          } else if (f is IntField) {
-            newValue = (currentValue as int) + 1;
-          } else if (f is StringField) {
-            newValue = '${currentValue}x';
-          }
-          if (newValue == null) continue;
-          final updated = original.setAppOption(m.id, f.name, newValue);
-          final keys = updated.diffKeysFrom(original);
-          expect(
-            keys,
-            contains('${m.id}.${f.name}'),
-            reason: '${m.id}.${f.name} missing from diffKeysFrom',
-          );
-        }
-      }
+      final updated = original.setAppOption('demo-app', 'network', 'regtest');
+      expect(updated.diffKeysFrom(original), contains('demo-app.network'));
     });
   });
 
@@ -236,47 +190,28 @@ void main() {
       expect(enabledAfter, enabledBefore);
     });
 
-    test('cycling bitcoind network via cycleFieldValue', () {
-      final registry = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      );
-      final field = registry.get('bitcoind')!.field('network')!;
-      expect(field, isA<EnumField>());
-      final choices = (field as EnumField).choices;
-      // Cycle from mainnet → next choice.
+    test('cycling an EnumField via cycleFieldValue advances the choice', () {
+      final field = _fixtureManifest().field('network')! as EnumField;
       final next = cycleFieldValue(field, 'mainnet');
-      final idx = choices.indexOf('mainnet');
-      expect(next, choices[(idx + 1) % choices.length]);
+      final idx = field.choices.indexOf('mainnet');
+      expect(next, field.choices[(idx + 1) % field.choices.length]);
     });
 
-    test('toggling lnd enabled via cycleFieldValue flips bool', () {
-      final registry = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      );
-      final field = registry.get('lnd')!.field('enabled')!;
+    test('toggling a BoolField via cycleFieldValue flips it', () {
+      final field = _fixtureManifest().field('enabled')!;
       expect(field, isA<BoolField>());
       expect(cycleFieldValue(field, false), isTrue);
       expect(cycleFieldValue(field, true), isFalse);
     });
 
-    test('lnd alias requires editor overlay (StringField)', () {
-      final registry = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      );
-      final field = registry.get('lnd')!.field('alias')!;
+    test('StringField requires editor overlay', () {
+      final field = _fixtureManifest().field('alias')!;
       expect(field, isA<StringField>());
       expect(fieldRequiresEditor(field), isTrue);
     });
 
-    test('bitcoind prune_size_gb requires editor overlay (IntField)', () {
-      final registry = AppManifestRegistry(
-        bundled: bundledAppManifests,
-        plugin: const [],
-      );
-      final field = registry.get('bitcoind')!.field('prune_size_gb')!;
+    test('IntField requires editor overlay', () {
+      final field = _fixtureManifest().field('prune_size_gb')!;
       expect(field, isA<IntField>());
       expect(fieldRequiresEditor(field), isTrue);
     });
