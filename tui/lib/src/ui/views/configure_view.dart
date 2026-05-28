@@ -392,6 +392,15 @@ class ConfigureView extends StatelessComponent {
                   context.read(configureFocusedColumnProvider.notifier).state =
                       ConfigureColumn.sidebar;
                 } else {
+                  // Set the prompt before navigating: per the nocterm
+                  // pitfall, the second provider set in a handler is
+                  // the one at risk of being dropped by a rebuild, so
+                  // order the navigate last. (Sequential provider sets
+                  // work in practice — cf. apply_view._reset.)
+                  if (context.read(pendingChangeKeysProvider).isNotEmpty) {
+                    context.read(applyNowPromptProvider.notifier).state =
+                        const ApplyNowPrompt();
+                  }
                   context.read(currentViewProvider.notifier).state =
                       AppView.dashboard;
                 }

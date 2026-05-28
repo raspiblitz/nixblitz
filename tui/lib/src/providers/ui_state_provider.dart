@@ -57,8 +57,24 @@ final helpVisibleProvider = StateProvider<bool>((ref) => false);
 /// it without circular imports.
 final topMenuOverlayProvider = StateProvider<bool>((ref) => false);
 
+/// Payload for the "Apply now?" popup. Set by action-completion
+/// sites (plugin install done, leaving Configure with pending
+/// edits); null means no popup. See
+/// docs/superpowers/specs/2026-05-19-apply-now-prompt-design.md.
+class ApplyNowPrompt {
+  const ApplyNowPrompt({this.headline});
+
+  /// Optional one-line summary of what just happened, e.g.
+  /// "configured blitz-api v0.1.0". Null → the popup shows only the
+  /// generic pending-change count (the Configure-exit case).
+  final String? headline;
+}
+
+/// Drives the "Apply now?" popup; non-null while the popup is up.
+final applyNowPromptProvider = StateProvider<ApplyNowPrompt?>((ref) => null);
+
 /// True while any modal popup is on top of the view tree (help,
-/// sudo prompt, hamburger overlay). Widgets that hold an interactive
+/// sudo prompt, hamburger overlay, apply-now prompt). Widgets that hold an interactive
 /// [Focusable] should set `focused: !modalActive` so a stray
 /// keystroke can't bubble into the underlying view while a modal is
 /// up — independent of nocterm's BlockFocus dispatch behavior.
@@ -66,7 +82,8 @@ final modalActiveProvider = Provider<bool>((ref) {
   final help = ref.watch(helpVisibleProvider);
   final sudo = ref.watch(pendingSudoPromptProvider);
   final topMenu = ref.watch(topMenuOverlayProvider);
-  return help || sudo != null || topMenu;
+  final applyNow = ref.watch(applyNowPromptProvider);
+  return help || sudo != null || topMenu || applyNow != null;
 });
 
 /// View-declared "I'm in a non-resumable rebuild flow" flag. Apply

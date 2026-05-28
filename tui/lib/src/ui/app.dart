@@ -13,6 +13,7 @@ import 'views/install_view.dart';
 import 'views/setup_view.dart';
 import 'views/system_view.dart';
 import 'shutdown.dart';
+import 'widgets/apply_now_popup.dart';
 import 'widgets/cached_package_diff.dart';
 import 'widgets/footer_hints.dart';
 import 'widgets/help_popup.dart';
@@ -504,6 +505,7 @@ class _ShellState extends State<_Shell> {
 
     final helpVisible = context.watch(helpVisibleProvider);
     final sudoPromptVisible = context.watch(pendingSudoPromptProvider) != null;
+    final applyNowPrompt = context.watch(applyNowPromptProvider);
 
     // Fire-and-forget light check at startup if the cached status is
     // stale (>30 min). Guarded by a per-process flag inside the
@@ -517,7 +519,7 @@ class _ShellState extends State<_Shell> {
     return Stack(
       children: [
         Focusable(
-          focused: !helpVisible && !sudoPromptVisible,
+          focused: !helpVisible && !sudoPromptVisible && applyNowPrompt == null,
           onKeyEvent: (event) {
             try {
               if (event.matches(LogicalKey.keyC, ctrl: true)) {
@@ -794,6 +796,21 @@ class _ShellState extends State<_Shell> {
         // exclusively so keystrokes can't leak into the underlying
         // view (passwords typed past Enter would otherwise be visible).
         if (sudoPromptVisible) const PasswordOverlay(),
+        // "Apply now?" nudge after an action produced pending
+        // changes. Routes to the Apply review screen on [y]; does
+        // NOT auto-start the rebuild (the review stays mandatory).
+        if (applyNowPrompt != null)
+          ApplyNowPopup(
+            headline: applyNowPrompt.headline,
+            pendingCount: context.watch(pendingChangeKeysProvider).length,
+            onConfirm: () {
+              context.read(applyNowPromptProvider.notifier).state = null;
+              context.read(currentViewProvider.notifier).state = AppView.apply;
+            },
+            onCancel: () {
+              context.read(applyNowPromptProvider.notifier).state = null;
+            },
+          ),
       ],
     );
   }

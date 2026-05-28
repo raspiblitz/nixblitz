@@ -301,6 +301,10 @@ rebuilds atomically.
 That's the loop: edit → review everything that's about to land →
 apply.
 
+After installing a plugin or leaving Configure with unsaved edits,
+an "Apply now?" prompt offers to jump straight to the Apply review
+screen — `[y]` to review + apply, `[n]` to keep working.
+
 A second banner may appear above the tiles after a few hours:
 **`updates available: nixpkgs, … — checked Xh ago`**. This is the
 periodic update check — a daily timer probes each flake input +

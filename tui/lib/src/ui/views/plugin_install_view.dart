@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
+import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
+import '../../providers/ui_state_provider.dart';
 import '../widgets/signature_label.dart';
 
 /// Five-phase install flow surfaced from Configure → Plugins.
@@ -113,6 +115,7 @@ class _PluginInstallViewState extends State<PluginInstallView> {
         .then((marker) {
           Future.microtask(() {
             if (!mounted) return;
+            final label = 'configured ${marker.id} v${marker.version}';
             setState(() {
               _resultMarker = marker;
               // "configured" not "installed": the plugin's files are
@@ -121,9 +124,14 @@ class _PluginInstallViewState extends State<PluginInstallView> {
               // takes a nixos-rebuild via System → Apply. New
               // operators tripped on "installed" and went looking
               // for a running service that wasn't there.
-              _resultMessage = 'configured ${marker.id} v${marker.version}';
+              _resultMessage = label;
               _phase = _Phase.done;
             });
+            // Nudge toward applying — the plugin's files are on disk
+            // but its service won't run until a rebuild. Routes to
+            // the Apply review screen on [y].
+            context.read(applyNowPromptProvider.notifier).state =
+                ApplyNowPrompt(headline: label);
           });
         })
         .catchError((Object e) {
