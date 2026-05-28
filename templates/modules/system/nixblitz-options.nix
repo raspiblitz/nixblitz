@@ -27,4 +27,16 @@
       keys via `config.nixblitz.appConfigs.<id>.<key> or default`.
     '';
   };
+
+  options.nixblitz.system = lib.mkOption {
+    type = lib.types.attrsOf lib.types.unspecified;
+    default = {};
+    description = ''
+      Read-only view of `config.json`'s `system.*` block, exposed at
+      the NixOS-config level so modules and plugins can read node-wide
+      settings without a plugin ABI extension. E.g. a plugin reads
+      `config.nixblitz.system.tor or true` to decide whether to route
+      its traffic over Tor.
+    '';
+  };
 }

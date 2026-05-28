@@ -313,6 +313,7 @@ void main() {
       expect(s.platform, 'x86');
       expect(s.diskDevice, '');
       expect(s.shell, 'bash');
+      expect(s.tor, isTrue);
     });
 
     test('round-trips through JSON', () {
@@ -335,6 +336,36 @@ void main() {
       });
       expect(s.diskDevice, '');
       expect(s.shell, 'bash');
+    });
+
+    test('tor: true round-trips through JSON', () {
+      final s = SystemConfig.defaults().copyWith(tor: true);
+      final r = SystemConfig.fromJson(s.toJson());
+      expect(r.tor, isTrue);
+    });
+
+    test('tor: false round-trips through JSON', () {
+      final s = SystemConfig.defaults().copyWith(tor: false);
+      final r = SystemConfig.fromJson(s.toJson());
+      expect(r.tor, isFalse);
+    });
+
+    test('tor defaults to true when key absent from JSON', () {
+      final s = SystemConfig.fromJson({
+        'hostname': 'x',
+        'timezone': 'UTC',
+        'platform': 'x86',
+      });
+      expect(s.tor, isTrue);
+    });
+
+    test('tor: false is not clobbered to true through JSON round-trip', () {
+      final s = SystemConfig.defaults().copyWith(tor: false);
+      expect(s.tor, isFalse);
+      final json = s.toJson();
+      expect(json['tor'], isFalse);
+      final r = SystemConfig.fromJson(json);
+      expect(r.tor, isFalse);
     });
   });
 }

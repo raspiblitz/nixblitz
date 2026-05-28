@@ -97,17 +97,17 @@ void main() {
         'blitz_api': {'enabled': true},
         'blitz_web': {'enabled': true},
       };
-      final v18 = migrateConfig(Map.from(v17));
-      expect(v18['version'], 18);
-      expect(v18.containsKey('bitcoind'), isFalse);
-      expect(v18.containsKey('lnd'), isFalse);
-      expect(v18.containsKey('cln'), isFalse);
-      expect(v18.containsKey('blitz_api'), isFalse);
-      expect(v18.containsKey('blitz_web'), isFalse);
-      expect(v18['app_configs'], isA<Map>());
-      expect(v18['app_configs']['bitcoind']['enabled'], isTrue);
-      expect(v18['app_configs']['lnd']['alias'], 'node-1');
-      expect(v18['app_configs']['cln']['enabled'], isFalse);
+      final result = migrateConfig(Map.from(v17));
+      expect(result['version'], currentConfigVersion);
+      expect(result.containsKey('bitcoind'), isFalse);
+      expect(result.containsKey('lnd'), isFalse);
+      expect(result.containsKey('cln'), isFalse);
+      expect(result.containsKey('blitz_api'), isFalse);
+      expect(result.containsKey('blitz_web'), isFalse);
+      expect(result['app_configs'], isA<Map>());
+      expect(result['app_configs']['bitcoind']['enabled'], isTrue);
+      expect(result['app_configs']['lnd']['alias'], 'node-1');
+      expect(result['app_configs']['cln']['enabled'], isFalse);
     });
 
     test('handles partial v17 (some keys missing)', () {
@@ -117,14 +117,14 @@ void main() {
         'bitcoind': {'enabled': true, 'network': 'mainnet'},
         // No lnd/cln/blitz_api/blitz_web
       };
-      final v18 = migrateConfig(Map.from(v17));
-      expect(v18['version'], 18);
-      expect(v18['app_configs']['bitcoind']['enabled'], isTrue);
-      expect(v18['app_configs'].containsKey('lnd'), isFalse);
-      expect(v18['app_configs'].containsKey('blitz_api'), isFalse);
+      final result = migrateConfig(Map.from(v17));
+      expect(result['version'], currentConfigVersion);
+      expect(result['app_configs']['bitcoind']['enabled'], isTrue);
+      expect(result['app_configs'].containsKey('lnd'), isFalse);
+      expect(result['app_configs'].containsKey('blitz_api'), isFalse);
     });
 
-    test('idempotent on v18 input', () {
+    test('idempotent on v18 input (migrates to current)', () {
       final v18Input = <String, dynamic>{
         'version': 18,
         'system': {'hostname': 'h', 'platform': 'p'},
@@ -133,10 +133,45 @@ void main() {
         },
       };
       final result = migrateConfig(Map.from(v18Input));
-      expect(result['version'], 18);
+      expect(result['version'], currentConfigVersion);
       expect(result['app_configs']['bitcoind']['enabled'], isTrue);
       // Nothing accidentally restored at top level
       expect(result.containsKey('bitcoind'), isFalse);
+    });
+  });
+
+  group('v18 → v19', () {
+    test('bumps version and leaves data intact', () {
+      final v18 = <String, dynamic>{
+        'version': 18,
+        'system': {'hostname': 'h', 'platform': 'x86', 'timezone': 'UTC'},
+        'app_configs': {
+          'bitcoind': {'enabled': true, 'network': 'mainnet'},
+        },
+        'initialized': true,
+      };
+      final result = migrateConfig(Map.from(v18));
+      expect(result['version'], 19);
+      expect(result['initialized'], isTrue);
+      expect(result['app_configs']['bitcoind']['enabled'], isTrue);
+      expect(result['system']['hostname'], 'h');
+    });
+
+    test('system.tor false is not clobbered during migration', () {
+      final v18 = <String, dynamic>{
+        'version': 18,
+        'system': {
+          'hostname': 'h',
+          'platform': 'x86',
+          'timezone': 'UTC',
+          'tor': false,
+        },
+        'app_configs': <String, dynamic>{},
+      };
+      final result = migrateConfig(Map.from(v18));
+      expect(result['version'], 19);
+      // tor:false in system is data, not touched by migration
+      expect(result['system']['tor'], isFalse);
     });
   });
 }

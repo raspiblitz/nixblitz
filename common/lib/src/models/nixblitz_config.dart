@@ -24,12 +24,19 @@ class SystemConfig {
   /// available as an opt-in for people who prefer it.
   final String shell;
 
+  /// Whether node-wide Tor support is enabled. Defaults to `true`
+  /// (privacy-by-default). When true, all supporting services are
+  /// routed through Tor; false disables the Tor daemon and clearnet
+  /// mode is used throughout.
+  final bool tor;
+
   const SystemConfig({
     required this.hostname,
     required this.timezone,
     required this.platform,
     this.diskDevice = '',
     this.shell = 'bash',
+    this.tor = true,
   });
 
   factory SystemConfig.defaults() => const SystemConfig(
@@ -38,6 +45,7 @@ class SystemConfig {
     platform: 'x86',
     diskDevice: '',
     shell: 'bash',
+    tor: true,
   );
 
   factory SystemConfig.fromJson(Map<String, dynamic> json) => SystemConfig(
@@ -46,6 +54,7 @@ class SystemConfig {
     platform: json['platform'] as String? ?? 'x86',
     diskDevice: json['disk_device'] as String? ?? '',
     shell: json['shell'] as String? ?? 'bash',
+    tor: json['tor'] as bool? ?? true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -54,6 +63,7 @@ class SystemConfig {
     'platform': platform,
     'disk_device': diskDevice,
     'shell': shell,
+    'tor': tor,
   };
 
   SystemConfig copyWith({
@@ -62,12 +72,14 @@ class SystemConfig {
     String? platform,
     String? diskDevice,
     String? shell,
+    bool? tor,
   }) => SystemConfig(
     hostname: hostname ?? this.hostname,
     timezone: timezone ?? this.timezone,
     platform: platform ?? this.platform,
     diskDevice: diskDevice ?? this.diskDevice,
     shell: shell ?? this.shell,
+    tor: tor ?? this.tor,
   );
 
   @override
@@ -77,11 +89,12 @@ class SystemConfig {
       other.timezone == timezone &&
       other.platform == platform &&
       other.diskDevice == diskDevice &&
-      other.shell == shell;
+      other.shell == shell &&
+      other.tor == tor;
 
   @override
   int get hashCode =>
-      Object.hash(hostname, timezone, platform, diskDevice, shell);
+      Object.hash(hostname, timezone, platform, diskDevice, shell, tor);
 }
 
 class NixblitzConfig {

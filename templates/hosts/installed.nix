@@ -38,6 +38,11 @@ in {
   # `config.nixblitz.appConfigs.<id>.<key>` for cross-app state
   # (e.g. blitz-api gating on lnd.enabled).
   nixblitz.appConfigs = apps;
+  # Feed the system option declared in
+  # modules/system/nixblitz-options.nix. Plugins read node-wide
+  # settings as `config.nixblitz.system.<key> or default`
+  # (e.g. `config.nixblitz.system.tor or true` to route over Tor).
+  nixblitz.system = sys;
 
   networking.hostName = sys.hostname;
   time.timeZone = sys.timezone;

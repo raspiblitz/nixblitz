@@ -505,6 +505,11 @@ in {
   # `config.nixblitz.appConfigs.<id>.<key>` for cross-app state
   # (e.g. blitz-api gating on lnd.enabled).
   nixblitz.appConfigs = apps;
+  # Feed the system option declared in
+  # modules/system/nixblitz-options.nix. Plugins read node-wide
+  # settings as `config.nixblitz.system.<key> or default`
+  # (e.g. `config.nixblitz.system.tor or true` to route over Tor).
+  nixblitz.system = sys;
 
   networking.hostName = sys.hostname;
   time.timeZone = sys.timezone;
@@ -921,6 +926,18 @@ const String _modulesSystemNixblitzOptions = r'''
       The `app_configs.*` block from `~/nixblitz/config.json`,
       exposed for cross-plugin reads. Plugins access individual
       keys via `config.nixblitz.appConfigs.<id>.<key> or default`.
+    '';
+  };
+
+  options.nixblitz.system = lib.mkOption {
+    type = lib.types.attrsOf lib.types.unspecified;
+    default = {};
+    description = ''
+      Read-only view of `config.json`'s `system.*` block, exposed at
+      the NixOS-config level so modules and plugins can read node-wide
+      settings without a plugin ABI extension. E.g. a plugin reads
+      `config.nixblitz.system.tor or true` to decide whether to route
+      its traffic over Tor.
     '';
   };
 }

@@ -30,7 +30,7 @@ library;
 /// bump it whenever the embedded `.nix` templates change in a way that
 /// makes on-disk copies incompatible. The TUI checks this at startup
 /// and auto-refreshes templates on mismatch (see `NixBlitzApp.build`).
-const int currentConfigVersion = 18;
+const int currentConfigVersion = 19;
 
 /// The minimum schema version this TUI can safely read/write.
 ///
@@ -183,6 +183,12 @@ final Map<int, Map<String, dynamic> Function(Map<String, dynamic>)> migrations =
       // Idempotent on already-v18 input (no top-level matches → empty
       // migration into already-present app_configs).
       17: _migrateV17ToV18,
+      // v18 → v19: template-refresh bump for node-wide Tor support.
+      // `system.tor` is additive (fromJson defaults to true) so no data
+      // transform is needed. The bump forces existing installs to refresh
+      // on-disk templates, picking up the new `nixblitz.system` Tor option
+      // and per-plugin Tor wiring.
+      18: (json) => json,
     };
 
 /// Apply all necessary migrations to bring [json] up to [currentConfigVersion].

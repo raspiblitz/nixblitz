@@ -552,6 +552,11 @@ class ConfigureView extends StatelessComponent {
         );
         context.read(configProvider.notifier).updateConfig(updated);
       case 3:
+        final torUpdated = config.copyWith(
+          system: config.system.copyWith(tor: !config.system.tor),
+        );
+        context.read(configProvider.notifier).updateConfig(torUpdated);
+      case 4:
         // Password change — authenticate sudo first.
         final session = context.read(sudoSessionProvider);
         session.ensureFresh().then((ok) {
@@ -702,10 +707,17 @@ class ConfigureView extends StatelessComponent {
         focused: selectedIndex == 2,
         pending: isPending('system.shell'),
       ),
+      SelectOptionEditor(
+        label: 'tor',
+        value: config.system.tor ? 'enabled' : 'disabled',
+        options: const ['enabled', 'disabled'],
+        focused: selectedIndex == 3,
+        pending: isPending('system.tor'),
+      ),
       TextOptionEditor(
         label: 'password',
         value: 'Press Enter to change',
-        focused: selectedIndex == 3,
+        focused: selectedIndex == 4,
         // No pending marker — password is not a config field.
       ),
     ];
