@@ -29,6 +29,16 @@ test trace="":
 check-plugin-consistency:
   bash tests/scripts/check-plugin-consistency.sh
 
+# Verify the base node config evaluates against nixpkgs stable +
+# unstable (eval tier — instantiates the toplevel, no system build).
+# First run on a cold store is heavy (realizes the build-input
+# closure for both channels); subsequent runs hit the warm store.
+# See docs/superpowers/specs/2026-05-19-config-channel-verification-design.md
+test-config:
+  #!/usr/bin/env nu
+  nix build --no-link .#checks.x86_64-linux.config-installed-stable .#checks.x86_64-linux.config-installed-unstable .#checks.x86_64-linux.config-installer-stable .#checks.x86_64-linux.config-installer-unstable
+  print "config eval matrix (stable + unstable): all green"
+
 # Run dart analyze on all packages
 analyze:
   #!/usr/bin/env nu

@@ -1,0 +1,14 @@
+{
+  "schema_version": 18,
+  "min_compatible_version": 1,
+  "initialized": true,
+  "setup_step_completed": "summary",
+  "system": {
+    "hostname": "nixblitz",
+    "timezone": "UTC",
+    "platform": "x86",
+    "disk_device": "/dev/vda",
+    "shell": "bash"
+  },
+  "app_configs": {}
+}

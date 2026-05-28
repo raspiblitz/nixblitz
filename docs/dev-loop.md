@@ -194,6 +194,31 @@ just gen-locks             # regenerate Nix-side workspace locks
 The whole `~/nixblitz/` tree is a git repo. Apply commits there;
 old generations are recoverable via `git revert`.
 
+## Config channel verification
+
+`just test-config` evaluates the base x86 node config against
+nixpkgs stable (25.11) + vanilla unstable, catching option renames
+/ removed packages before they reach an operator's rebuild:
+
+```bash
+just test-config   # → config-{installed,installer}-{stable,unstable}
+```
+
+It's the eval tier of the #26 testing strategy. The gate forces
+`config.system.build.toplevel.drvPath`, which instantiates the full
+system derivation graph (no system _build_, but it does realize the
+build-input closure including import-from-derivation inputs). The
+first run on a cold store is heavy — it pulls both channels'
+closures, and the unstable half is net-new to a machine that
+normally only sees nvmd's pinned nixpkgs. Subsequent runs hit the
+warm store and finish quickly.
+
+Build + VM-boot tiers and the config-combination matrix are
+designed-for but not yet implemented — see
+[the design spec](superpowers/specs/2026-05-19-config-channel-verification-design.md).
+A red `-unstable` check may reflect transient upstream churn rather
+than our bug; that's expected signal, not necessarily an emergency.
+
 ## Manual update checks
 
 A daily systemd timer seeds the dashboard banner (see

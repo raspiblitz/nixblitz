@@ -11,6 +11,13 @@
     # in CLAUDE.md.
     nixpkgs-unstable.url = "github:fusion44/nixpkgs/dart-workspace-member-filter";
 
+    # Vanilla nixos-unstable, used ONLY by the config-channel
+    # verification checks (tests/config) to eval the node config
+    # against unstable. Distinct from nixpkgs-unstable above (the
+    # dart-workspace-member-filter fork, for the TUI build). No
+    # follows — it only supplies lib.nixosSystem for the eval.
+    nixpkgs-vanilla-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
+
     # flake-utils + nix-filter are pure-lib flakes with no nixpkgs
     # input themselves — nothing to follow.
     flake-utils.url = "github:numtide/flake-utils";
@@ -26,6 +33,7 @@
     self,
     nixpkgs,
     nixpkgs-unstable,
+    nixpkgs-vanilla-unstable,
     flake-utils,
     nix-filter,
     disko,
@@ -35,6 +43,7 @@
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
         pkgsUnstable = nixpkgs-unstable.legacyPackages.${system};
+        lib = nixpkgs.lib;
         version = "0.1.0";
         # Short git hash of the source tree at build time, tagged with
         # "-dirty" when the worktree has uncommitted changes. Surfaces
@@ -99,6 +108,16 @@
           type = "app";
           program = "${nixblitzWrapped}/bin/nixblitz";
         };
+
+        # Config-channel verification (eval tier). x86_64-linux
+        # only — Pi 5 configs are locked to nvmd's nixpkgs by
+        # design, so varying their channel is meaningless. See
+        # tests/config/default.nix.
+        checks = lib.optionalAttrs (system == "x86_64-linux") (
+          import ./tests/config {
+            inherit self lib nixpkgs nixpkgs-vanilla-unstable disko system;
+          }
+        );
       }
     );
 }
