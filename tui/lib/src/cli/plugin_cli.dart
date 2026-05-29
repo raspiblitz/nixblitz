@@ -330,20 +330,46 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
     stdout.writeln(all ? '(no plugins)' : '(no plugins installed)');
     return 0;
   }
-  // Compact table. Not pretty-aligned; plugin lists stay short.
-  stdout.writeln(
-    'ID  |  VERSION  |  BRANCH  |  PIN      |  DISABLED  |  AUTO-UPDATE  |  INSTALLED',
+  // Aligned table: pad each column to the widest cell (header
+  // included) so columns line up regardless of id / version length.
+  // DISABLED + AUTO-UPDATE carry the pinned/disabled state, so no
+  // inline [pinned] / [disabled] trailers are needed.
+  const headers = [
+    'ID',
+    'VERSION',
+    'BRANCH',
+    'PIN',
+    'DISABLED',
+    'AUTO-UPDATE',
+    'INSTALLED',
+  ];
+  final rows = [
+    for (final p in plugins)
+      [
+        p.id,
+        p.version.isEmpty ? '—' : p.version,
+        p.branch,
+        _shortRev(p.rev),
+        p.disabled ? 'yes' : 'no',
+        p.autoUpdate ? 'yes' : 'no',
+        p.installedAt.toIso8601String().split('T').first,
+      ],
+  ];
+  final widths = List<int>.generate(
+    headers.length,
+    (c) => [
+      headers,
+      ...rows,
+    ].map((r) => r[c].length).reduce((a, b) => a > b ? a : b),
   );
-  for (final p in plugins) {
-    final disMark = p.disabled ? '  [disabled]' : '';
-    final autoMark = p.autoUpdate ? 'true' : 'false [pinned]';
-    final version = p.version.isEmpty ? '—' : p.version;
-    stdout.writeln(
-      '${p.id}  |  $version  |  ${p.branch}  |  ${_shortRev(p.rev)}  |  '
-      '${p.disabled}  |  $autoMark  |  '
-      '${p.installedAt.toIso8601String().split("T").first}'
-      '$disMark',
-    );
+  String fmtRow(List<String> cells) => [
+    for (var c = 0; c < cells.length; c++)
+      // Trailing column isn't padded — avoids dangling whitespace.
+      c == cells.length - 1 ? cells[c] : cells[c].padRight(widths[c]),
+  ].join('  ');
+  stdout.writeln(fmtRow(headers));
+  for (final r in rows) {
+    stdout.writeln(fmtRow(r));
   }
   return 0;
 }

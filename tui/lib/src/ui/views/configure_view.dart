@@ -807,6 +807,16 @@ class ConfigureView extends StatelessComponent {
     final totalRows = available.length + 1;
     final clamped = selectedIndex.clamp(0, totalRows - 1);
 
+    // Column width for the installed-plugins table. Names vary widely
+    // ("LNBits" vs "Lightning Network Daemon"), so pad to the widest
+    // (and the "Plugin" header) for an aligned version column. A future
+    // app-version column slots in as another padded segment.
+    final installedNameW = installedManifests
+        .map((m) => m.name.length)
+        .fold('Plugin'.length, (a, b) => a > b ? a : b);
+    String pluginVersionLabel(PluginManifest m) =>
+        (m.version == null || m.version!.isEmpty) ? '—' : 'v${m.version!}';
+
     final children = <Component>[
       // Installed plugins (display-only) — surfaces each plugin's
       // version for at-a-glance audit. The app version (the actual
@@ -821,10 +831,13 @@ class ConfigureView extends StatelessComponent {
           ),
         ),
         const SizedBox(height: 1),
+        Text(
+          '  ${'Plugin'.padRight(installedNameW)}   Version',
+          style: TextStyle(color: contentFocused ? label : inactive),
+        ),
         for (final m in installedManifests)
           Text(
-            '  ${m.name}  '
-            '${m.version == null || m.version!.isEmpty ? "—" : "v${m.version}"}',
+            '  ${m.name.padRight(installedNameW)}   ${pluginVersionLabel(m)}',
             style: TextStyle(color: contentFocused ? normal : inactive),
           ),
         const SizedBox(height: 1),
