@@ -789,10 +789,8 @@ class ConfigureView extends StatelessComponent {
     int selectedIndex,
     bool contentFocused,
   ) {
-    final installed = context
-        .watch(installedPluginsProvider)
-        .map((m) => m.id)
-        .toSet();
+    final installedManifests = context.watch(installedPluginsProvider);
+    final installed = installedManifests.map((m) => m.id).toSet();
     final available = officialPluginCatalog
         .where((p) => !installed.contains(p.id))
         .toList();
@@ -810,6 +808,27 @@ class ConfigureView extends StatelessComponent {
     final clamped = selectedIndex.clamp(0, totalRows - 1);
 
     final children = <Component>[
+      // Installed plugins (display-only) — surfaces each plugin's
+      // version for at-a-glance audit. The app version (the actual
+      // bitcoind/lnd/etc binary) is reported separately on each
+      // dashboard tile; this is the plugin packaging version.
+      if (installedManifests.isNotEmpty) ...[
+        Text(
+          'Installed',
+          style: TextStyle(
+            color: contentFocused ? accent : inactive,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 1),
+        for (final m in installedManifests)
+          Text(
+            '  ${m.name}  '
+            '${m.version == null || m.version!.isEmpty ? "—" : "v${m.version}"}',
+            style: TextStyle(color: contentFocused ? normal : inactive),
+          ),
+        const SizedBox(height: 1),
+      ],
       Text(
         'Install a plugin',
         style: TextStyle(

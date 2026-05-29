@@ -332,13 +332,14 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
   }
   // Compact table. Not pretty-aligned; plugin lists stay short.
   stdout.writeln(
-    'ID  |  BRANCH  |  PIN      |  DISABLED  |  AUTO-UPDATE  |  INSTALLED',
+    'ID  |  VERSION  |  BRANCH  |  PIN      |  DISABLED  |  AUTO-UPDATE  |  INSTALLED',
   );
   for (final p in plugins) {
     final disMark = p.disabled ? '  [disabled]' : '';
     final autoMark = p.autoUpdate ? 'true' : 'false [pinned]';
+    final version = p.version.isEmpty ? '—' : p.version;
     stdout.writeln(
-      '${p.id}  |  ${p.branch}  |  ${_shortRev(p.rev)}  |  '
+      '${p.id}  |  $version  |  ${p.branch}  |  ${_shortRev(p.rev)}  |  '
       '${p.disabled}  |  $autoMark  |  '
       '${p.installedAt.toIso8601String().split("T").first}'
       '$disMark',
