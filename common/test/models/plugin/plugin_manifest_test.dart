@@ -47,4 +47,73 @@ void main() {
       );
     });
   });
+
+  group('PluginManifest.fromJson — app_version', () {
+    test('parses an app_version command + args', () {
+      final json = {
+        'manifest': {'schema_version': 3, 'min_tui_version': 3, 'name': 'Test'},
+        'id': 'test',
+        'app_version': {
+          'command': 'bash',
+          'args': ['app-version.sh'],
+        },
+      };
+      final m = PluginManifest.fromJson(json);
+      expect(m.appVersionCommand, isNotNull);
+      expect(m.appVersionCommand!.command, 'bash');
+      expect(m.appVersionCommand!.args, ['app-version.sh']);
+    });
+
+    test('app_version defaults to null when absent', () {
+      final json = {
+        'manifest': {'schema_version': 2, 'min_tui_version': 1, 'name': 'Test'},
+        'id': 'test',
+      };
+      expect(PluginManifest.fromJson(json).appVersionCommand, isNull);
+    });
+
+    test('rejects a non-map app_version', () {
+      final json = {
+        'manifest': {'schema_version': 3, 'min_tui_version': 3, 'name': 'Test'},
+        'id': 'test',
+        'app_version': 'bitcoin-cli getnetworkinfo',
+      };
+      expect(
+        () => PluginManifest.fromJson(json),
+        throwsA(isA<PluginManifestError>()),
+      );
+    });
+
+    test('rejects an app_version with no command', () {
+      final json = {
+        'manifest': {'schema_version': 3, 'min_tui_version': 3, 'name': 'Test'},
+        'id': 'test',
+        'app_version': {
+          'args': ['x'],
+        },
+      };
+      expect(
+        () => PluginManifest.fromJson(json),
+        throwsA(isA<PluginManifestError>()),
+      );
+    });
+
+    test('round-trips app_version through toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 3, 'min_tui_version': 3, 'name': 'Test'},
+        'id': 'test',
+        'app_version': {
+          'command': 'sg',
+          'args': ['bitcoin', '-c', 'bash app-version.sh'],
+        },
+      });
+      final round = PluginManifest.fromJson(m.toJson());
+      expect(round.appVersionCommand!.command, 'sg');
+      expect(round.appVersionCommand!.args, [
+        'bitcoin',
+        '-c',
+        'bash app-version.sh',
+      ]);
+    });
+  });
 }

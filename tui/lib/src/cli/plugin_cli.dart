@@ -330,6 +330,16 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
     stdout.writeln(all ? '(no plugins)' : '(no plugins installed)');
     return 0;
   }
+  // App version per plugin, run on demand from the plugin's declared
+  // `app_version` command (in parallel). No command → fall back to the
+  // plugin version; command present but failing → "unavailable".
+  final appVersions = <String, String>{};
+  await Future.wait(
+    plugins.map((p) async {
+      appVersions[p.id] = await _appVersionFor(svc.baseDir, p);
+    }),
+  );
+
   // Aligned table: pad each column to the widest cell (header
   // included) so columns line up regardless of id / version length.
   // DISABLED + AUTO-UPDATE carry the pinned/disabled state, so no
@@ -337,6 +347,7 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
   const headers = [
     'ID',
     'VERSION',
+    'APP VERSION',
     'BRANCH',
     'PIN',
     'DISABLED',
@@ -348,6 +359,7 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
       [
         p.id,
         p.version.isEmpty ? '—' : p.version,
+        appVersions[p.id] ?? '—',
         p.branch,
         _shortRev(p.rev),
         p.disabled ? 'yes' : 'no',
@@ -372,6 +384,28 @@ Future<int> _runList(PluginService svc, ArgResults args) async {
     stdout.writeln(fmtRow(r));
   }
   return 0;
+}
+
+/// Resolve a plugin's app version for the list table: run its declared
+/// `app_version` command; fall back to the plugin version when there's
+/// no command, or "unavailable" when a declared command fails/times out.
+Future<String> _appVersionFor(String baseDir, PluginMarker p) async {
+  final fallback = p.version.isEmpty ? '—' : p.version;
+  try {
+    final mf = File('$baseDir/plugins/${p.id}/plugin.json');
+    if (!mf.existsSync()) return fallback;
+    final manifest = PluginManifest.fromJsonString(mf.readAsStringSync());
+    final cmd = manifest.appVersionCommand;
+    if (cmd == null) return fallback;
+    final v = await readPluginAppVersion(
+      baseDir: baseDir,
+      pluginId: p.id,
+      cmd: cmd,
+    );
+    return v ?? 'unavailable';
+  } catch (_) {
+    return fallback;
+  }
 }
 
 Future<int> _runRefresh(PluginService svc, ArgResults args) async {

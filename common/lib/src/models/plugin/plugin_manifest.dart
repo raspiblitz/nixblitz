@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:pub_semver/pub_semver.dart';
 
 import 'package:common/src/models/configure/app_manifest.dart';
+import 'package:common/src/models/plugin/app_version_command.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
 import 'package:common/src/models/plugin/plugin_dep.dart';
 import 'package:common/src/models/plugin/plugin_manifest_error.dart';
@@ -146,6 +147,12 @@ class PluginManifest {
   /// only when the plugin is enabled, alongside the bundled manifests.
   final List<String> tileManifests;
 
+  /// Optional command nixblitz runs on demand to read the *app* version
+  /// (the managed software's real version). Null when the plugin has no
+  /// underlying app — callers fall back to [version]. See
+  /// [AppVersionCommand].
+  final AppVersionCommand? appVersionCommand;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -163,6 +170,7 @@ class PluginManifest {
     this.module,
     this.streamers = const [],
     this.tileManifests = const [],
+    this.appVersionCommand,
   }) : id = id ?? name;
 
   factory PluginManifest.fromJsonString(String s) =>
@@ -341,6 +349,17 @@ class PluginManifest {
       }
     }
 
+    final rawAppVersion = json['app_version'];
+    AppVersionCommand? appVersionCommand;
+    if (rawAppVersion != null) {
+      if (rawAppVersion is! Map<String, dynamic>) {
+        throw const PluginManifestError(
+          'manifest.app_version must be a command object {command, args}',
+        );
+      }
+      appVersionCommand = AppVersionCommand.fromJson(rawAppVersion);
+    }
+
     final rawTileManifests = json['tile_manifests'];
     final tileManifestsList = <String>[];
     if (rawTileManifests != null) {
@@ -376,6 +395,7 @@ class PluginManifest {
       module: module,
       streamers: List.unmodifiable(streamersList),
       tileManifests: List.unmodifiable(tileManifestsList),
+      appVersionCommand: appVersionCommand,
     );
   }
 
@@ -399,5 +419,6 @@ class PluginManifest {
     if (streamers.isNotEmpty)
       'streamers': [for (final s in streamers) s.toJson()],
     if (tileManifests.isNotEmpty) 'tile_manifests': tileManifests,
+    if (appVersionCommand != null) 'app_version': appVersionCommand!.toJson(),
   };
 }

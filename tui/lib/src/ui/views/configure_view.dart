@@ -816,6 +816,15 @@ class ConfigureView extends StatelessComponent {
         .fold('Plugin'.length, (a, b) => a > b ? a : b);
     String pluginVersionLabel(PluginManifest m) =>
         (m.version == null || m.version!.isEmpty) ? '—' : 'v${m.version!}';
+    final installedVerW = installedManifests
+        .map((m) => pluginVersionLabel(m).length)
+        .fold('Version'.length, (a, b) => a > b ? a : b);
+    // App versions resolved on demand by running each plugin's
+    // app_version command (cached by the provider). Empty while the
+    // FutureProvider is still resolving → cells show "…".
+    final appVersions =
+        context.watch(pluginAppVersionsProvider).value ??
+        const <String, String>{};
 
     final children = <Component>[
       // Installed plugins (display-only) — surfaces each plugin's
@@ -832,12 +841,15 @@ class ConfigureView extends StatelessComponent {
         ),
         const SizedBox(height: 1),
         Text(
-          '  ${'Plugin'.padRight(installedNameW)}   Version',
+          '  ${'Plugin'.padRight(installedNameW)}   '
+          '${'Version'.padRight(installedVerW)}   App version',
           style: TextStyle(color: contentFocused ? label : inactive),
         ),
         for (final m in installedManifests)
           Text(
-            '  ${m.name.padRight(installedNameW)}   ${pluginVersionLabel(m)}',
+            '  ${m.name.padRight(installedNameW)}   '
+            '${pluginVersionLabel(m).padRight(installedVerW)}   '
+            '${appVersions[m.id] ?? '…'}',
             style: TextStyle(color: contentFocused ? normal : inactive),
           ),
         const SizedBox(height: 1),
