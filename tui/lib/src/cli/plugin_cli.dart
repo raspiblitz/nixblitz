@@ -18,6 +18,7 @@ class PluginCommand extends Command<int> {
     addSubcommand(PluginUpdateCommand(baseDir));
     addSubcommand(PluginPinCommand(baseDir));
     addSubcommand(PluginUnpinCommand(baseDir));
+    addSubcommand(PluginSwitchChannelCommand(baseDir));
   }
 
   @override
@@ -25,7 +26,7 @@ class PluginCommand extends Command<int> {
 
   @override
   final String description =
-      'Manage installed plugins (add / remove / list / update / pin / unpin).';
+      'Manage installed plugins (add / remove / list / update / pin / unpin / switch-channel).';
 }
 
 /// Shared catch-all wrapper: any thrown exception from a plugin
@@ -194,6 +195,42 @@ class PluginUnpinCommand extends Command<int> {
   @override
   Future<int> run() => _runWithErrorReport(
     () => _runPin(PluginService(baseDir: baseDir), argResults!, pin: false),
+  );
+}
+
+class PluginSwitchChannelCommand extends Command<int> {
+  PluginSwitchChannelCommand(this.baseDir) {
+    argParser
+      ..addFlag(
+        'yes',
+        abbr: 'y',
+        negatable: false,
+        help: 'Skip the consent prompt (auto-accept).',
+      )
+      ..addFlag(
+        'insecure',
+        negatable: false,
+        help: 'Allow non-https sources during the clone.',
+      );
+  }
+
+  final String baseDir;
+
+  @override
+  final String name = 'switch-channel';
+
+  @override
+  final String description =
+      'Re-clone the plugin from a different branch (channel switch). '
+      'Pinned plugins are refused — unpin first.';
+
+  @override
+  String get invocation =>
+      'nixblitz plugin switch-channel <id> <branch> [-y] [--insecure]';
+
+  @override
+  Future<int> run() => _runWithErrorReport(
+    () => _runSwitchChannel(PluginService(baseDir: baseDir), argResults!),
   );
 }
 
@@ -522,6 +559,45 @@ Future<int> _runPin(
     );
   }
   return 0;
+}
+
+Future<int> _runSwitchChannel(PluginService svc, ArgResults args) async {
+  final rest = args.rest;
+  if (rest.length != 2) {
+    stderr.writeln(
+      'Usage: nixblitz plugin switch-channel <id> <branch> [-y] [--insecure]',
+    );
+    return 2;
+  }
+  final id = rest[0];
+  final branch = rest[1];
+  final yes = args['yes'] as bool;
+  final insecure = args['insecure'] as bool;
+
+  try {
+    final marker = await svc.switchChannel(
+      id,
+      branch,
+      allowInsecure: insecure,
+      confirm: yes
+          ? null
+          : (preview) => _askConsent(preview, insecure: insecure),
+    );
+    stdout.writeln('switched $id to branch ${marker.branch}');
+    stdout.writeln('  pin:    ${_shortRev(marker.rev)}');
+    stdout.writeln('  dir:    plugins/${marker.id}');
+    stdout.writeln();
+    stdout.writeln(
+      'Run the Apply view (`a` in the TUI) to commit and rebuild.',
+    );
+    return 0;
+  } on PluginInstallCancelled {
+    stdout.writeln('aborted');
+    return 1;
+  } on PluginPinnedException catch (e) {
+    stderr.writeln('REFUSED: $e');
+    return 1;
+  }
 }
 
 String _shortRev(String rev) => rev.length >= 7 ? rev.substring(0, 7) : rev;

@@ -25,6 +25,7 @@ export 'src/providers/dashboard_provider.dart';
 export 'src/providers/git_provider.dart';
 export 'src/providers/service_status_provider.dart';
 export 'src/providers/install_provider.dart';
+export 'src/providers/installed_plugin_markers_provider.dart';
 export 'src/providers/installed_plugins_provider.dart';
 export 'src/providers/plugin_action_provider.dart';
 export 'src/providers/plugin_app_versions_provider.dart';

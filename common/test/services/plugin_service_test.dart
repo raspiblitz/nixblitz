@@ -923,6 +923,213 @@ void main() {
     );
   });
 
+  group('PluginService.switchChannel', () {
+    late Directory home;
+    late Directory srcRepo;
+    late PluginService pluginService;
+
+    setUp(() async {
+      home = Directory.systemTemp.createTempSync('nixblitz_switch_home_');
+      srcRepo = Directory.systemTemp.createTempSync('nixblitz_switch_src_');
+      await _seedBaseConfig(home.path);
+      await _seedPluginRepo(srcRepo.path);
+      pluginService = PluginService(baseDir: home.path);
+    });
+
+    tearDown(() {
+      home.deleteSync(recursive: true);
+      srcRepo.deleteSync(recursive: true);
+    });
+
+    /// Create a new branch in [repoPath]. If [manifestOverride] is
+    /// provided, rewrites `plugin.json`; otherwise touches a `CHANNEL`
+    /// file so the branch has a distinct rev. Always returns to `main`.
+    Future<void> addBranch(
+      String repoPath,
+      String branch, {
+      Map<String, dynamic>? manifestOverride,
+      String? commitMessage,
+    }) async {
+      Future<void> run(List<String> args) async {
+        final r = await testGit(args, workingDirectory: repoPath);
+        if (r.exitCode != 0) {
+          throw StateError('git ${args.join(" ")} failed: ${r.stderr}');
+        }
+      }
+
+      await run(['checkout', '-b', branch]);
+      if (manifestOverride != null) {
+        File('$repoPath/plugin.json').writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(manifestOverride),
+        );
+        await run(['add', 'plugin.json']);
+        await run([
+          'commit',
+          '-m',
+          commitMessage ?? 'manifest update on $branch',
+        ]);
+      } else {
+        File('$repoPath/CHANNEL').writeAsStringSync(branch);
+        await run(['add', 'CHANNEL']);
+        await run(['commit', '-m', commitMessage ?? 'on $branch']);
+      }
+      await run(['checkout', 'main']);
+    }
+
+    test('happy path: switches from main to beta', () async {
+      final initial = await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      await addBranch(srcRepo.path, 'beta');
+
+      var confirmCalled = false;
+      final switched = await pluginService.switchChannel(
+        'tailscale',
+        'beta',
+        allowInsecure: true,
+        confirm: (preview) async {
+          confirmCalled = true;
+          expect(preview.branch, 'beta');
+          return true;
+        },
+      );
+
+      expect(switched.branch, 'beta');
+      expect(switched.rev, isNot(initial.rev));
+      expect(confirmCalled, isTrue);
+
+      // Marker on disk reflects new branch + rev.
+      final reread = readMarker('${home.path}/plugins/tailscale')!;
+      expect(reread.branch, 'beta');
+      expect(reread.rev, switched.rev);
+
+      // Canonical plugin files are present (the beta branch carries the
+      // same plugin.json / plugin.nix, but a distinct rev proves the
+      // re-clone happened).
+      expect(
+        File('${home.path}/plugins/tailscale/plugin.nix').existsSync(),
+        isTrue,
+      );
+      expect(
+        File('${home.path}/plugins/tailscale/plugin.json').existsSync(),
+        isTrue,
+      );
+    });
+
+    test(
+      'no-op: same branch returns existing marker without consent call',
+      () async {
+        final initial = await pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+
+        var confirmCalled = false;
+        final result = await pluginService.switchChannel(
+          'tailscale',
+          'main',
+          allowInsecure: true,
+          confirm: (_) async {
+            confirmCalled = true;
+            return true;
+          },
+        );
+
+        expect(result.rev, initial.rev);
+        expect(result.branch, 'main');
+        expect(confirmCalled, isFalse);
+      },
+    );
+
+    test('pinned refusal: throws PluginPinnedException', () async {
+      await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      await pluginService.pin('tailscale');
+      await addBranch(srcRepo.path, 'beta');
+
+      await expectLater(
+        () => pluginService.switchChannel(
+          'tailscale',
+          'beta',
+          allowInsecure: true,
+        ),
+        throwsA(
+          isA<PluginPinnedException>().having(
+            (e) => e.pluginId,
+            'pluginId',
+            'tailscale',
+          ),
+        ),
+      );
+    });
+
+    test(
+      'consent cancel: throws PluginInstallCancelled; marker unchanged',
+      () async {
+        final initial = await pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        await addBranch(srcRepo.path, 'beta');
+
+        await expectLater(
+          () => pluginService.switchChannel(
+            'tailscale',
+            'beta',
+            allowInsecure: true,
+            confirm: (_) async => false,
+          ),
+          throwsA(isA<PluginInstallCancelled>()),
+        );
+
+        // Marker is unchanged — still on main at original rev.
+        final after = readMarker('${home.path}/plugins/tailscale')!;
+        expect(after.branch, 'main');
+        expect(after.rev, initial.rev);
+      },
+    );
+
+    test(
+      'signature change accepted: operator confirmation clears old fingerprint',
+      () async {
+        final initial = await pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+        );
+        expect(initial.signatureFingerprint, isNull);
+
+        // Forge a pinned fingerprint to simulate a previously-signed
+        // install, so the path through "existing fp set but new commit
+        // is unsigned" is exercised.
+        writeMarker(
+          '${home.path}/plugins/${initial.id}',
+          initial.copyWith(signatureFingerprint: 'SHA256:fake-stable-key'),
+        );
+
+        await addBranch(srcRepo.path, 'beta');
+
+        // Confirm accepts the new (unsigned) commit.
+        final switched = await pluginService.switchChannel(
+          'tailscale',
+          'beta',
+          allowInsecure: true,
+          confirm: (_) async => true,
+        );
+
+        // Unlike refresh (which would throw), the confirmed switch
+        // clears the old fingerprint and adopts the new (null) one.
+        expect(switched.signatureFingerprint, isNull);
+        expect(switched.branch, 'beta');
+
+        final reread = readMarker('${home.path}/plugins/tailscale')!;
+        expect(reread.signatureFingerprint, isNull);
+      },
+    );
+  });
+
   group('PluginUrl.parse', () {
     test('parses github: with owner/repo', () {
       final p = PluginUrl.parse('github:fusion44/nixblitz-tailscale');

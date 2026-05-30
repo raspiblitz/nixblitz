@@ -105,6 +105,23 @@ class PluginSignatureMismatch implements Exception {
   }
 }
 
+/// Thrown by `PluginService.switchChannel` when the operator tries to
+/// switch a plugin's channel while the plugin is pinned
+/// (`autoUpdate == false`). Pin semantics are literal: the operator
+/// asked for "don't move me," so we don't move them. Surfaces a clear
+/// recovery path (`nixblitz plugin unpin <id>`).
+class PluginPinnedException implements Exception {
+  const PluginPinnedException({required this.pluginId});
+
+  /// Plugin id whose marker has `autoUpdate == false`.
+  final String pluginId;
+
+  @override
+  String toString() =>
+      'plugin $pluginId is pinned; unpin it first '
+      '(`nixblitz plugin unpin $pluginId`) before switching channels';
+}
+
 /// Signature of the consent callback `PluginService.install` invokes
 /// after fetching the manifest. Return `true` to proceed, `false` to
 /// abort (the install method then throws [PluginInstallCancelled]).

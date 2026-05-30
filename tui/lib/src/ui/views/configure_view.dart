@@ -14,6 +14,7 @@ import 'configure/field_editor.dart';
 import 'configure/plugin_catalog.dart';
 import 'plugin_action_view.dart';
 import 'plugin_install_view.dart';
+import 'plugin_switch_channel_view.dart';
 
 // ---------------------------------------------------------------------------
 // _MenuEntry — sealed sum type for the Configure tab bar
@@ -94,6 +95,10 @@ final _pendingInstallUrlProvider = StateProvider<String?>((ref) => null);
 final _runningPluginActionProvider = StateProvider<PluginAction?>(
   (ref) => null,
 );
+
+/// When non-null, Configure delegates to [PluginSwitchChannelView] for
+/// the plugin id stored here. Cleared on dismiss.
+final _switchingPluginIdProvider = StateProvider<String?>((ref) => null);
 
 /// Which column of Configure's two-column layout currently has the
 /// keyboard focus. `sidebar` is the section picker on the left;
@@ -210,6 +215,25 @@ class ConfigureView extends StatelessComponent {
       );
     }
 
+    // ── Plugin channel-switch wizard takeover ────────────────────────
+    final switchingPluginId = context.watch(_switchingPluginIdProvider);
+    if (switchingPluginId != null) {
+      final markers = context.read(installedPluginMarkersProvider);
+      final marker = markers
+          .where((m) => m.id == switchingPluginId)
+          .firstOrNull;
+      final currentBranch = marker?.branch ?? 'main';
+      return PluginSwitchChannelView(
+        pluginService: context.read(pluginServiceProvider),
+        pluginId: switchingPluginId,
+        currentBranch: currentBranch,
+        onDismiss: () {
+          context.read(_switchingPluginIdProvider.notifier).state = null;
+          context.invalidate(pluginAppVersionsProvider);
+        },
+      );
+    }
+
     // ── Plugin action runner takeover ────────────────────────────────
     final runningAction = context.watch(_runningPluginActionProvider);
     if (runningAction != null) {
@@ -315,8 +339,18 @@ class ConfigureView extends StatelessComponent {
               .length;
           contentRowCount = availableCount + 1;
         } else if (currentEntry is _ManifestEntry) {
+          // +1 for the synthetic "Switch channel…" row in the Actions section.
+          // The row is always rendered (pinned plugins show it as display-only
+          // but it occupies a slot); only installed plugins (those backed by a
+          // PluginManifest) have the switch-channel row — bundled apps don't
+          // have a PluginMarker and thus no channel to switch. Guard by
+          // checking whether a marker exists.
+          final hasMarker = context
+              .read(installedPluginMarkersProvider)
+              .any((m) => m.id == currentEntry.manifest.id);
           contentRowCount =
               currentEntry.manifest.fields.length +
+              (hasMarker ? 1 : 0) +
               _actionsFor(context, currentEntry.manifest.id).length;
         } else {
           contentRowCount = options.length;
@@ -493,19 +527,61 @@ class ConfigureView extends StatelessComponent {
 
     // Manifest entry: generic field dispatch, with a trailing
     // actions slice for plugins that declare any. Field indices
-    // come first; actions occupy `[fields.length, fields.length +
-    // actions.length)`.
+    // come first; then the synthetic "Switch channel…" row (for
+    // installed plugins that have a PluginMarker); then manifest
+    // actions occupy the remaining slots.
+    //
+    // Row layout when a marker exists:
+    //   [0 .. fieldCount)                  → fields
+    //   fieldCount                          → Switch channel… (synthetic)
+    //   [fieldCount+1 .. fieldCount+1+N)   → declared plugin actions
+    //
+    // When no marker (bundled app), the synthetic row is absent:
+    //   [0 .. fieldCount)                  → fields
+    //   [fieldCount .. fieldCount+N)       → declared plugin actions
     if (currentEntry is _ManifestEntry) {
       final manifest = currentEntry.manifest;
       final fieldCount = manifest.fields.length;
       final actions = _actionsFor(context, manifest.id);
+      final markers = context.read(installedPluginMarkersProvider);
+      final marker = markers.where((m) => m.id == manifest.id).firstOrNull;
+      final hasMarker = marker != null;
 
       if (selectedOption >= fieldCount) {
-        final actionIndex = selectedOption - fieldCount;
-        if (actionIndex < 0 || actionIndex >= actions.length) return;
-        context.read(_runningPluginActionProvider.notifier).state =
-            actions[actionIndex];
-        return;
+        if (hasMarker) {
+          // First slot after fields = synthetic Switch-channel row.
+          if (selectedOption == fieldCount) {
+            // Pinned plugins: switch not allowed — silently ignore Enter.
+            if (marker.autoUpdate == false) return;
+            // Guard: skip if a switch is already in progress.
+            if (context.read(_switchingPluginIdProvider) != null) return;
+            // Defer the StateProvider set to comply with CLAUDE.md pitfall
+            // #1 — setting a StateProvider inside onKeyEvent triggers an
+            // immediate rebuild that discards the rest of the handler. Use
+            // Future.microtask so the event loop processes it after the
+            // current key handler returns.
+            final pluginId = manifest.id;
+            Future.microtask(() {
+              context.read(_switchingPluginIdProvider.notifier).state =
+                  pluginId;
+            });
+            return;
+          }
+          // Rows after the synthetic Switch-channel slot → declared actions.
+          final actionIndex = selectedOption - fieldCount - 1;
+          if (actionIndex < 0 || actionIndex >= actions.length) return;
+          context.read(_runningPluginActionProvider.notifier).state =
+              actions[actionIndex];
+          return;
+        } else {
+          // No marker — no synthetic row; actions start immediately after
+          // fields.
+          final actionIndex = selectedOption - fieldCount;
+          if (actionIndex < 0 || actionIndex >= actions.length) return;
+          context.read(_runningPluginActionProvider.notifier).state =
+              actions[actionIndex];
+          return;
+        }
       }
 
       final field = manifest.fields[selectedOption];
@@ -736,7 +812,26 @@ class ConfigureView extends StatelessComponent {
     final actions = _actionsFor(ctx, manifest.id);
     final fieldCount = manifest.fields.length;
 
-    return [
+    // Look up the PluginMarker for this app, if it's an installed plugin.
+    final markers = ctx.read(installedPluginMarkersProvider);
+    final marker = markers.where((m) => m.id == manifest.id).firstOrNull;
+
+    // Row layout (when marker present):
+    //   [0 .. fieldCount)       → fields
+    //   fieldCount              → Switch channel… (synthetic)
+    //   [fieldCount+1 .. ..)   → declared actions
+    //
+    // When no marker, synthetic row is absent and actions start at fieldCount.
+
+    final result = <Component>[
+      // Channel info line near the top — visible only for installed plugins.
+      if (marker != null) ...[
+        Text(
+          'Channel: ${marker.branch}',
+          style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+        ),
+        const SizedBox(height: 1),
+      ],
       for (var i = 0; i < fieldCount; i++)
         FieldDisplayRow(
           field: manifest.fields[i],
@@ -744,7 +839,10 @@ class ConfigureView extends StatelessComponent {
           selected: selectedIndex == i,
           pending: isPending('${manifest.id}.${manifest.fields[i].name}'),
         ),
-      if (actions.isNotEmpty) ...[
+      // Actions section — shown when the plugin has a marker (installed
+      // plugin) or when it declares actions. The Switch-channel synthetic
+      // row is always first when a marker is present.
+      if (marker != null || actions.isNotEmpty) ...[
         const SizedBox(height: 1),
         const Text(
           'Actions',
@@ -753,13 +851,51 @@ class ConfigureView extends StatelessComponent {
             fontWeight: FontWeight.bold,
           ),
         ),
+        if (marker != null) ...[
+          // Synthetic Switch-channel row — row index fieldCount.
+          if (marker.autoUpdate) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${selectedIndex == fieldCount ? "> " : "  "}Switch channel…',
+                    style: TextStyle(
+                      color: selectedIndex == fieldCount
+                          ? const Color.fromRGB(247, 147, 26)
+                          : const Color.fromRGB(220, 220, 220),
+                      fontWeight: selectedIndex == fieldCount
+                          ? FontWeight.bold
+                          : FontWeight.normal,
+                    ),
+                  ),
+                  Text(
+                    '    Switch this plugin to a different release channel.',
+                    style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1),
+              child: Text(
+                '  Switch channel… (pinned — unpin to switch)',
+                style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
+              ),
+            ),
+          ],
+        ],
         for (var i = 0; i < actions.length; i++)
           _ActionRow(
             action: actions[i],
-            selected: selectedIndex == fieldCount + i,
+            selected:
+                selectedIndex == fieldCount + (marker != null ? 1 : 0) + i,
           ),
       ],
     ];
+    return result;
   }
 
   /// Look up the installed plugin matching [appId]. Returns its
@@ -790,6 +926,8 @@ class ConfigureView extends StatelessComponent {
     bool contentFocused,
   ) {
     final installedManifests = context.watch(installedPluginsProvider);
+    final installedMarkers = context.watch(installedPluginMarkersProvider);
+    final installedMarkerMap = {for (final m in installedMarkers) m.id: m};
     final installed = installedManifests.map((m) => m.id).toSet();
     final available = officialPluginCatalog
         .where((p) => !installed.contains(p.id))
@@ -807,10 +945,9 @@ class ConfigureView extends StatelessComponent {
     final totalRows = available.length + 1;
     final clamped = selectedIndex.clamp(0, totalRows - 1);
 
-    // Column width for the installed-plugins table. Names vary widely
-    // ("LNBits" vs "Lightning Network Daemon"), so pad to the widest
-    // (and the "Plugin" header) for an aligned version column. A future
-    // app-version column slots in as another padded segment.
+    // Column widths for the installed-plugins table.
+    // Names vary widely ("LNBits" vs "Lightning Network Daemon"), so
+    // pad to the widest (and the header) for aligned columns.
     final installedNameW = installedManifests
         .map((m) => m.name.length)
         .fold('Plugin'.length, (a, b) => a > b ? a : b);
@@ -825,6 +962,11 @@ class ConfigureView extends StatelessComponent {
     final appVersions =
         context.watch(pluginAppVersionsProvider).value ??
         const <String, String>{};
+    // App version column width — needed because it's no longer trailing.
+    final installedAppVerW = installedManifests
+        .map((m) => (appVersions[m.id] ?? '…').length)
+        .fold('App version'.length, (a, b) => a > b ? a : b);
+    // Channel is the trailing column — no padding needed on the last column.
 
     final children = <Component>[
       // Installed plugins (display-only) — surfaces each plugin's
@@ -842,14 +984,16 @@ class ConfigureView extends StatelessComponent {
         const SizedBox(height: 1),
         Text(
           '  ${'Plugin'.padRight(installedNameW)}   '
-          '${'Version'.padRight(installedVerW)}   App version',
+          '${'Version'.padRight(installedVerW)}   '
+          '${'App version'.padRight(installedAppVerW)}   Channel',
           style: TextStyle(color: contentFocused ? label : inactive),
         ),
         for (final m in installedManifests)
           Text(
             '  ${m.name.padRight(installedNameW)}   '
             '${pluginVersionLabel(m).padRight(installedVerW)}   '
-            '${appVersions[m.id] ?? '…'}',
+            '${(appVersions[m.id] ?? '…').padRight(installedAppVerW)}   '
+            '${installedMarkerMap[m.id]?.branch ?? '—'}',
             style: TextStyle(color: contentFocused ? normal : inactive),
           ),
         const SizedBox(height: 1),

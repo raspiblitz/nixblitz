@@ -419,6 +419,121 @@ class PluginService {
     }
   }
 
+  /// Re-clone the plugin's source at [newBranch] (mirrors `install` /
+  /// `refresh` but takes a branch override). Used to switch channels
+  /// (stable / beta / dev / custom) after install.
+  ///
+  /// Refuses on pinned plugins (`autoUpdate == false`) — throws
+  /// [PluginPinnedException]. Idempotent no-op when [newBranch]
+  /// matches the marker's current branch.
+  ///
+  /// [confirm] is invoked with a [PluginInstallPreview] built from the
+  /// new clone (branch, rev, manifest, signature) before any files
+  /// land on disk. Returning `false` aborts with
+  /// [PluginInstallCancelled]. The new fingerprint replaces the
+  /// marker's pinned one on confirm (unlike `refresh`, which throws on
+  /// fingerprint change — channel switch is explicit, not a quiet
+  /// upgrade, so the operator's confirmation IS the re-consent).
+  Future<PluginMarker> switchChannel(
+    String id,
+    String newBranch, {
+    bool allowInsecure = false,
+    PluginInstallConfirm? confirm,
+  }) async {
+    final pluginDir = Directory('$pluginsDir/$id');
+    final existing = readMarker(pluginDir.path);
+    if (existing == null) throw StateError('Plugin not installed: $id');
+
+    if (!existing.autoUpdate) throw PluginPinnedException(pluginId: id);
+
+    if (newBranch == existing.branch) {
+      LogService.info(
+        'PluginService: switchChannel $id no-op (already on $newBranch)',
+      );
+      return existing;
+    }
+
+    final parsed = PluginUrl.parse(existing.url, allowInsecure: allowInsecure);
+
+    final tmpDir = await Directory.systemTemp.createTemp(
+      'nixblitz-plugin-switch-',
+    );
+    try {
+      await _gitClone(parsed.cloneUrl, newBranch, tmpDir.path);
+      final pinnedRev = await _gitRevParseHead(tmpDir.path);
+
+      _rejectSymlinks(tmpDir.path);
+
+      final pluginSourceDir = parsed.subdir == null
+          ? tmpDir.path
+          : '${tmpDir.path}/${parsed.subdir}';
+
+      if (!File('$pluginSourceDir/plugin.json').existsSync()) {
+        throw StateError(
+          'plugin.json not found at subdir '
+          '`${parsed.subdir ?? "(root)"}` in the switched repo.',
+        );
+      }
+      final manifest = _readManifest(pluginSourceDir);
+      _requirePluginNix(pluginSourceDir);
+
+      final newSignature = await GitService(
+        repoDir: tmpDir.path,
+      ).verifyCommit();
+      final newFp = newSignature.fingerprint.isEmpty
+          ? null
+          : newSignature.fingerprint;
+
+      // Soft signature check: unlike refresh (which hard-throws on
+      // fingerprint mismatch), the consent prompt surfaces the new
+      // fingerprint and the operator's confirmation IS the re-consent.
+      final preview = PluginInstallPreview(
+        name: manifest.name,
+        description: manifest.description,
+        url: existing.url,
+        branch: newBranch,
+        pinnedRev: pinnedRev,
+        schemaVersion: manifest.schemaVersion,
+        signature: newSignature,
+      );
+      if (confirm != null) {
+        final ok = await confirm(preview);
+        if (!ok) throw const PluginInstallCancelled();
+      }
+
+      // Wipe + repopulate under the new branch.
+      pluginDir.deleteSync(recursive: true);
+      pluginDir.createSync(recursive: true);
+      _copyPluginFiles(
+        pluginSourceDir,
+        pluginDir.path,
+        extraRelPaths: manifest.tileManifests,
+      );
+
+      final updated = existing.copyWith(
+        branch: newBranch,
+        version: manifest.version ?? existing.version,
+        rev: pinnedRev,
+        signatureFingerprint: newFp,
+        clearSignatureFingerprint: newFp == null,
+      );
+      writeMarker(pluginDir.path, updated);
+
+      await _gitIntentToAdd(pluginDir.path);
+      _regen();
+
+      LogService.info(
+        'PluginService: switched $id branch ${existing.branch} → $newBranch '
+        '(pin ${existing.rev} → $pinnedRev)',
+      );
+      return updated;
+    } finally {
+      try {
+        await tmpDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
   /// Refresh every installed plugin in order.
   ///
   /// - When [includePinned] is `false`, plugins with
