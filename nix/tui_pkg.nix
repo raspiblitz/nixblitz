@@ -34,6 +34,7 @@ buildDartApplication {
       "tui"
       "templates"
       "scripts"
+      "branches.json"
       "pubspec.yaml"
       "analysis_options.yaml"
     ];

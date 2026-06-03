@@ -26,6 +26,7 @@
 ## Task 1: `DeclaredBranch` + `BranchManifest` models
 
 **Files:**
+
 - Create: `common/lib/src/models/branch/declared_branch.dart`
 - Create: `common/lib/src/models/branch/branch_manifest.dart`
 - Modify: `common/lib/common.dart` (export both)
@@ -362,6 +363,7 @@ Expected: `feat(common): branch manifest models — DeclaredBranch + BranchManif
 ## Task 2: `branches.json` + EmbeddedTemplates codegen + provider
 
 **Files:**
+
 - Create: `branches.json` (at repo root)
 - Modify: `scripts/` (codegen — find the script that builds `embedded_templates.g.dart` and extend it)
 - Modify: `common/lib/src/services/embedded_templates.dart` (expose a new `nixblitzBranchesJson` constant)
@@ -486,6 +488,7 @@ Expected: all green.
 ## Task 3: `SystemConfig.nixblitzBranch` field
 
 **Files:**
+
 - Modify: `common/lib/src/models/nixblitz_config.dart`
 - Test: relevant existing config-test file (find via `find common/test -name "*config*"`)
 
@@ -579,6 +582,7 @@ Expected: green.
 ## Task 4: `ScaffoldService` URL substitution
 
 **Files:**
+
 - Modify: `common/lib/src/services/scaffold_service.dart`
 - Test: `common/test/services/scaffold_service_test.dart` (extend if exists; create if not)
 
@@ -804,6 +808,7 @@ Expected: green.
 ## Task 5: Plugin manifest schema v5 + optional `branches` field
 
 **Files:**
+
 - Modify: `common/lib/src/models/plugin/plugin_manifest.dart`
 - Test: `common/test/models/plugin/plugin_manifest_test.dart` (extend)
 
@@ -906,6 +911,7 @@ Expected: green.
 ## Task 6: In-tree plugin migration — `branches` block in each `plugin.json`
 
 **Files:**
+
 - Modify: each in-tree plugin's `plugin.json`. Find them via:
 
 ```bash
@@ -971,6 +977,7 @@ Expected: green.
 ## Task 7: Rename `switchChannel` → `switchBranch` (service + CLI)
 
 **Files:**
+
 - Modify: `common/lib/src/services/plugin_service.dart`
 - Modify: `tui/lib/src/cli/plugin_cli.dart`
 - Modify: existing test files referencing `switchChannel`
@@ -999,12 +1006,12 @@ Expected: a handful of files — the service, the CLI command class, test files,
 
 Use `Edit` with `replace_all: true` to swap names in each file:
 
-| Old | New |
-| --- | --- |
-| `switchChannel` | `switchBranch` |
-| `PluginSwitchChannelCommand` | `PluginSwitchBranchCommand` (CLI command class) |
-| `'switch-channel'` (CLI subcommand string) | `'switch-branch'` |
-| `_runSwitchChannel` | `_runSwitchBranch` |
+| Old                                                                | New                                             |
+| ------------------------------------------------------------------ | ----------------------------------------------- |
+| `switchChannel`                                                    | `switchBranch`                                  |
+| `PluginSwitchChannelCommand`                                       | `PluginSwitchBranchCommand` (CLI command class) |
+| `'switch-channel'` (CLI subcommand string)                         | `'switch-branch'`                               |
+| `_runSwitchChannel`                                                | `_runSwitchBranch`                              |
 | Comment / docstring mentions of "switch channel" → "switch branch" |
 
 Do NOT yet rename `plugin_switch_channel_view.dart` to `plugin_switch_branch_view.dart` — that's T10 (it's tied to the picker integration). Just update method calls inside it.
@@ -1025,6 +1032,7 @@ Expected: green. All existing tests should still pass after the mechanical renam
 ## Task 8: `PluginService.install` default-branch resolution from manifest
 
 **Files:**
+
 - Modify: `common/lib/src/services/plugin_service.dart`
 - Test: `common/test/services/plugin_service_test.dart` (extend)
 
@@ -1117,6 +1125,7 @@ Expected: green.
 ## Task 9: `BranchPicker` widget
 
 **Files:**
+
 - Create: `tui/lib/src/ui/widgets/branch_picker.dart`
 - Test: `tui/test/ui/widgets/branch_picker_test.dart`
 
@@ -1278,6 +1287,7 @@ Expected: green.
 ## Task 10: Rename + integrate `PluginSwitchBranchView`
 
 **Files:**
+
 - Rename: `tui/lib/src/ui/views/plugin_switch_channel_view.dart` → `plugin_switch_branch_view.dart`
 - Modify: `tui/lib/src/ui/views/configure_view.dart` (per-plugin pane reference + action label)
 - Modify: any test files referencing the old name
@@ -1337,6 +1347,7 @@ Expected: green.
 ## Task 11: Configure view System pane — new "Branch" row
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/configure_view.dart`
 - Test: `tui/test/ui/views/configure_view_test.dart` (extend if exists; otherwise verify manually for v1)
 
@@ -1403,6 +1414,7 @@ Expected: green.
 ## Task 12: Apply view lock-file update threading
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/apply_view.dart` (or wherever `nixos-rebuild switch` is invoked)
 - Test: manual verification + any existing apply-flow tests
 

@@ -1,0 +1,7 @@
+{
+  "stable": {
+    "ref": "main",
+    "description": "Production-quality nixblitz; what new operators get by default.",
+    "default": true
+  }
+}

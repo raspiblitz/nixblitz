@@ -34,8 +34,8 @@ widget.
 - **Vocabulary: "branches", not "channels".** A branch is literally
   what we store on the marker and what the operator picks; "channel"
   was borrowed distro-baggage we don't earn. Rename `PluginSwitch
-  ChannelView` → `PluginSwitchBranchView` and `PluginService.switch
-  Channel` → `switchBranch` as part of this work. The marker's
+ChannelView` → `PluginSwitchBranchView` and `PluginService.switch
+Channel` → `switchBranch` as part of this work. The marker's
   existing `branch` field stays correctly named.
 - **Publisher-controlled naming.** No fixed semantic tiers
   (`stable`/`beta`/`dev`) — each publisher picks their own labels.
@@ -61,10 +61,10 @@ widget.
 - **Operator flake plumbing: scaffold-time URL substitution.**
   `ScaffoldService` rewrites `~/nixblitz/flake.nix`'s `nixblitz.url`
   line with `?ref=<chosen-ref>` based on `SystemConfig.nixblitzBranch`
-  + embedded `branches.json`. On-disk flake stays hand-editable.
-  `custom` lets the operator pick any ref string but keeps the
-  canonical URL — fork-of-the-project use cases stay hand-edit
-  territory (intentional — different threat model).
+  - embedded `branches.json`. On-disk flake stays hand-editable.
+    `custom` lets the operator pick any ref string but keeps the
+    canonical URL — fork-of-the-project use cases stay hand-edit
+    territory (intentional — different threat model).
 - **Plugin fallback (no `branches` block in manifest): free-form
   branch input only.** Migrate all in-tree plugins as part of this
   work — each gets at least
@@ -276,7 +276,7 @@ write marker with branch = <ref string>                                operator 
 
 **Two specific behaviours worth pinning:**
 
-1. **The picker shows the operator's chosen *key* highlighted, not
+1. **The picker shows the operator's chosen _key_ highlighted, not
    the ref.** If a publisher renames their `next` ref's underlying
    branch from `next` to `develop` (changes the `ref` in
    branches.json), the operator's choice of "next" carries over —

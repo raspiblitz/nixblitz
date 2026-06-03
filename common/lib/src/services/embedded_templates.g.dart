@@ -1,7 +1,17 @@
 // GENERATED — do not edit. Run 'just gen-templates' to regenerate.
-// Source: templates/
+// Source: templates/ + branches.json
 
 part of 'embedded_templates.dart';
+
+const String _nixblitzBranchesJson = r'''
+{
+  "stable": {
+    "ref": "main",
+    "description": "Production-quality nixblitz; what new operators get by default.",
+    "default": true
+  }
+}
+''';
 
 const String _flake = r'''
 {

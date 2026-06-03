@@ -4,6 +4,7 @@ export 'src/models/configure/app_manifest.dart';
 export 'src/models/bitcoin_network.dart';
 export 'src/models/branch/branch_manifest.dart';
 export 'src/models/branch/declared_branch.dart';
+export 'src/models/branch/nixblitz_branch_manifest.dart';
 export 'src/models/config_migrations.dart';
 export 'src/models/install_state.dart';
 export 'src/models/nixblitz_config.dart';

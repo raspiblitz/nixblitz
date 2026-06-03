@@ -1,5 +1,6 @@
 // Generates common/lib/src/services/embedded_templates.g.dart
-// from the template files in templates/.
+// from the template files in templates/ and the repo-root
+// branches.json.
 //
 // Run: dart run scripts/gen_embedded_templates.dart
 // Or:  just gen-templates
@@ -8,10 +9,16 @@ import 'dart:io';
 
 void main() {
   final templateDir = Directory('templates');
+  final branchesFile = File('branches.json');
   final outputFile = File('common/lib/src/services/embedded_templates.g.dart');
 
   if (!templateDir.existsSync()) {
     stderr.writeln('Error: templates/ directory not found. Run from repo root.');
+    exit(1);
+  }
+
+  if (!branchesFile.existsSync()) {
+    stderr.writeln('Error: branches.json not found at repo root.');
     exit(1);
   }
 
@@ -30,9 +37,18 @@ void main() {
   final buffer = StringBuffer();
   buffer.writeln(
       "// GENERATED — do not edit. Run 'just gen-templates' to regenerate.");
-  buffer.writeln('// Source: templates/');
+  buffer.writeln('// Source: templates/ + branches.json');
   buffer.writeln();
   buffer.writeln("part of 'embedded_templates.dart';");
+  buffer.writeln();
+
+  // Embed branches.json from the repo root. nixblitz's own branch
+  // manifest — the operator picks one of these for nixblitz-self.
+  final branchesContent = branchesFile.readAsStringSync();
+  buffer.writeln('const String _nixblitzBranchesJson = r\'\'\'');
+  buffer.write(branchesContent);
+  if (!branchesContent.endsWith('\n')) buffer.writeln();
+  buffer.writeln("''';");
   buffer.writeln();
 
   final mapEntries = <String>[];
@@ -61,7 +77,7 @@ void main() {
 
   outputFile.parent.createSync(recursive: true);
   outputFile.writeAsStringSync(buffer.toString());
-  print('Generated ${files.length} templates -> ${outputFile.path}');
+  print('Generated ${files.length} templates + branches.json -> ${outputFile.path}');
 }
 
 String _pathToVarName(String path) {
