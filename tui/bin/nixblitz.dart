@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -95,7 +96,20 @@ Future<void> _autoRefreshTemplatesIfDrifted(String baseDir) async {
 
   try {
     final driftedPaths = <String>[...drift.missing, ...drift.modified];
-    ScaffoldService(targetDir: baseDir).refreshTemplatesSync();
+    final manifest = BranchManifest.fromJson(
+      jsonDecode(EmbeddedTemplates.nixblitzBranchesJson)
+          as Map<String, dynamic>,
+    );
+    // Read the on-disk config directly: this runs before the TUI's
+    // ProviderContainer is built, so no provider lookup is available.
+    final configSvc = ConfigService(baseDir: baseDir);
+    final config = configSvc.configExists()
+        ? await configSvc.readConfig()
+        : null;
+    ScaffoldService(targetDir: baseDir).refreshTemplatesSync(
+      manifest: manifest,
+      nixblitzBranchField: config?.system.nixblitzBranch,
+    );
     final git = GitService(repoDir: baseDir);
     final committed = await git.commitPaths(
       driftedPaths,

@@ -192,9 +192,13 @@ class _ApplyViewState extends State<ApplyView> {
       _append('');
       _append('> auto-rewrite drifted templates ($n file${n == 1 ? "" : "s"})');
 
-      final written = ScaffoldService(
-        targetDir: baseDirPath,
-      ).refreshTemplatesSync();
+      final manifest = context.read(nixblitzBranchManifestProvider);
+      final config = context.read(configProvider).value;
+      final written = ScaffoldService(targetDir: baseDirPath)
+          .refreshTemplatesSync(
+            manifest: manifest,
+            nixblitzBranchField: config?.system.nixblitzBranch,
+          );
       _append('  wrote $written template files');
 
       _append('  > git commit -m "Refresh templates from TUI" (scoped)');

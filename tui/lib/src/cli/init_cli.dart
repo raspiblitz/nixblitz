@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -77,15 +78,19 @@ Future<int> _runInit(
   }
 
   try {
+    final manifest = BranchManifest.fromJson(
+      jsonDecode(EmbeddedTemplates.nixblitzBranchesJson)
+          as Map<String, dynamic>,
+    );
     final scaffold = ScaffoldService(targetDir: baseDir);
     if (scaffold.needsScaffold()) {
-      await scaffold.scaffold();
+      await scaffold.scaffold(manifest: manifest);
     } else {
       // Existing dir (e.g. partial init or --force on a populated
       // dir): refresh templates so the on-disk Nix matches the
       // bundled set; the binary it shipped with is the source of
       // truth.
-      scaffold.refreshTemplatesSync();
+      scaffold.refreshTemplatesSync(manifest: manifest);
     }
 
     final config = NixblitzConfig(
