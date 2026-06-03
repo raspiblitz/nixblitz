@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:pub_semver/pub_semver.dart';
 
+import 'package:common/src/models/branch/branch_manifest.dart';
 import 'package:common/src/models/configure/app_manifest.dart';
 import 'package:common/src/models/plugin/app_version_command.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
@@ -32,16 +33,22 @@ import 'package:common/src/services/log_service.dart';
 
 /// What version of the manifest schema this TUI understands.
 ///
-/// v3 (current): `tile_manifests` field added — plugins can ship
-/// DSL tile manifest paths that the dashboard registers when the
-/// plugin is enabled. Backward-compatible with v2 (the field
-/// defaults to empty when absent).
+/// v4 (current): `branches` field added — publishers may declare a
+/// branch set (operator-facing labels → git refs + metadata) at the
+/// manifest level so the install / switch-branch flow can pick a
+/// default and offer alternatives. Backward-compatible with v3
+/// (the field is optional; absent means "no declared branches").
+///
+/// v3: `tile_manifests` field added — plugins can ship DSL tile
+/// manifest paths that the dashboard registers when the plugin is
+/// enabled. Backward-compatible with v2 (the field defaults to
+/// empty when absent).
 ///
 /// v2: privileged actions are dispatched as systemd `unit:`
 /// references rather than `command:` + `run_as_root: true`.
 /// Tile commands always run as the admin user (no `run_as_root` on
 /// `dashboard`). See sudo posture / Posture A in the project plan.
-const int currentPluginManifestVersion = 3;
+const int currentPluginManifestVersion = 4;
 
 /// Lowest manifest schema version this TUI can safely load. v1
 /// manifests are rejected because their `run_as_root: true` action
@@ -153,6 +160,13 @@ class PluginManifest {
   /// [AppVersionCommand].
   final AppVersionCommand? appVersionCommand;
 
+  /// Optional publisher-declared branch set (schema v4+). When set,
+  /// the install / switch-branch flow uses this to pick a default
+  /// ref and surface alternative branches to operators. Null when
+  /// the plugin's manifest omits the `branches` block (the common
+  /// case for older or simpler plugins).
+  final BranchManifest? branches;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -171,6 +185,7 @@ class PluginManifest {
     this.streamers = const [],
     this.tileManifests = const [],
     this.appVersionCommand,
+    this.branches,
   }) : id = id ?? name;
 
   factory PluginManifest.fromJsonString(String s) =>
@@ -378,6 +393,11 @@ class PluginManifest {
       }
     }
 
+    final branchesJson = json['branches'];
+    final branches = branchesJson is Map<String, dynamic>
+        ? BranchManifest.fromJson(branchesJson)
+        : null;
+
     return PluginManifest(
       schemaVersion: schemaVersion,
       minTuiVersion: minTui,
@@ -396,6 +416,7 @@ class PluginManifest {
       streamers: List.unmodifiable(streamersList),
       tileManifests: List.unmodifiable(tileManifestsList),
       appVersionCommand: appVersionCommand,
+      branches: branches,
     );
   }
 
@@ -420,5 +441,6 @@ class PluginManifest {
       'streamers': [for (final s in streamers) s.toJson()],
     if (tileManifests.isNotEmpty) 'tile_manifests': tileManifests,
     if (appVersionCommand != null) 'app_version': appVersionCommand!.toJson(),
+    if (branches != null) 'branches': branches!.toJson(),
   };
 }

@@ -116,4 +116,66 @@ void main() {
       ]);
     });
   });
+
+  group('plugin manifest schema branches block (T5)', () {
+    test('older-schema manifest with no branches block still parses', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 3, 'min_tui_version': 3, 'name': 'Test'},
+        'id': 'test',
+      });
+      expect(m.branches, isNull);
+    });
+
+    test('new-schema manifest with branches block parses', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': currentPluginManifestVersion,
+          'min_tui_version': 3,
+          'name': 'Test',
+        },
+        'id': 'test',
+        'branches': {
+          'stable': {'ref': 'main', 'description': 'Prod', 'default': true},
+          'next': {'ref': 'develop'},
+        },
+      });
+      expect(m.branches, isNotNull);
+      expect(m.branches!.branches['stable']!.ref, 'main');
+      expect(m.branches!.branches['stable']!.description, 'Prod');
+      expect(m.branches!.branches['stable']!.isDefault, isTrue);
+      expect(m.branches!.branches['next']!.ref, 'develop');
+      expect(m.branches!.defaultKey, 'stable');
+    });
+
+    test('new-schema manifest with no branches block parses (optional)', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': currentPluginManifestVersion,
+          'min_tui_version': 3,
+          'name': 'Test',
+        },
+        'id': 'test',
+      });
+      expect(m.branches, isNull);
+    });
+
+    test('toJson roundtrips a manifest with branches', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {
+          'schema_version': currentPluginManifestVersion,
+          'min_tui_version': 3,
+          'name': 'Test',
+        },
+        'id': 'test',
+        'branches': {
+          'stable': {'ref': 'main', 'default': true},
+        },
+      });
+      final back = PluginManifest.fromJson(m.toJson());
+      expect(back.branches, isNotNull);
+      expect(back.branches!.branches['stable']!.ref, 'main');
+      expect(back.branches!.branches['stable']!.isDefault, isTrue);
+      expect(back.branches!.defaultKey, 'stable');
+    });
+  });
 }
