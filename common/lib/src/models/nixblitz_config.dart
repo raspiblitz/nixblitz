@@ -30,6 +30,15 @@ class SystemConfig {
   /// mode is used throughout.
   final bool tor;
 
+  /// Operator's pick of which nixblitz branch to track. Null means
+  /// "use the embedded manifest's default:true entry" — the scaffold
+  /// service materialises that default into the flake without
+  /// pinning the operator's choice. A non-null value is either a
+  /// declared key from the embedded manifest (e.g. `"stable"`,
+  /// `"next"`) or the `"custom:<ref>"` escape-hatch string the
+  /// operator types into the branch picker.
+  final String? nixblitzBranch;
+
   const SystemConfig({
     required this.hostname,
     required this.timezone,
@@ -37,6 +46,7 @@ class SystemConfig {
     this.diskDevice = '',
     this.shell = 'bash',
     this.tor = true,
+    this.nixblitzBranch,
   });
 
   factory SystemConfig.defaults() => const SystemConfig(
@@ -55,6 +65,7 @@ class SystemConfig {
     diskDevice: json['disk_device'] as String? ?? '',
     shell: json['shell'] as String? ?? 'bash',
     tor: json['tor'] as bool? ?? true,
+    nixblitzBranch: json['nixblitz_branch'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +75,7 @@ class SystemConfig {
     'disk_device': diskDevice,
     'shell': shell,
     'tor': tor,
+    'nixblitz_branch': nixblitzBranch,
   };
 
   SystemConfig copyWith({
@@ -73,6 +85,7 @@ class SystemConfig {
     String? diskDevice,
     String? shell,
     bool? tor,
+    String? nixblitzBranch,
   }) => SystemConfig(
     hostname: hostname ?? this.hostname,
     timezone: timezone ?? this.timezone,
@@ -80,6 +93,7 @@ class SystemConfig {
     diskDevice: diskDevice ?? this.diskDevice,
     shell: shell ?? this.shell,
     tor: tor ?? this.tor,
+    nixblitzBranch: nixblitzBranch ?? this.nixblitzBranch,
   );
 
   @override
@@ -90,11 +104,19 @@ class SystemConfig {
       other.platform == platform &&
       other.diskDevice == diskDevice &&
       other.shell == shell &&
-      other.tor == tor;
+      other.tor == tor &&
+      other.nixblitzBranch == nixblitzBranch;
 
   @override
-  int get hashCode =>
-      Object.hash(hostname, timezone, platform, diskDevice, shell, tor);
+  int get hashCode => Object.hash(
+    hostname,
+    timezone,
+    platform,
+    diskDevice,
+    shell,
+    tor,
+    nixblitzBranch,
+  );
 }
 
 class NixblitzConfig {

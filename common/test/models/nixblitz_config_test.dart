@@ -368,4 +368,54 @@ void main() {
       expect(r.tor, isFalse);
     });
   });
+
+  group('SystemConfig nixblitzBranch (T3)', () {
+    test('SystemConfig without nixblitz_branch field decodes to null', () {
+      final s = SystemConfig.fromJson({
+        'hostname': 'nixblitz',
+        'timezone': 'UTC',
+        'platform': 'x86',
+        // no nixblitz_branch key
+      });
+      expect(s.nixblitzBranch, isNull);
+    });
+
+    test('SystemConfig with nixblitz_branch roundtrips', () {
+      final s = SystemConfig(
+        hostname: 'nixblitz',
+        timezone: 'UTC',
+        platform: 'x86',
+        nixblitzBranch: 'stable',
+      );
+      final back = SystemConfig.fromJson(s.toJson());
+      expect(back.nixblitzBranch, 'stable');
+    });
+
+    test('SystemConfig copyWith preserves nixblitzBranch', () {
+      final s = SystemConfig(
+        hostname: 'nixblitz',
+        timezone: 'UTC',
+        platform: 'x86',
+        nixblitzBranch: 'custom:plugins-nostr-wot',
+      );
+      expect(
+        s.copyWith(hostname: 'other').nixblitzBranch,
+        'custom:plugins-nostr-wot',
+      );
+    });
+
+    test('SystemConfig copyWith can update nixblitzBranch', () {
+      final s = SystemConfig(
+        hostname: 'nixblitz',
+        timezone: 'UTC',
+        platform: 'x86',
+        nixblitzBranch: 'stable',
+      );
+      expect(s.copyWith(nixblitzBranch: 'next').nixblitzBranch, 'next');
+    });
+
+    test('SystemConfig.defaults() has null nixblitzBranch', () {
+      expect(SystemConfig.defaults().nixblitzBranch, isNull);
+    });
+  });
 }
