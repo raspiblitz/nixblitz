@@ -4,6 +4,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
+import '../widgets/branch_picker.dart';
 import '../widgets/option_editor.dart';
 import '../widgets/password_input.dart';
 import '../widgets/tappable.dart';
@@ -99,6 +100,38 @@ final _runningPluginActionProvider = StateProvider<PluginAction?>(
 /// When non-null, Configure delegates to [PluginSwitchBranchView] for
 /// the plugin id stored here. Cleared on dismiss.
 final _switchingPluginIdProvider = StateProvider<String?>((ref) => null);
+
+/// When true, the BranchPicker overlay is rendered above the System
+/// section so the operator can pick which nixblitz branch their flake
+/// tracks. The overlay writes into [SystemConfig.nixblitzBranch] on
+/// confirm; ScaffoldService rewrites the flake URL on the next Apply.
+final _branchPickerActiveProvider = StateProvider<bool>((ref) => false);
+
+/// Format the System pane's Branch row display value from the
+/// operator's [configValue] and the embedded [manifest].
+///
+/// - null            -> `<default-key> (ref: <default-ref>)` — the
+///                       ScaffoldService will materialise the manifest's
+///                       default into the flake.
+/// - `custom:<r>`    -> `custom (ref: <r>)` — operator-typed escape hatch.
+/// - declared key    -> `<key> (ref: <ref>)`.
+/// - unknown key     -> `<key> (no longer declared, falling back to`
+///                       `<default-key>)` — the operator's pin lost its
+///                       declaration in a newer manifest.
+String _formatBranchDisplay(String? configValue, BranchManifest manifest) {
+  if (configValue == null) {
+    final dk = manifest.defaultKey;
+    if (dk == null) return '(no default declared)';
+    return '$dk (ref: ${manifest.branches[dk]!.ref})';
+  }
+  if (configValue.startsWith('custom:')) {
+    return 'custom (ref: ${configValue.substring('custom:'.length)})';
+  }
+  final entry = manifest.branches[configValue];
+  if (entry != null) return '$configValue (ref: ${entry.ref})';
+  final dk = manifest.defaultKey;
+  return '$configValue (no longer declared, falling back to ${dk ?? '?'})';
+}
 
 /// Which column of Configure's two-column layout currently has the
 /// keyboard focus. `sidebar` is the section picker on the left;
@@ -260,8 +293,13 @@ class ConfigureView extends StatelessComponent {
     final selectedOption = context.watch(_selectedOptionProvider);
     final statusMessage = context.watch(_statusMessageProvider);
     final editingField = context.watch(_editingFieldProvider);
-    // Yield focus while a modal popup is up — sudo / help.
-    final modalActive = context.watch(modalActiveProvider);
+    // Yield focus while a modal popup is up — sudo / help / branch picker.
+    // The branch picker is a Stack-sibling overlay (not a takeover) so
+    // its visibility is folded into modalActive locally rather than via
+    // ui_state_provider, mirroring how the picker is scoped to this view.
+    final branchPickerActive = context.watch(_branchPickerActiveProvider);
+    final modalActive =
+        context.watch(modalActiveProvider) || branchPickerActive;
     final registry = context.watch(appManifestRegistryProvider);
 
     // Build the manifest-driven menu: System + all apps + Plugins.
@@ -364,7 +402,7 @@ class ConfigureView extends StatelessComponent {
           contentRowCount = options.length;
         }
 
-        return Focusable(
+        final body = Focusable(
           focused: !modalActive,
           onKeyEvent: (event) {
             try {
@@ -487,6 +525,46 @@ class ConfigureView extends StatelessComponent {
               ],
             ],
           ),
+        );
+
+        // Stack-sibling overlay for the BranchPicker. Rendered above the
+        // body Focusable when _branchPickerActiveProvider is true; the
+        // body's Focusable yields focus via the modalActive gate above
+        // (CLAUDE.md pitfall #6) so the picker's Focusable catches the
+        // keys.
+        if (!branchPickerActive) {
+          return body;
+        }
+        return Stack(
+          children: [
+            body,
+            Container(
+              padding: const EdgeInsets.all(2),
+              child: BranchPicker(
+                manifest: context.watch(nixblitzBranchManifestProvider),
+                currentValue: config.system.nixblitzBranch,
+                focused: true,
+                onSelected: (newValue) {
+                  // newValue is a declared key (e.g. "stable") or the
+                  // encoded "custom:<ref>" form. Persisted as-is —
+                  // ScaffoldService resolves it against the manifest at
+                  // flake-rewrite time. No immediate scaffold trigger:
+                  // the operator sees the new value reflected in the
+                  // Branch row and rebuilds on demand via Apply.
+                  final updated = config.copyWith(
+                    system: config.system.copyWith(nixblitzBranch: newValue),
+                  );
+                  context.read(configProvider.notifier).updateConfig(updated);
+                  context.read(_branchPickerActiveProvider.notifier).state =
+                      false;
+                },
+                onCancel: () {
+                  context.read(_branchPickerActiveProvider.notifier).state =
+                      false;
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -612,8 +690,8 @@ class ConfigureView extends StatelessComponent {
   }
 
   /// Handle Enter for the System tab (typed block — hostname,
-  /// timezone, shell, password). Platform is not editable post-
-  /// install — see the comment in [_buildSystemOptions].
+  /// timezone, shell, tor, branch, password). Platform is not editable
+  /// post-install — see the comment in [_buildSystemOptions].
   void _handleSystemEnter(
     BuildContext context,
     NixblitzConfig config,
@@ -641,6 +719,17 @@ class ConfigureView extends StatelessComponent {
         );
         context.read(configProvider.notifier).updateConfig(torUpdated);
       case 4:
+        // Branch — open the BranchPicker overlay. The overlay's
+        // onSelected handler writes into SystemConfig.nixblitzBranch
+        // and ScaffoldService rewrites the flake URL on next Apply.
+        // Defer the StateProvider set to a microtask so the rest of
+        // this handler returns cleanly first (CLAUDE.md pitfall #1 —
+        // setting a provider mid-handler triggers a rebuild that
+        // discards the remaining sync work).
+        Future.microtask(() {
+          context.read(_branchPickerActiveProvider.notifier).state = true;
+        });
+      case 5:
         // Password change — authenticate sudo first.
         final session = context.read(sudoSessionProvider);
         session.ensureFresh().then((ok) {
@@ -743,7 +832,12 @@ class ConfigureView extends StatelessComponent {
     bool isPending(String key) => pendingKeys.contains(key);
 
     return switch (entry) {
-      _SystemEntry() => _buildSystemOptions(config, selectedIndex, isPending),
+      _SystemEntry() => _buildSystemOptions(
+        ctx,
+        config,
+        selectedIndex,
+        isPending,
+      ),
       _ManifestEntry(:final manifest) => _buildManifestOptions(
         ctx,
         config,
@@ -762,6 +856,7 @@ class ConfigureView extends StatelessComponent {
   // ---------- System (typed block — behaviour unchanged) ----------
 
   List<Component> _buildSystemOptions(
+    BuildContext ctx,
     NixblitzConfig config,
     int selectedIndex,
     bool Function(String) isPending,
@@ -771,6 +866,7 @@ class ConfigureView extends StatelessComponent {
     // line all derive from it) and flipping `pi5 ↔ x86 ↔ vm` post-
     // install produces an unbootable system. The wizard sets it
     // once; subsequent changes require a fresh install.
+    final branchManifest = ctx.watch(nixblitzBranchManifestProvider);
     return [
       TextOptionEditor(
         label: 'hostname',
@@ -798,10 +894,24 @@ class ConfigureView extends StatelessComponent {
         focused: selectedIndex == 3,
         pending: isPending('system.tor'),
       ),
+      // Branch — operator's pick of which nixblitz branch the flake
+      // tracks. Editor is the shared BranchPicker overlay, opened
+      // via _handleSystemEnter when selectedIndex == 4. Display-only
+      // here; the pending marker fires when the stored value differs
+      // from the on-disk config (e.g. operator picked a non-default).
+      TextOptionEditor(
+        label: 'Branch',
+        value: _formatBranchDisplay(
+          config.system.nixblitzBranch,
+          branchManifest,
+        ),
+        focused: selectedIndex == 4,
+        pending: isPending('system.nixblitz_branch'),
+      ),
       TextOptionEditor(
         label: 'password',
         value: 'Press Enter to change',
-        focused: selectedIndex == 4,
+        focused: selectedIndex == 5,
         // No pending marker — password is not a config field.
       ),
     ];
