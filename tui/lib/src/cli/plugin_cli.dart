@@ -18,7 +18,7 @@ class PluginCommand extends Command<int> {
     addSubcommand(PluginUpdateCommand(baseDir));
     addSubcommand(PluginPinCommand(baseDir));
     addSubcommand(PluginUnpinCommand(baseDir));
-    addSubcommand(PluginSwitchChannelCommand(baseDir));
+    addSubcommand(PluginSwitchBranchCommand(baseDir));
   }
 
   @override
@@ -26,7 +26,7 @@ class PluginCommand extends Command<int> {
 
   @override
   final String description =
-      'Manage installed plugins (add / remove / list / update / pin / unpin / switch-channel).';
+      'Manage installed plugins (add / remove / list / update / pin / unpin / switch-branch).';
 }
 
 /// Shared catch-all wrapper: any thrown exception from a plugin
@@ -198,8 +198,8 @@ class PluginUnpinCommand extends Command<int> {
   );
 }
 
-class PluginSwitchChannelCommand extends Command<int> {
-  PluginSwitchChannelCommand(this.baseDir) {
+class PluginSwitchBranchCommand extends Command<int> {
+  PluginSwitchBranchCommand(this.baseDir) {
     argParser
       ..addFlag(
         'yes',
@@ -217,20 +217,20 @@ class PluginSwitchChannelCommand extends Command<int> {
   final String baseDir;
 
   @override
-  final String name = 'switch-channel';
+  final String name = 'switch-branch';
 
   @override
   final String description =
-      'Re-clone the plugin from a different branch (channel switch). '
+      'Re-clone the plugin from a different branch. '
       'Pinned plugins are refused — unpin first.';
 
   @override
   String get invocation =>
-      'nixblitz plugin switch-channel <id> <branch> [-y] [--insecure]';
+      'nixblitz plugin switch-branch <id> <branch> [-y] [--insecure]';
 
   @override
   Future<int> run() => _runWithErrorReport(
-    () => _runSwitchChannel(PluginService(baseDir: baseDir), argResults!),
+    () => _runSwitchBranch(PluginService(baseDir: baseDir), argResults!),
   );
 }
 
@@ -561,11 +561,11 @@ Future<int> _runPin(
   return 0;
 }
 
-Future<int> _runSwitchChannel(PluginService svc, ArgResults args) async {
+Future<int> _runSwitchBranch(PluginService svc, ArgResults args) async {
   final rest = args.rest;
   if (rest.length != 2) {
     stderr.writeln(
-      'Usage: nixblitz plugin switch-channel <id> <branch> [-y] [--insecure]',
+      'Usage: nixblitz plugin switch-branch <id> <branch> [-y] [--insecure]',
     );
     return 2;
   }
@@ -575,7 +575,7 @@ Future<int> _runSwitchChannel(PluginService svc, ArgResults args) async {
   final insecure = args['insecure'] as bool;
 
   try {
-    final marker = await svc.switchChannel(
+    final marker = await svc.switchBranch(
       id,
       branch,
       allowInsecure: insecure,

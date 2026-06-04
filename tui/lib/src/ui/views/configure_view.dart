@@ -215,7 +215,7 @@ class ConfigureView extends StatelessComponent {
       );
     }
 
-    // ── Plugin channel-switch wizard takeover ────────────────────────
+    // ── Plugin branch-switch wizard takeover ─────────────────────────
     final switchingPluginId = context.watch(_switchingPluginIdProvider);
     if (switchingPluginId != null) {
       final markers = context.read(installedPluginMarkersProvider);
@@ -339,11 +339,11 @@ class ConfigureView extends StatelessComponent {
               .length;
           contentRowCount = availableCount + 1;
         } else if (currentEntry is _ManifestEntry) {
-          // +1 for the synthetic "Switch channel…" row in the Actions section.
+          // +1 for the synthetic "Switch branch…" row in the Actions section.
           // The row is always rendered (pinned plugins show it as display-only
           // but it occupies a slot); only installed plugins (those backed by a
-          // PluginManifest) have the switch-channel row — bundled apps don't
-          // have a PluginMarker and thus no channel to switch. Guard by
+          // PluginManifest) have the switch-branch row — bundled apps don't
+          // have a PluginMarker and thus no branch to switch. Guard by
           // checking whether a marker exists.
           final hasMarker = context
               .read(installedPluginMarkersProvider)
@@ -527,13 +527,13 @@ class ConfigureView extends StatelessComponent {
 
     // Manifest entry: generic field dispatch, with a trailing
     // actions slice for plugins that declare any. Field indices
-    // come first; then the synthetic "Switch channel…" row (for
+    // come first; then the synthetic "Switch branch…" row (for
     // installed plugins that have a PluginMarker); then manifest
     // actions occupy the remaining slots.
     //
     // Row layout when a marker exists:
     //   [0 .. fieldCount)                  → fields
-    //   fieldCount                          → Switch channel… (synthetic)
+    //   fieldCount                          → Switch branch… (synthetic)
     //   [fieldCount+1 .. fieldCount+1+N)   → declared plugin actions
     //
     // When no marker (bundled app), the synthetic row is absent:
@@ -549,7 +549,7 @@ class ConfigureView extends StatelessComponent {
 
       if (selectedOption >= fieldCount) {
         if (hasMarker) {
-          // First slot after fields = synthetic Switch-channel row.
+          // First slot after fields = synthetic Switch-branch row.
           if (selectedOption == fieldCount) {
             // Pinned plugins: switch not allowed — silently ignore Enter.
             if (marker.autoUpdate == false) return;
@@ -567,7 +567,7 @@ class ConfigureView extends StatelessComponent {
             });
             return;
           }
-          // Rows after the synthetic Switch-channel slot → declared actions.
+          // Rows after the synthetic Switch-branch slot → declared actions.
           final actionIndex = selectedOption - fieldCount - 1;
           if (actionIndex < 0 || actionIndex >= actions.length) return;
           context.read(_runningPluginActionProvider.notifier).state =
@@ -818,7 +818,7 @@ class ConfigureView extends StatelessComponent {
 
     // Row layout (when marker present):
     //   [0 .. fieldCount)       → fields
-    //   fieldCount              → Switch channel… (synthetic)
+    //   fieldCount              → Switch branch… (synthetic)
     //   [fieldCount+1 .. ..)   → declared actions
     //
     // When no marker, synthetic row is absent and actions start at fieldCount.
@@ -840,7 +840,7 @@ class ConfigureView extends StatelessComponent {
           pending: isPending('${manifest.id}.${manifest.fields[i].name}'),
         ),
       // Actions section — shown when the plugin has a marker (installed
-      // plugin) or when it declares actions. The Switch-channel synthetic
+      // plugin) or when it declares actions. The Switch-branch synthetic
       // row is always first when a marker is present.
       if (marker != null || actions.isNotEmpty) ...[
         const SizedBox(height: 1),
@@ -852,7 +852,7 @@ class ConfigureView extends StatelessComponent {
           ),
         ),
         if (marker != null) ...[
-          // Synthetic Switch-channel row — row index fieldCount.
+          // Synthetic Switch-branch row — row index fieldCount.
           if (marker.autoUpdate) ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
@@ -860,7 +860,7 @@ class ConfigureView extends StatelessComponent {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${selectedIndex == fieldCount ? "> " : "  "}Switch channel…',
+                    '${selectedIndex == fieldCount ? "> " : "  "}Switch branch…',
                     style: TextStyle(
                       color: selectedIndex == fieldCount
                           ? const Color.fromRGB(247, 147, 26)
@@ -871,7 +871,7 @@ class ConfigureView extends StatelessComponent {
                     ),
                   ),
                   Text(
-                    '    Switch this plugin to a different release channel.',
+                    '    Switch this plugin to a different branch.',
                     style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
                   ),
                 ],
@@ -881,7 +881,7 @@ class ConfigureView extends StatelessComponent {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 1),
               child: Text(
-                '  Switch channel… (pinned — unpin to switch)',
+                '  Switch branch… (pinned — unpin to switch)',
                 style: const TextStyle(color: Color.fromRGB(140, 140, 150)),
               ),
             ),

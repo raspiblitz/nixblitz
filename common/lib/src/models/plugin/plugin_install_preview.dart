@@ -105,8 +105,8 @@ class PluginSignatureMismatch implements Exception {
   }
 }
 
-/// Thrown by `PluginService.switchChannel` when the operator tries to
-/// switch a plugin's channel while the plugin is pinned
+/// Thrown by `PluginService.switchBranch` when the operator tries to
+/// switch a plugin's branch while the plugin is pinned
 /// (`autoUpdate == false`). Pin semantics are literal: the operator
 /// asked for "don't move me," so we don't move them. Surfaces a clear
 /// recovery path (`nixblitz plugin unpin <id>`).
@@ -119,7 +119,7 @@ class PluginPinnedException implements Exception {
   @override
   String toString() =>
       'plugin $pluginId is pinned; unpin it first '
-      '(`nixblitz plugin unpin $pluginId`) before switching channels';
+      '(`nixblitz plugin unpin $pluginId`) before switching branches';
 }
 
 /// Signature of the consent callback `PluginService.install` invokes

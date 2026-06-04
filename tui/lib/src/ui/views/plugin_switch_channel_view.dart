@@ -11,7 +11,7 @@ import '../widgets/signature_label.dart';
 ///
 /// - [pickChannel] — operator sees the 4-row channel picker.
 /// - [customInput] — operator chose "Custom branch…" and is typing.
-/// - [cloning] — [PluginService.switchChannel] is fetching the new branch.
+/// - [cloning] — [PluginService.switchBranch] is fetching the new branch.
 /// - [consent] — service invoked the confirm callback; show preview + y/n.
 /// - [switching] — operator confirmed; service is wiping + repopulating.
 /// - [done] — success or error message, then dismiss.
@@ -56,7 +56,7 @@ class _PluginSwitchChannelViewState extends State<PluginSwitchChannelView> {
   String _chosenBranch = '';
 
   /// Re-entrant guard — latch flipped when we hand the branch to
-  /// [PluginService.switchChannel]. Prevents a double-Enter from
+  /// [PluginService.switchBranch]. Prevents a double-Enter from
   /// spawning a second switch (CLAUDE.md pitfall #1: plain field, not a
   /// provider).
   bool _submitted = false;
@@ -190,12 +190,12 @@ class _PluginSwitchChannelViewState extends State<PluginSwitchChannelView> {
 
     final svc = component.pluginService;
     svc
-        .switchChannel(
+        .switchBranch(
           component.pluginId,
           newBranch,
           confirm: (preview) {
             // The confirm callback is invoked synchronously from inside
-            // PluginService.switchChannel — defer setState to a microtask so
+            // PluginService.switchBranch — defer setState to a microtask so
             // we don't clobber a render in flight (CLAUDE.md pitfall #1).
             final completer = Completer<bool>();
             _consentCompleter = completer;
@@ -252,7 +252,7 @@ class _PluginSwitchChannelViewState extends State<PluginSwitchChannelView> {
     final completer = _consentCompleter;
     if (completer == null) return;
     _consentCompleter = null;
-    // Don't transition here — switchChannel Future will throw
+    // Don't transition here — switchBranch Future will throw
     // PluginInstallCancelled; the catchError lands us in _Phase.done with
     // "switch cancelled".
     completer.complete(false);

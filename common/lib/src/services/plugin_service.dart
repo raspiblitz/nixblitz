@@ -420,8 +420,8 @@ class PluginService {
   }
 
   /// Re-clone the plugin's source at [newBranch] (mirrors `install` /
-  /// `refresh` but takes a branch override). Used to switch channels
-  /// (stable / beta / dev / custom) after install.
+  /// `refresh` but takes a branch override). Used to switch branches
+  /// after install.
   ///
   /// Refuses on pinned plugins (`autoUpdate == false`) — throws
   /// [PluginPinnedException]. Idempotent no-op when [newBranch]
@@ -432,9 +432,9 @@ class PluginService {
   /// land on disk. Returning `false` aborts with
   /// [PluginInstallCancelled]. The new fingerprint replaces the
   /// marker's pinned one on confirm (unlike `refresh`, which throws on
-  /// fingerprint change — channel switch is explicit, not a quiet
+  /// fingerprint change — branch switch is explicit, not a quiet
   /// upgrade, so the operator's confirmation IS the re-consent).
-  Future<PluginMarker> switchChannel(
+  Future<PluginMarker> switchBranch(
     String id,
     String newBranch, {
     bool allowInsecure = false,
@@ -448,7 +448,7 @@ class PluginService {
 
     if (newBranch == existing.branch) {
       LogService.info(
-        'PluginService: switchChannel $id no-op (already on $newBranch)',
+        'PluginService: switchBranch $id no-op (already on $newBranch)',
       );
       return existing;
     }

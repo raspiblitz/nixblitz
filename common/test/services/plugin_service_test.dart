@@ -923,7 +923,7 @@ void main() {
     );
   });
 
-  group('PluginService.switchChannel', () {
+  group('PluginService.switchBranch', () {
     late Directory home;
     late Directory srcRepo;
     late PluginService pluginService;
@@ -984,7 +984,7 @@ void main() {
       await addBranch(srcRepo.path, 'beta');
 
       var confirmCalled = false;
-      final switched = await pluginService.switchChannel(
+      final switched = await pluginService.switchBranch(
         'tailscale',
         'beta',
         allowInsecure: true,
@@ -1026,7 +1026,7 @@ void main() {
         );
 
         var confirmCalled = false;
-        final result = await pluginService.switchChannel(
+        final result = await pluginService.switchBranch(
           'tailscale',
           'main',
           allowInsecure: true,
@@ -1051,7 +1051,7 @@ void main() {
       await addBranch(srcRepo.path, 'beta');
 
       await expectLater(
-        () => pluginService.switchChannel(
+        () => pluginService.switchBranch(
           'tailscale',
           'beta',
           allowInsecure: true,
@@ -1076,7 +1076,7 @@ void main() {
         await addBranch(srcRepo.path, 'beta');
 
         await expectLater(
-          () => pluginService.switchChannel(
+          () => pluginService.switchBranch(
             'tailscale',
             'beta',
             allowInsecure: true,
@@ -1112,7 +1112,7 @@ void main() {
         await addBranch(srcRepo.path, 'beta');
 
         // Confirm accepts the new (unsigned) commit.
-        final switched = await pluginService.switchChannel(
+        final switched = await pluginService.switchBranch(
           'tailscale',
           'beta',
           allowInsecure: true,
