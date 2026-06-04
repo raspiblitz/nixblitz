@@ -1130,6 +1130,134 @@ void main() {
     );
   });
 
+  group('PluginService.install default-branch resolution (T8)', () {
+    late Directory home;
+    late PluginService pluginService;
+
+    setUp(() async {
+      home = Directory.systemTemp.createTempSync('nixblitz_install_default_');
+      await _seedBaseConfig(home.path);
+      pluginService = PluginService(baseDir: home.path);
+    });
+
+    tearDown(() {
+      home.deleteSync(recursive: true);
+    });
+
+    /// Seed a plugin repo whose `main` HEAD carries a v5 manifest
+    /// declaring `stable:default` (ref: stable) + `next` (ref:
+    /// develop). The repo also creates `stable` and `develop` as
+    /// real branches so a re-clone at either lands successfully.
+    /// Callers can distinguish which ref the install pinned to by
+    /// inspecting `marker.branch`.
+    Future<Directory> seedRepoWithBranchesManifest({required String id}) async {
+      final repo = Directory.systemTemp.createTempSync(
+        'nixblitz_branch_manifest_',
+      );
+      final v5Manifest = {
+        'manifest': {'schema_version': 5, 'min_tui_version': 2, 'name': id},
+        'id': id,
+        'branches': {
+          'stable': {'ref': 'stable', 'default': true},
+          'next': {'ref': 'develop'},
+        },
+      };
+      // Initial seed on `main` — v5 manifest WITH a branches block.
+      // The remote's HEAD is `main`. The resolution path reads this
+      // manifest, sees the default points at `stable`, and re-clones
+      // there.
+      await _seedPluginRepo(
+        repo.path,
+        id: id,
+        name: id,
+        manifestOverride: v5Manifest,
+      );
+
+      Future<void> run(List<String> args) async {
+        final r = await testGit(args, workingDirectory: repo.path);
+        if (r.exitCode != 0) {
+          throw StateError('git ${args.join(" ")} failed: ${r.stderr}');
+        }
+      }
+
+      // Create `stable` and `develop` as real refs, each with the
+      // same manifest but a distinct extra file so the resolved
+      // pin-revs differ from `main`.
+      await run(['checkout', '-b', 'stable']);
+      File('${repo.path}/CHANNEL').writeAsStringSync('stable');
+      await run(['add', 'CHANNEL']);
+      await run(['commit', '-m', 'stable ref']);
+
+      await run(['checkout', 'main']);
+      await run(['checkout', '-b', 'develop']);
+      File('${repo.path}/CHANNEL').writeAsStringSync('develop');
+      await run(['add', 'CHANNEL']);
+      await run(['commit', '-m', 'develop ref']);
+
+      await run(['checkout', 'main']);
+      return repo;
+    }
+
+    test(
+      'install without --branch uses manifest.branches default:true',
+      () async {
+        final repo = await seedRepoWithBranchesManifest(id: 'with-default');
+        try {
+          final marker = await pluginService.install(
+            'file://${repo.path}',
+            allowInsecure: true,
+          );
+          // No --branch on the call → resolution consults the
+          // manifest on the remote's HEAD. The default:true entry
+          // points at ref `stable`, so the install re-clones there
+          // and the marker pins `stable`.
+          expect(marker.branch, 'stable');
+          expect(marker.id, 'with-default');
+        } finally {
+          repo.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('install with explicit branch overrides manifest default', () async {
+      final repo = await seedRepoWithBranchesManifest(
+        id: 'with-default-override',
+      );
+      try {
+        final marker = await pluginService.install(
+          'file://${repo.path}',
+          branch: 'develop',
+          allowInsecure: true,
+        );
+        expect(marker.branch, 'develop');
+      } finally {
+        repo.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'install of plugin without branches block keeps existing behaviour',
+      () async {
+        final repo = Directory.systemTemp.createTempSync(
+          'nixblitz_no_branches_',
+        );
+        try {
+          // Plain schema_version 2 manifest — no branches block at all.
+          await _seedPluginRepo(repo.path, id: 'no-branches', name: 'plain');
+          final marker = await pluginService.install(
+            'file://${repo.path}',
+            allowInsecure: true,
+          );
+          // No branches block → fall through to remote's default
+          // (the seed creates `main`).
+          expect(marker.branch, 'main');
+        } finally {
+          repo.deleteSync(recursive: true);
+        }
+      },
+    );
+  });
+
   group('PluginUrl.parse', () {
     test('parses github: with owner/repo', () {
       final p = PluginUrl.parse('github:fusion44/nixblitz-tailscale');

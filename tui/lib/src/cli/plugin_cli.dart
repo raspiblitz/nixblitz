@@ -45,7 +45,12 @@ Future<int> _runWithErrorReport(Future<int> Function() body) async {
 class PluginAddCommand extends Command<int> {
   PluginAddCommand(this.baseDir) {
     argParser
-      ..addOption('branch', defaultsTo: 'main', help: 'Branch to clone.')
+      ..addOption(
+        'branch',
+        help:
+            'Branch to clone. When omitted, uses the manifest\'s declared '
+            'default (or the remote\'s HEAD when no default is declared).',
+      )
       ..addOption('subdir', help: 'Plugin subdirectory inside the cloned repo.')
       ..addFlag(
         'yes',
@@ -244,7 +249,7 @@ Future<int> _runAdd(PluginService svc, ArgResults args) async {
     return 2;
   }
   final url = rest.first;
-  final branch = args['branch'] as String;
+  final branch = args['branch'] as String?;
   final subdir = args['subdir'] as String?;
   final yes = args['yes'] as bool;
   final insecure = args['insecure'] as bool;

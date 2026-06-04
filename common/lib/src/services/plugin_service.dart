@@ -52,7 +52,7 @@ class PluginService {
   /// [StateError] rather than auto-suffixing.
   Future<PluginMarker> install(
     String rawUrl, {
-    String branch = 'main',
+    String? branch,
     bool allowInsecure = false,
     String? subdir,
     PluginInstallConfirm? confirm,
@@ -73,8 +73,12 @@ class PluginService {
     Directory? committedPluginDir;
 
     try {
+      // Initial clone — uses the caller's branch when explicit,
+      // otherwise falls back to the remote's default HEAD. The
+      // manifest may redirect us to a different ref via its
+      // `branches` block; a second clone below handles that case.
       await _gitClone(parsed.cloneUrl, branch, tmpDir.path);
-      final pinnedRev = await _gitRevParseHead(tmpDir.path);
+      var pinnedRev = await _gitRevParseHead(tmpDir.path);
 
       // Safety: the source repo must not contain symlinks. A
       // malicious plugin could ship plugin.nix as a symlink to e.g.
@@ -114,8 +118,50 @@ class PluginService {
         }
       }
 
-      final manifest = _readManifest(pluginSourceDir);
+      var manifest = _readManifest(pluginSourceDir);
       _requirePluginNix(pluginSourceDir);
+
+      // Default-branch resolution: when the caller didn't pin a
+      // branch and the manifest declares a default, re-clone at the
+      // declared default's ref. Explicit --branch always wins; a
+      // manifest without a branches block or without a default:true
+      // entry falls through to whatever the remote served up on the
+      // initial clone (typically `main`).
+      if (branch == null && manifest.branches?.defaultKey != null) {
+        final dk = manifest.branches!.defaultKey!;
+        final resolvedRef = manifest.branches!.branches[dk]!.ref;
+        // Skip the re-clone when the initial clone already landed on
+        // the declared default — saves a network round-trip on the
+        // happy path where the publisher's remote HEAD matches their
+        // declared default.
+        final currentBranch = await _gitCurrentBranch(tmpDir.path);
+        if (currentBranch != resolvedRef) {
+          await tmpDir.delete(recursive: true);
+          await Directory(tmpDir.path).create(recursive: true);
+          await _gitClone(parsed.cloneUrl, resolvedRef, tmpDir.path);
+          pinnedRev = await _gitRevParseHead(tmpDir.path);
+          _rejectSymlinks(tmpDir.path);
+          // Re-validate the manifest at the resolved ref. The
+          // publisher's branches block should be consistent across
+          // branches, but the per-branch manifest may legitimately
+          // diverge (e.g. different `version`); reading from the
+          // chosen ref keeps marker.version honest.
+          if (!File('$pluginSourceDir/plugin.json').existsSync()) {
+            throw StateError(
+              'plugin.json not found at the resolved branch `$resolvedRef`',
+            );
+          }
+          manifest = _readManifest(pluginSourceDir);
+          _requirePluginNix(pluginSourceDir);
+        }
+        branch = resolvedRef;
+      }
+
+      // Marker.branch must always be a concrete ref name. When the
+      // caller didn't pin one and no manifest default applied,
+      // capture the cloned HEAD's branch so refresh() has something
+      // to re-clone from.
+      final effectiveBranch = branch ?? await _gitCurrentBranch(tmpDir.path);
 
       final id = manifest.id;
       final pluginDir = Directory('$pluginsDir/$id');
@@ -147,7 +193,7 @@ class PluginService {
           name: manifest.name,
           description: manifest.description,
           url: parsed.canonical,
-          branch: branch,
+          branch: effectiveBranch,
           pinnedRev: pinnedRev,
           schemaVersion: manifest.schemaVersion,
           signature: signature,
@@ -230,7 +276,7 @@ class PluginService {
         rev: pinnedRev,
         installedAt: DateTime.now().toUtc(),
         disabled: false,
-        branch: branch,
+        branch: effectiveBranch,
         autoUpdate: true,
         signatureFingerprint: signature.fingerprint.isEmpty
             ? null
@@ -708,15 +754,20 @@ class PluginService {
     }
   }
 
-  Future<void> _gitClone(String url, String branch, String target) async {
+  /// Shallow-clone [url] into [target]. When [branch] is non-null,
+  /// pass `--branch <branch>` so the clone lands on that ref;
+  /// when null, omit the flag and let git pick the remote's
+  /// advertised HEAD (typically `main` or `master`). The null
+  /// case lets the install flow do an unbiased first clone before
+  /// the manifest's own `branches` block redirects it.
+  Future<void> _gitClone(String url, String? branch, String target) async {
     final r = await Process.run(
       'git',
       [
         'clone',
         '--depth',
         '1',
-        '--branch',
-        branch,
+        if (branch != null) ...['--branch', branch],
         '--no-recurse-submodules',
         url,
         target,
@@ -842,6 +893,24 @@ class PluginService {
     if (r.exitCode != 0) {
       throw StateError('git rev-parse failed: ${(r.stderr as String).trim()}');
     }
+    return (r.stdout as String).trim();
+  }
+
+  /// Return the short name of HEAD's symbolic ref (e.g. `main`) in
+  /// the freshly-cloned [repoDir]. Used when the install flow
+  /// clones at the remote's default (no `--branch`) so the marker
+  /// can still record a concrete branch name for later refreshes.
+  /// Falls back to the empty string if HEAD is detached or
+  /// `symbolic-ref` fails for any reason (e.g. an old git that
+  /// produced a detached shallow checkout).
+  Future<String> _gitCurrentBranch(String repoDir) async {
+    final r = await Process.run('git', [
+      'symbolic-ref',
+      '--short',
+      '-q',
+      'HEAD',
+    ], workingDirectory: repoDir);
+    if (r.exitCode != 0) return '';
     return (r.stdout as String).trim();
   }
 
