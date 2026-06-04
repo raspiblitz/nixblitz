@@ -298,6 +298,44 @@ class _ApplyViewState extends State<ApplyView> {
                       context.read(configProvider).value?.system.platform ??
                       'x86';
                   final attr = rebuildAttributeFor(platform);
+
+                  // Refresh the `nixblitz` flake input before the
+                  // rebuild. Changing SystemConfig.nixblitzBranch
+                  // rewrites flake.nix's URL but doesn't touch
+                  // flake.lock; without this step nixos-rebuild
+                  // resolves to the LOCKED rev and the branch switch
+                  // is silently ignored. Runs as the operator (no
+                  // sudo) — flake.lock lives under ~/nixblitz/ and is
+                  // owned by the admin user. Non-fatal on failure: the
+                  // rebuild will either succeed (lock already current)
+                  // or fail with a clearer error.
+                  _append('');
+                  _append('> nix flake lock --update-input nixblitz');
+                  try {
+                    final lockResult = Process.runSync('nix', [
+                      'flake',
+                      'lock',
+                      '--update-input',
+                      'nixblitz',
+                    ], workingDirectory: baseDirPath);
+                    if (lockResult.exitCode != 0) {
+                      final stderr = (lockResult.stderr as String).trim();
+                      LogService.warn(
+                        'apply: nix flake lock --update-input returned '
+                        '${lockResult.exitCode}: $stderr',
+                      );
+                      _append(
+                        '  ! update-input exited ${lockResult.exitCode} — '
+                        'continuing with build',
+                      );
+                    }
+                  } catch (e, st) {
+                    LogService.error('apply: flake lock update failed', e, st);
+                    _append(
+                      '  ! update-input failed: $e — continuing with build',
+                    );
+                  }
+
                   _append('');
                   _append(
                     '> sudo nixos-rebuild switch --flake $baseDirPath#$attr',
