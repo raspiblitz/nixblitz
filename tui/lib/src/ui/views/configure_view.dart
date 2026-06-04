@@ -14,7 +14,7 @@ import 'configure/field_editor.dart';
 import 'configure/plugin_catalog.dart';
 import 'plugin_action_view.dart';
 import 'plugin_install_view.dart';
-import 'plugin_switch_channel_view.dart';
+import 'plugin_switch_branch_view.dart';
 
 // ---------------------------------------------------------------------------
 // _MenuEntry — sealed sum type for the Configure tab bar
@@ -96,7 +96,7 @@ final _runningPluginActionProvider = StateProvider<PluginAction?>(
   (ref) => null,
 );
 
-/// When non-null, Configure delegates to [PluginSwitchChannelView] for
+/// When non-null, Configure delegates to [PluginSwitchBranchView] for
 /// the plugin id stored here. Cleared on dismiss.
 final _switchingPluginIdProvider = StateProvider<String?>((ref) => null);
 
@@ -223,10 +223,18 @@ class ConfigureView extends StatelessComponent {
           .where((m) => m.id == switchingPluginId)
           .firstOrNull;
       final currentBranch = marker?.branch ?? 'main';
-      return PluginSwitchChannelView(
+      // Look up the declared branches block from the installed plugin's
+      // manifest. Null when the plugin's manifest omits `branches` — the
+      // shared BranchPicker then renders only the Custom branch… row.
+      final manifest = context
+          .read(installedPluginsProvider)
+          .where((m) => m.id == switchingPluginId)
+          .firstOrNull;
+      return PluginSwitchBranchView(
         pluginService: context.read(pluginServiceProvider),
         pluginId: switchingPluginId,
         currentBranch: currentBranch,
+        branches: manifest?.branches,
         onDismiss: () {
           context.read(_switchingPluginIdProvider.notifier).state = null;
           context.invalidate(pluginAppVersionsProvider);
