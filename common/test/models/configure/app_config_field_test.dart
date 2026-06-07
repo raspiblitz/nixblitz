@@ -165,5 +165,94 @@ void main() {
         throwsA(isA<AppManifestError>()),
       );
     });
+
+    group('string_list', () {
+      test('parses with default list', () {
+        final f = AppConfigField.fromJson({
+          'name': 'extensions',
+          'type': 'string_list',
+          'label': 'Extensions',
+          'default': ['lnurlp', 'tipjar'],
+        });
+        expect(f, isA<StringListField>());
+        final list = f as StringListField;
+        expect(list.defaultValue, ['lnurlp', 'tipjar']);
+        expect(list.placeholder, isNull);
+      });
+
+      test('default empty when omitted', () {
+        final f = AppConfigField.fromJson({
+          'name': 'extensions',
+          'type': 'string_list',
+          'label': 'Extensions',
+        });
+        final list = f as StringListField;
+        expect(list.defaultValue, isEmpty);
+      });
+
+      test('non-list default falls back to empty', () {
+        // Deliberately permissive: a malformed manifest shipping
+        // `"default": "lnurlp"` instead of `["lnurlp"]` shouldn't
+        // crash plugin parsing — just produce an empty default the
+        // operator can populate in the TUI.
+        final f = AppConfigField.fromJson({
+          'name': 'extensions',
+          'type': 'string_list',
+          'label': 'Extensions',
+          'default': 'lnurlp',
+        });
+        final list = f as StringListField;
+        expect(list.defaultValue, isEmpty);
+      });
+
+      test('coerces non-string list entries to strings', () {
+        final f = AppConfigField.fromJson({
+          'name': 'tags',
+          'type': 'string_list',
+          'label': 'Tags',
+          'default': ['one', 2, true],
+        });
+        final list = f as StringListField;
+        expect(list.defaultValue, ['one', '2', 'true']);
+      });
+
+      test('placeholder roundtrip', () {
+        final f = AppConfigField.fromJson({
+          'name': 'extensions',
+          'type': 'string_list',
+          'label': 'Extensions',
+          'default': <String>[],
+          'placeholder': 'e.g. lnurlp, tipjar',
+        });
+        final list = f as StringListField;
+        expect(list.placeholder, 'e.g. lnurlp, tipjar');
+      });
+
+      test('toJson emits type=string_list and default list', () {
+        const f = StringListField(
+          name: 'extensions',
+          label: 'Extensions',
+          defaultValue: ['lnurlp', 'tipjar'],
+        );
+        final j = f.toJson();
+        expect(j['type'], 'string_list');
+        expect(j['default'], ['lnurlp', 'tipjar']);
+        expect(j.containsKey('description'), isFalse);
+        expect(j.containsKey('placeholder'), isFalse);
+      });
+
+      test('toJson includes description + placeholder when set', () {
+        const f = StringListField(
+          name: 'extensions',
+          label: 'Extensions',
+          description: 'IDs managed by Nix',
+          defaultValue: ['lnurlp'],
+          placeholder: 'e.g. lnurlp',
+        );
+        final j = f.toJson();
+        expect(j['description'], 'IDs managed by Nix');
+        expect(j['placeholder'], 'e.g. lnurlp');
+      });
+    });
   });
 }

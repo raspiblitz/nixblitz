@@ -21,7 +21,29 @@ String formatFieldValue(AppConfigField field, dynamic value) {
       ((value as String? ?? field.defaultValue).isEmpty) ? '(unset)' : '•••',
     IntField() => '${value as int? ?? field.defaultValue}',
     EnumField() => (value as String? ?? field.defaultValue),
+    StringListField() => _formatStringList(
+      _asStringList(value) ?? field.defaultValue,
+    ),
   };
+}
+
+/// Compact single-line preview for a string-list value in
+/// [FieldDisplayRow]. Empty → `(none)`; short lists join with `, `;
+/// long lists collapse to `N entries`.
+String _formatStringList(List<String> entries) {
+  if (entries.isEmpty) return '(none)';
+  if (entries.length <= 3) return entries.join(', ');
+  return '${entries.length} entries';
+}
+
+/// Cast helper for stored config values. Config rows arrive as
+/// `dynamic` from the JSON-shaped store; lists may come back as
+/// `List<dynamic>` rather than `List<String>` after a round-trip.
+List<String>? _asStringList(dynamic value) {
+  if (value == null) return null;
+  if (value is List<String>) return value;
+  if (value is List) return value.map((e) => e.toString()).toList();
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +109,12 @@ class FieldDisplayRow extends StatelessComponent {
         label: f.label,
         value: currentValue as String? ?? f.defaultValue,
         options: f.choices,
+        focused: selected,
+        pending: pending,
+      ),
+      StringListField f => TextOptionEditor(
+        label: f.label,
+        value: _formatStringList(_asStringList(currentValue) ?? f.defaultValue),
         focused: selected,
         pending: pending,
       ),
@@ -401,6 +429,7 @@ bool fieldRequiresEditor(AppConfigField field) {
     // SelectOptionEditor rows do today). Task 7 may change this to a SelectPopup
     // overlay — for now, cycle in-place keeps parity with the existing view.
     EnumField() => false,
+    StringListField() => true,
   };
 }
 
@@ -420,6 +449,9 @@ dynamic cycleFieldValue(AppConfigField field, dynamic current) {
     ),
     IntField() => throw ArgumentError(
       'IntField requires an overlay editor — call buildFieldEditor instead',
+    ),
+    StringListField() => throw ArgumentError(
+      'StringListField requires an overlay editor — call buildFieldEditor instead',
     ),
   };
 }
@@ -470,5 +502,138 @@ Component buildFieldEditor({
       onSubmit: (v) => onSubmit(v),
       onCancel: onCancel,
     ),
+    StringListField f => StringListFieldEditor(
+      field: f,
+      initialValue: _asStringList(currentValue) ?? f.defaultValue,
+      onSubmit: (v) => onSubmit(v),
+      onCancel: onCancel,
+    ),
   };
 }
+
+// ---------------------------------------------------------------------------
+// StringListFieldEditor
+// ---------------------------------------------------------------------------
+
+/// Inline overlay for editing a [StringListField] value — a flat list of
+/// opaque strings the operator manages by row.
+///
+/// Input model is single-buffer: existing entries render top-to-bottom,
+/// then a `> _buffer▏` row where the operator types. Keys:
+///
+///   - typed printable char → append to buffer
+///   - Backspace → trim buffer; when buffer empty, pop the last entry
+///     back into the buffer (so backspace flows naturally across rows)
+///   - Enter on non-empty buffer → commit it as a new row, clear buffer
+///   - Enter on empty buffer → submit the whole list
+///   - Esc → cancel without saving
+///
+/// Trailing whitespace is stripped from committed rows; empty strings are
+/// never stored. The on-submit list reflects only what made it through.
+class StringListFieldEditor extends StatefulComponent {
+  final StringListField field;
+  final List<String> initialValue;
+  final void Function(List<String> value) onSubmit;
+  final VoidCallback onCancel;
+
+  const StringListFieldEditor({
+    super.key,
+    required this.field,
+    required this.initialValue,
+    required this.onSubmit,
+    required this.onCancel,
+  });
+
+  @override
+  State<StringListFieldEditor> createState() => _StringListFieldEditorState();
+}
+
+class _StringListFieldEditorState extends State<StringListFieldEditor> {
+  late List<String> _rows;
+  late String _buffer;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = List<String>.from(component.initialValue);
+    _buffer = '';
+  }
+
+  @override
+  Component build(BuildContext context) {
+    final comp = component;
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.escape) {
+            comp.onCancel();
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.enter) {
+            final trimmed = _buffer.trim();
+            if (trimmed.isEmpty) {
+              comp.onSubmit(List<String>.unmodifiable(_rows));
+            } else {
+              setState(() {
+                _rows.add(trimmed);
+                _buffer = '';
+              });
+            }
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.backspace) {
+            if (_buffer.isNotEmpty) {
+              setState(
+                () => _buffer = _buffer.substring(0, _buffer.length - 1),
+              );
+            } else if (_rows.isNotEmpty) {
+              setState(() {
+                _buffer = _rows.removeLast();
+              });
+            }
+            return true;
+          }
+          final ch = event.character;
+          if (ch != null && ch.length == 1) {
+            final code = ch.codeUnitAt(0);
+            // Printable ASCII only — same restriction as StringFieldEditor.
+            if (code >= 0x20 && code <= 0x7e) {
+              setState(() => _buffer += ch);
+              return true;
+            }
+          }
+          return false;
+        } catch (e, st) {
+          LogService.error('StringListFieldEditor key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(comp.field.label, style: _editorTitleStyle),
+          if (comp.field.description != null)
+            Text(comp.field.description!, style: _editorDescriptionStyle),
+          const SizedBox(height: 1),
+          for (final row in _rows) Text('  - $row', style: _rowStyle),
+          Text('  > ${_buffer}_', style: _bufferStyle),
+          const SizedBox(height: 1),
+          const Text(
+            '  Enter: add row · Enter (empty): save · Backspace: remove · Esc: cancel',
+            style: _hintStyle,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+const _editorTitleStyle = TextStyle(
+  color: Color.fromRGB(247, 147, 26),
+  fontWeight: FontWeight.bold,
+);
+const _editorDescriptionStyle = TextStyle(color: Color.fromRGB(180, 180, 200));
+const _rowStyle = TextStyle(color: Color.fromRGB(220, 220, 220));
+const _bufferStyle = TextStyle(color: Color.fromRGB(247, 147, 26));
+const _hintStyle = TextStyle(color: Color.fromRGB(120, 120, 140));

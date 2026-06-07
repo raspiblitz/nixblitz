@@ -41,6 +41,7 @@ sealed class AppConfigField {
       'secret' => SecretField._fromJson(json),
       'int' || 'integer' => IntField._fromJson(json),
       'enum' => EnumField._fromJson(json),
+      'string_list' => StringListField._fromJson(json),
       _ => throw AppManifestError('unknown field type: $type'),
     };
   }
@@ -174,6 +175,52 @@ class IntField extends AppConfigField {
     if (description != null) 'description': description,
     if (min != null) 'min': min,
     if (max != null) 'max': max,
+  };
+}
+
+/// List-of-opaque-strings field. Each row is a free-form string
+/// (no per-row choices); the editor surfaces an add / remove UI
+/// over the list. Plugin authors use this for declarative
+/// inventories the operator owns — e.g. LNBits's externally-managed
+/// extension ids threaded into LNBITS_EXTERNAL_EXTENSION_IDS.
+///
+/// Validation is deliberately thin: per-row strings are stored
+/// verbatim, no allow-list, no regex. Plugins that need a closed
+/// set should use [EnumField] (single-select) or wait for a future
+/// multi-select-from-choices field. Empty default `[]`.
+@immutable
+class StringListField extends AppConfigField {
+  final List<String> defaultValue;
+  final String? placeholder;
+  const StringListField({
+    required super.name,
+    required super.label,
+    super.description,
+    required this.defaultValue,
+    this.placeholder,
+  });
+  factory StringListField._fromJson(Map<String, dynamic> j) {
+    final rawDefault = j['default'];
+    final def = rawDefault is List
+        ? rawDefault.map((e) => e.toString()).toList(growable: false)
+        : const <String>[];
+    return StringListField(
+      name: j['name'] as String,
+      label: j['label'] as String,
+      description: j['description'] as String?,
+      defaultValue: def,
+      placeholder: j['placeholder'] as String?,
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': 'string_list',
+    'label': label,
+    'default': defaultValue,
+    if (description != null) 'description': description,
+    if (placeholder != null) 'placeholder': placeholder,
   };
 }
 
