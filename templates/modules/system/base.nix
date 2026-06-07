@@ -73,6 +73,12 @@ in {
       # working.
       bashInteractive
       nushell
+      # ghostty terminfo for operators SSHing from a ghostty host —
+      # without it, TERM=xterm-ghostty triggers "unknown terminal"
+      # warnings from ncurses-using tools (htop, nvim, less). Tiny
+      # closure; safe to ship as a default. Should move into the
+      # operator-declared `extra_packages` list once #39 lands.
+      ghostty.terminfo
       nixblitz.packages.${pkgs.system}.nixblitz-unwrapped
     ];
 
