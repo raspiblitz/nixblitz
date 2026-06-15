@@ -181,8 +181,8 @@ class IntField extends AppConfigField {
 /// List-of-opaque-strings field. Each row is a free-form string
 /// (no per-row choices); the editor surfaces an add / remove UI
 /// over the list. Plugin authors use this for declarative
-/// inventories the operator owns — e.g. LNBits's externally-managed
-/// extension ids threaded into LNBITS_EXTERNAL_EXTENSION_IDS.
+/// inventories the operator owns — e.g. LNBits extension ids managed
+/// via Nix packages in manually-managed mode.
 ///
 /// Validation is deliberately thin: per-row strings are stored
 /// verbatim, no allow-list, no regex. Plugins that need a closed
