@@ -118,6 +118,40 @@ void main() {
       expect(pluginsList.readAsStringSync().trim(), 'tailscale');
     });
 
+    test('install copies helper modules beyond the whitelist', () async {
+      // A plugin whose plugin.nix imports a helper module (e.g.
+      // extension-lib.nix) must get that module copied to the node —
+      // the old hardcoded whitelist silently dropped it, breaking eval
+      // with "path does not exist". Copy the whole tree, minus .git.
+      File(
+        '${srcRepo.path}/extension-lib.nix',
+      ).writeAsStringSync('{lib, ...}: {}\n');
+      File('${srcRepo.path}/extensions.json').writeAsStringSync('{}\n');
+      final add = await testGit(['add', '-A'], workingDirectory: srcRepo.path);
+      expect(add.exitCode, 0, reason: add.stderr.toString());
+      final commit = await testGit([
+        'commit',
+        '-m',
+        'add helper module',
+      ], workingDirectory: srcRepo.path);
+      expect(commit.exitCode, 0, reason: commit.stderr.toString());
+
+      final marker = await pluginService.install(
+        'file://${srcRepo.path}',
+        allowInsecure: true,
+      );
+      final pluginDir = Directory('${home.path}/plugins/${marker.id}');
+
+      expect(
+        File('${pluginDir.path}/extension-lib.nix').existsSync(),
+        isTrue,
+        reason: 'helper modules imported by plugin.nix must be copied',
+      );
+      expect(File('${pluginDir.path}/extensions.json').existsSync(), isTrue);
+      // ...but VCS metadata must never be dragged along.
+      expect(Directory('${pluginDir.path}/.git').existsSync(), isFalse);
+    });
+
     test('install rejects id collision from a different URL', () async {
       await pluginService.install(
         'file://${srcRepo.path}',

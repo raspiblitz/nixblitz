@@ -685,43 +685,37 @@ class PluginService {
     regeneratePluginsList(baseDir: baseDir, satisfiedPluginIds: eligibleIds);
   }
 
-  /// Copy the canonical plugin file set from [src] into [dst].
-  /// `plugin.json` and `plugin.nix` are required (caller has
-  /// already verified them); `README.md` and `LICENSE` are copied
-  /// when present; the optional `streamers/` directory is copied
-  /// recursively when present. [extraRelPaths] is the manifest's
-  /// declared `tile_manifests` — every entry is a relative path
-  /// inside the source tree and must be copied verbatim so the
-  /// dashboard provider can read it at runtime.
+  /// Copy the plugin's entire source tree from [src] into [dst].
+  ///
+  /// A plugin is its directory: `plugin.json` / `plugin.nix` (the
+  /// caller already verified these), `README.md`, `LICENSE`, any
+  /// helper modules `plugin.nix` imports (e.g. `extension-lib.nix`),
+  /// the optional `streamers/` directory, and any declared
+  /// `tile_manifests` — all of it. A hardcoded whitelist silently
+  /// dropped helper modules, breaking plugins whose `plugin.nix`
+  /// imported them; copying the whole tree is the robust shape.
+  ///
+  /// Only VCS metadata is skipped (`.git`, in [_copyDir]). Symlinks
+  /// were rejected upstream by `_rejectSymlinks`.
+  ///
+  /// [extraRelPaths] is the manifest's declared `tile_manifests`; the
+  /// files themselves are already copied by the full-tree copy, so we
+  /// use the list only to warn when a declared manifest is missing
+  /// from the source — a packaging error the dashboard would hit at
+  /// runtime.
   void _copyPluginFiles(
     String src,
     String dst, {
     List<String> extraRelPaths = const [],
   }) {
-    for (final name in const [
-      'plugin.json',
-      'plugin.nix',
-      'README.md',
-      'LICENSE',
-    ]) {
-      final f = File('$src/$name');
-      if (f.existsSync()) f.copySync('$dst/$name');
-    }
-    final streamers = Directory('$src/streamers');
-    if (streamers.existsSync()) {
-      _copyDir(streamers, Directory('$dst/streamers'));
-    }
+    _copyDir(Directory(src), Directory(dst));
+
     for (final relPath in extraRelPaths) {
-      final srcFile = File('$src/$relPath');
-      if (!srcFile.existsSync()) {
+      if (!File('$src/$relPath').existsSync()) {
         LogService.warn(
           'plugin install: declared tile manifest $relPath missing in source',
         );
-        continue;
       }
-      final dstFile = File('$dst/$relPath');
-      dstFile.parent.createSync(recursive: true);
-      srcFile.copySync(dstFile.path);
     }
   }
 
@@ -729,6 +723,10 @@ class PluginService {
     if (!dst.existsSync()) dst.createSync(recursive: true);
     for (final entity in src.listSync(followLinks: false)) {
       final name = entity.path.split(Platform.pathSeparator).last;
+      // Never copy VCS metadata — a root-level plugin source (no
+      // subdir) is a git clone, so `.git` would otherwise be dragged
+      // into the node's plugin dir.
+      if (name == '.git') continue;
       if (entity is File) {
         entity.copySync('${dst.path}/$name');
       } else if (entity is Directory) {
