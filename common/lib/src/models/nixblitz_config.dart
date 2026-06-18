@@ -1,6 +1,35 @@
 import 'dart:convert';
 import 'package:common/src/models/config_migrations.dart';
 
+/// Deep value-equality for JSON-shaped values (primitives, lists, maps).
+///
+/// Dart's `==` on `List`/`Map` is *reference* equality, so two distinct
+/// instances with identical contents compare unequal. [diffKeysFrom]
+/// compares `toJson()` values, so without this a list-valued config field
+/// (e.g. a `string_list` like `extensions`) was reported as changed on
+/// every evaluation even when the JSON was byte-identical — a permanent
+/// phantom "pending change" while git stayed clean. Lists compare
+/// order-sensitively (order is meaningful); maps compare order-insensitively.
+bool _jsonValueEquals(dynamic a, dynamic b) {
+  if (identical(a, b)) return true;
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_jsonValueEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || !_jsonValueEquals(a[key], b[key]))
+        return false;
+    }
+    return true;
+  }
+  return a == b;
+}
+
 class SystemConfig {
   final String hostname;
   final String timezone;
@@ -293,7 +322,7 @@ class NixblitzConfig {
     ) {
       final allKeys = {...after.keys, ...before.keys};
       for (final key in allKeys) {
-        if (after[key] != before[key]) keys.add('$name.$key');
+        if (!_jsonValueEquals(after[key], before[key])) keys.add('$name.$key');
       }
     }
 

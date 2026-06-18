@@ -172,6 +172,38 @@ void main() {
     });
   });
 
+  group('NixblitzConfig.diffKeysFrom', () {
+    NixblitzConfig cfg(List<String> extensions) => NixblitzConfig(
+      schemaVersion: 18,
+      system: SystemConfig.defaults(),
+      appConfigs: {
+        'lnbits': {'extensions': extensions},
+      },
+    );
+
+    test('identical list-valued field is NOT reported as changed', () {
+      // Two distinct list instances with identical contents. Dart List `==`
+      // is reference equality, so a naive `!=` flagged this key as changed on
+      // every evaluation — a permanent phantom "pending change" while git
+      // stayed clean.
+      final a = cfg(['copilot', 'lnurlp']);
+      final b = cfg(['copilot', 'lnurlp']);
+      expect(a.diffKeysFrom(b), isEmpty);
+    });
+
+    test('changed list contents are reported', () {
+      final a = cfg(['copilot', 'lnurlp']);
+      final b = cfg(['lnurlp']);
+      expect(a.diffKeysFrom(b), contains('lnbits.extensions'));
+    });
+
+    test('list order is significant', () {
+      final a = cfg(['copilot', 'lnurlp']);
+      final b = cfg(['lnurlp', 'copilot']);
+      expect(a.diffKeysFrom(b), contains('lnbits.extensions'));
+    });
+  });
+
   group('NixblitzConfig.fromJson v18', () {
     test('round-trip with three apps + plugin entries', () {
       final systemJson = SystemConfig.defaults().toJson();
