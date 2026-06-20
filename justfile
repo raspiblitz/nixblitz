@@ -164,14 +164,27 @@ web-clean:
   #!/usr/bin/env nu
   cd website; rm -rf build .dart_tool
 
-# Boot a NixOS ISO in QEMU for testing the installer
+# Build the x86_64 installer ISO (carries the nixblitz TUI)
+iso-build:
+  #!/usr/bin/env nu
+  nix build .#installer-iso
+  let iso = (ls result/iso/*.iso | get name | first)
+  print $"ISO built: ($iso)"
+
+# Boot the nixblitz installer ISO in QEMU for testing the installer
 vm-boot:
   #!/usr/bin/env nu
-  # let iso = "/home/f44/Downloads/nixos-graphical-25.11.6561.1267bb4920d0-x86_64-linux.iso"
-  let iso = "/home/f44/Downloads/nixos-minimal-25.11.9418.c7f47036d3df-x86_64-linux.iso"
+  # Build the nixblitz installer ISO if it isn't present, then boot it.
+  # (Cheap when the store is warm.) Was previously a hand-downloaded
+  # stock nixos-minimal ISO; now we boot our own TUI-carrying image.
+  if not ('result/iso' | path exists) {
+    print "Building installer ISO (just iso-build)..."
+    nix build .#installer-iso
+  }
+  let iso = (ls result/iso/*.iso | get name | first)
 
   if not ($iso | path exists) {
-    print $"ISO not found at ($iso)"
+    print $"ISO not found at ($iso) — run 'just iso-build'"
     exit 1
   }
 

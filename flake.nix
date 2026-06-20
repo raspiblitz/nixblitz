@@ -97,12 +97,32 @@
           inherit version gitHash derivationVersion;
         };
       in {
-        packages = {
-          default = self.packages.${system}.nixblitz;
-          nixblitz = nixblitzWrapped;
-          nixblitz-unwrapped = nixblitzUnwrapped;
-          website = nixblitzWebsite;
-        };
+        packages =
+          {
+            default = self.packages.${system}.nixblitz;
+            nixblitz = nixblitzWrapped;
+            nixblitz-unwrapped = nixblitzUnwrapped;
+            website = nixblitzWebsite;
+          }
+          # x86 installer ISO — a dev/release artifact (see nix/iso.nix).
+          # Gated to x86_64-linux: it's an x86 live medium and references
+          # the x86 wrapped TUI.
+          // lib.optionalAttrs (system == "x86_64-linux") {
+            installer-iso =
+              (import ./nix/iso.nix {
+                inherit nixpkgs;
+                nixblitzPackage = nixblitzWrapped;
+                # Minimal installer-system closure, baked into the ISO store
+                # so disko-install runs offline (see nix/installer-system.nix).
+                installerClosure = import ./nix/installer-system.nix {
+                  inherit self nixpkgs disko system;
+                };
+              })
+              .config
+              .system
+              .build
+              .isoImage;
+          };
 
         apps.default = {
           type = "app";
