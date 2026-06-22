@@ -46,6 +46,15 @@ const List<OfficialPlugin> officialPluginCatalog = [
     url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/tailscale',
   ),
   OfficialPlugin(
+    id: 'netbird',
+    name: 'NetBird',
+    description:
+        'Enable NetBird on this NixBlitz node. Join a NetBird '
+        'network on demand via a setup key; optionally point at a '
+        'self-hosted management server.',
+    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/netbird',
+  ),
+  OfficialPlugin(
     id: 'lnbits',
     name: 'LNBits',
     description:
