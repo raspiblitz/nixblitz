@@ -22,8 +22,9 @@ bool _jsonValueEquals(dynamic a, dynamic b) {
   if (a is Map && b is Map) {
     if (a.length != b.length) return false;
     for (final key in a.keys) {
-      if (!b.containsKey(key) || !_jsonValueEquals(a[key], b[key]))
+      if (!b.containsKey(key) || !_jsonValueEquals(a[key], b[key])) {
         return false;
+      }
     }
     return true;
   }
