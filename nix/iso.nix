@@ -38,6 +38,18 @@ nixpkgs.lib.nixosSystem {
         # here (mirrors templates/hosts/installer.nix's rationale).
         security.sudo.wheelNeedsPassword = false;
 
+        # Make SSH usable on the live installer: `ssh nixos@<host>`,
+        # password "nixblitz" (matches the installed system's admin
+        # password). installation-cd-base enables sshd but gives the
+        # `nixos` user an empty password, and OpenSSH rejects
+        # empty-password auth — so the running daemon is otherwise
+        # unreachable. A known password is an acceptable convenience on
+        # this ephemeral install-time medium. Clear the profile's empty
+        # `initialHashedPassword` (mkForce → null) so only `initialPassword`
+        # is set — otherwise NixOS warns about multiple password options.
+        users.users.nixos.initialHashedPassword = lib.mkForce null;
+        users.users.nixos.initialPassword = "nixblitz";
+
         # Auto-launch the TUI on the live console's interactive shell. The
         # installation-cd profile auto-logs into a bash shell on tty1; this
         # fires there. Guard skips non-interactive / already-launched
