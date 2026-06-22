@@ -84,6 +84,15 @@ class _SetupViewState extends State<SetupView> {
   bool _buildServicesStarted = false;
   Timer? _elapsedTimer;
 
+  /// Drives the waitBitcoind step's refresh loop. Two stale one-shot
+  /// providers have to be re-read for the step to advance: bitcoind is a
+  /// *plugin*, so it only appears in the service registry once
+  /// `installedPluginsProvider` is re-read after setup installs it, and
+  /// its status only flips to running a few seconds after Apply. The timer
+  /// re-checks both every 2s. See `_startBitcoindPoll`. Mirrors
+  /// `_lndSeedPollTimer`.
+  Timer? _bitcoindPollTimer;
+
   /// Held in plain instance state (NOT a Riverpod provider) so
   /// the seed never lands in long-lived app state where a
   /// debug-overlay scrape or a developer's accidental log call
@@ -134,6 +143,7 @@ class _SetupViewState extends State<SetupView> {
     _buildServicesSub?.cancel();
     _elapsedTimer?.cancel();
     _lndSeedPollTimer?.cancel();
+    _bitcoindPollTimer?.cancel();
     super.dispose();
   }
 
@@ -1090,6 +1100,7 @@ class _SetupViewState extends State<SetupView> {
     final config = configAsync.value;
 
     if (config != null && !config.isAppEnabled('bitcoind')) {
+      _stopBitcoindPoll();
       Future.microtask(() {
         _markStepCompleted(SetupStep.waitBitcoind);
         context.read(_setupStepProvider.notifier).state =
@@ -1104,13 +1115,7 @@ class _SetupViewState extends State<SetupView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Waiting for Bitcoin daemon...',
-            style: const TextStyle(
-              color: Color.fromRGB(247, 147, 26),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          const Spinner(label: 'Waiting for Bitcoin daemon...'),
           const SizedBox(height: 1),
           statusAsync.when(
             loading: () => const Text('Checking service status...'),
@@ -1124,11 +1129,20 @@ class _SetupViewState extends State<SetupView> {
                 ),
               );
               if (btcStatus.isRunning) {
+                _stopBitcoindPoll();
                 Future.microtask(() {
                   _markStepCompleted(SetupStep.waitBitcoind);
                   context.read(_setupStepProvider.notifier).state =
                       SetupStep.initLightning;
                 });
+              } else {
+                // "unknown" here usually means bitcoind isn't in the
+                // registry yet — its plugin was installed after the TUI
+                // auto-launched, and installedPluginsProvider cached an
+                // empty list. Keep polling: _startBitcoindPoll re-reads the
+                // plugin registry AND the service status until bitcoind is
+                // active (it starts a few seconds after Apply).
+                Future.microtask(_startBitcoindPoll);
               }
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1144,6 +1158,33 @@ class _SetupViewState extends State<SetupView> {
         ],
       ),
     );
+  }
+
+  /// Kicks off the bitcoind status poll. Idempotent — safe to call from a
+  /// build() microtask (the timer slot is the single source of truth).
+  ///
+  /// On a fresh install the TUI auto-launches before any plugin exists, so
+  /// `installedPluginsProvider` (a one-shot disk read) caches an empty
+  /// list — and bitcoind, a *plugin*, never appears in
+  /// `AppManifestRegistry.serviceIds()`, so the wait step has no
+  /// `bitcoind` entry to probe and shows "unknown" even though the daemon
+  /// is running. Setup installs the bitcoind plugin but nothing refreshes
+  /// that provider. So every 2s we invalidate `installedPluginsProvider`
+  /// (re-reads the plugins dir → registry now includes bitcoind), which
+  /// cascades to `serviceStatusProvider`; we invalidate the latter too so
+  /// the fresh `systemctl show` runs. The step advances once bitcoind is
+  /// active.
+  void _startBitcoindPoll() {
+    if (_bitcoindPollTimer != null) return;
+    _bitcoindPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      context.invalidate(installedPluginsProvider);
+      context.invalidate(serviceStatusProvider);
+    });
+  }
+
+  void _stopBitcoindPoll() {
+    _bitcoindPollTimer?.cancel();
+    _bitcoindPollTimer = null;
   }
 
   /// Kicks off the seed-file polling loop. Idempotent — safe to
