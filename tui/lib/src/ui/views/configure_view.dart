@@ -1018,16 +1018,14 @@ class ConfigureView extends StatelessComponent {
 
   /// Look up the installed plugin matching [appId]. Returns its
   /// declared actions in stable order, or empty when the app is
-  /// bundled (no PluginManifest backing) or the plugin declared
-  /// none. Sort is by key so the row order doesn't depend on
-  /// `Map<String, PluginAction>` iteration semantics.
+  /// bundled (no PluginManifest backing), the plugin declared none,
+  /// or the plugin is currently disabled.
   List<PluginAction> _actionsFor(BuildContext ctx, String appId) {
     final installed = ctx.read(installedPluginsProvider);
     final plugin = installed.where((p) => p.id == appId).firstOrNull;
-    if (plugin == null) return const [];
-    final entries = plugin.actions.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-    return entries.map((e) => e.value).toList(growable: false);
+    final enabled =
+        ctx.read(configProvider).value?.isAppEnabled(appId) ?? false;
+    return visiblePluginActions(plugin: plugin, enabled: enabled);
   }
 
   // ---------- Plugins (install catalog) ----------
@@ -1216,6 +1214,23 @@ class ConfigureView extends StatelessComponent {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// visiblePluginActions — pure helper for the actions gate
+// ---------------------------------------------------------------------------
+
+/// Visible actions for [plugin]: the plugin's declared actions in stable
+/// order, or empty when the plugin is missing OR disabled (a halted plugin
+/// offers no Connect/Down/etc.).
+List<PluginAction> visiblePluginActions({
+  required PluginManifest? plugin,
+  required bool enabled,
+}) {
+  if (plugin == null || !enabled) return const [];
+  final entries = plugin.actions.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  return entries.map((e) => e.value).toList(growable: false);
 }
 
 // ---------------------------------------------------------------------------

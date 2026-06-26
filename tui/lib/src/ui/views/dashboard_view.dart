@@ -38,6 +38,7 @@ class _DashboardViewState extends State<DashboardView> {
   /// lands.
   List<SizedTile> _pluginTiles(BuildContext context) {
     final manifests = context.watch(installedPluginsProvider);
+    final config = context.watch(configProvider).value;
     final snapshots = context
         .watch(pluginTileSnapshotsProvider)
         .maybeWhen(data: (m) => m, orElse: () => null);
@@ -45,6 +46,10 @@ class _DashboardViewState extends State<DashboardView> {
     for (final m in manifests) {
       final spec = m.dashboard;
       if (spec == null) continue;
+      // Hide a disabled plugin's tile entirely (not just stop its poller).
+      // Gate here, NOT in installedPluginsProvider — Configure still needs the
+      // plugin listed so it can be re-enabled.
+      if (config == null || !config.isAppEnabled(m.id)) continue;
       entries.add((id: m.id, title: spec.title, accent: spec.accentColorHex));
     }
     entries.sort(

@@ -272,6 +272,19 @@ class _ApplyViewState extends State<ApplyView> {
       // will error loudly if templates are still wrong.
       _maybeAutoRewriteTemplates(baseDirPath, git)
           .then((_) async {
+            // Tear down plugins being removed (uninstall) or disabled
+            // (enabled→false) by this Apply, on the still-live old system,
+            // before the commit + network-heavy steps so a VPN plugin drops
+            // its DNS/route takeover and the rebuild's fetches don't stall.
+            // Reads HEAD, so must run before commitAll. Best-effort.
+            await PluginTeardownRunner(
+              runAction: context.read(pluginActionRunnerProvider).run,
+              readCommitted: git.readCommittedFile,
+              readCurrent: (p) {
+                final f = File('$baseDirPath/$p');
+                return f.existsSync() ? f.readAsStringSync() : null;
+              },
+            ).runPending(_append);
             final staged =
                 context.read(_applyStagedProvider) ?? _staging.read();
             if (staged.lockBumpAvailable || staged.pluginPins.isNotEmpty) {
@@ -284,7 +297,7 @@ class _ApplyViewState extends State<ApplyView> {
             _append('> git add -A && git commit -m "Apply pending changes"');
             git
                 .commitAll('Apply pending changes')
-                .then((committed) {
+                .then((committed) async {
                   _append(
                     committed
                         ? 'Committed.'

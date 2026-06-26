@@ -167,6 +167,14 @@ class PluginManifest {
   /// case for older or simpler plugins).
   final BranchManifest? branches;
 
+  /// Optional id of an action (in this manifest's [actions]) to run
+  /// automatically on the live system when the plugin is being
+  /// removed (disabled or uninstalled), before the rebuild drops its
+  /// module. Null when the plugin declares no teardown. Validated at
+  /// parse time: when set it references an existing action with no
+  /// inputs (teardown runs non-interactively and cannot prompt).
+  final String? teardown;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -186,6 +194,7 @@ class PluginManifest {
     this.tileManifests = const [],
     this.appVersionCommand,
     this.branches,
+    this.teardown,
   }) : id = id ?? name;
 
   factory PluginManifest.fromJsonString(String s) =>
@@ -398,6 +407,29 @@ class PluginManifest {
         ? BranchManifest.fromJson(branchesJson)
         : null;
 
+    final rawTeardown = json['teardown'];
+    String? teardown;
+    if (rawTeardown != null) {
+      if (rawTeardown is! String || rawTeardown.isEmpty) {
+        throw const FormatException(
+          'manifest.teardown must be a non-empty action id when present',
+        );
+      }
+      final action = actionMap[rawTeardown];
+      if (action == null) {
+        throw FormatException(
+          'manifest.teardown references unknown action `$rawTeardown`',
+        );
+      }
+      if (action.inputs.isNotEmpty) {
+        throw FormatException(
+          'manifest.teardown action `$rawTeardown` declares inputs; '
+          'teardown runs non-interactively and cannot prompt',
+        );
+      }
+      teardown = rawTeardown;
+    }
+
     return PluginManifest(
       schemaVersion: schemaVersion,
       minTuiVersion: minTui,
@@ -417,6 +449,7 @@ class PluginManifest {
       tileManifests: List.unmodifiable(tileManifestsList),
       appVersionCommand: appVersionCommand,
       branches: branches,
+      teardown: teardown,
     );
   }
 
@@ -442,5 +475,6 @@ class PluginManifest {
     if (tileManifests.isNotEmpty) 'tile_manifests': tileManifests,
     if (appVersionCommand != null) 'app_version': appVersionCommand!.toJson(),
     if (branches != null) 'branches': branches!.toJson(),
+    if (teardown != null) 'teardown': teardown,
   };
 }

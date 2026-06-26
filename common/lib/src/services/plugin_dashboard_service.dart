@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:common/src/models/plugin/plugin_tile.dart';
+import 'package:common/src/providers/config_provider.dart';
 import 'package:common/src/providers/installed_plugins_provider.dart';
 import 'package:common/src/providers/plugin_action_provider.dart';
 import 'package:common/src/providers/plugin_provider.dart';
@@ -46,6 +47,10 @@ class PluginDashboardService {
       (_, _) => _reconcile(),
       fireImmediately: true,
     );
+    // Re-reconcile when the operator config changes (e.g. the user
+    // toggles a plugin's enabled flag). Mirrors the gate in
+    // dashboard_provider that skips disabled-config plugins.
+    _ref.listen(configProvider, (_, _) => _reconcile());
   }
 
   /// Latest snapshot for every plugin we know about. Late
@@ -85,10 +90,16 @@ class PluginDashboardService {
     if (_disposed) return;
 
     final markers = discoverInstalledMarkers(_pluginsDir);
+    final config = _ref.read(configProvider).value;
 
     final desired = <String, PluginTileSpec>{};
     for (final m in markers) {
       if (m.disabled) continue;
+      // Operator's per-plugin enabled toggle — a disabled plugin's daemon
+      // is off, so polling it would just churn errors. Mirrors the gate in
+      // dashboard_provider. Config not loaded yet → skip (re-reconciles on
+      // load via the configProvider listener added in the constructor).
+      if (config == null || !config.isAppEnabled(m.id)) continue;
       try {
         final manifest = _pluginService.readManifest(m.id);
         final spec = manifest.dashboard;

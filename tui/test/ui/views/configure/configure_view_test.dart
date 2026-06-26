@@ -343,7 +343,41 @@ void main() {
     });
   });
 
-  // ── 6. configSchema field rendering data path ──────────────────────────
+  // ── 6. visiblePluginActions — actions gate ─────────────────────────────
+
+  group('visiblePluginActions', () {
+    PluginManifest manifestWithDown() => PluginManifest.fromJson({
+      'manifest': {
+        'schema_version': 4,
+        'min_tui_version': 1,
+        'name': 'Tailscale',
+      },
+      'actions': {
+        'down': {'label': 'Disconnect', 'unit': 'tailscale-down.service'},
+      },
+      'permissions': {
+        'privileged_units': ['tailscale-down.service'],
+      },
+    });
+
+    test('returns actions when enabled', () {
+      expect(
+        visiblePluginActions(plugin: manifestWithDown(), enabled: true),
+        hasLength(1),
+      );
+    });
+    test('empty when disabled', () {
+      expect(
+        visiblePluginActions(plugin: manifestWithDown(), enabled: false),
+        isEmpty,
+      );
+    });
+    test('empty when plugin missing', () {
+      expect(visiblePluginActions(plugin: null, enabled: true), isEmpty);
+    });
+  });
+
+  // ── 7. configSchema field rendering data path ──────────────────────────
 
   group('plugin configSchema field rendering data path', () {
     // The plugin_config_view's _renderRows reads currentValue from

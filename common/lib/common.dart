@@ -41,6 +41,8 @@ export 'src/providers/app_manifest_registry_provider.dart';
 export 'src/services/embedded_templates.dart';
 export 'src/services/plugin/plugin_app_version_service.dart';
 export 'src/services/plugin/plugin_marker.dart';
+export 'src/services/plugin/plugin_teardown.dart';
+export 'src/services/plugin/plugin_teardown_runner.dart';
 export 'src/services/plugin_action_runner.dart';
 export 'src/services/plugin_dashboard_service.dart';
 export 'src/services/plugin_service.dart';

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
+import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
 import 'package:common/src/providers/config_provider.dart';
 import 'package:common/src/providers/plugin_dashboard_provider.dart';
@@ -49,6 +50,25 @@ void _seedPluginWithTileCommand(
   );
 }
 
+/// Write a minimal config.json to [home] so that configProvider
+/// sees the given plugin as enabled (or disabled). This is needed
+/// because [PluginDashboardService._reconcile] now gates on
+/// `config.isAppEnabled(id)` — fixtures that expect a poller must
+/// supply an enabled config entry.
+void _writePluginConfig(
+  Directory home,
+  String pluginId, {
+  required bool enabled,
+}) {
+  final config = NixblitzConfig(
+    system: SystemConfig.defaults(),
+    appConfigs: {
+      pluginId: {'enabled': enabled},
+    },
+  );
+  File('${home.path}/config.json').writeAsStringSync(config.toJsonString());
+}
+
 ProviderContainer _makeContainer(Directory home) {
   return ProviderContainer(
     overrides: [baseDirProvider.overrideWithValue(home.path)],
@@ -83,6 +103,7 @@ void main() {
     tearDown(() => home.deleteSync(recursive: true));
 
     test('polls a plugin tile command and parses JSON output', () async {
+      _writePluginConfig(home, 'demo', enabled: true);
       _seedPluginWithTileCommand(
         home,
         'demo',
@@ -109,6 +130,7 @@ void main() {
     });
 
     test('non-zero exit produces failure snapshot with stderr tail', () async {
+      _writePluginConfig(home, 'demo', enabled: true);
       _seedPluginWithTileCommand(
         home,
         'demo',
@@ -132,6 +154,7 @@ void main() {
     test(
       'exit 127 (command-not-found) renders as a yellow pending tile',
       () async {
+        _writePluginConfig(home, 'demo', enabled: true);
         _seedPluginWithTileCommand(
           home,
           'demo',
@@ -156,6 +179,7 @@ void main() {
     );
 
     test('invalid JSON output produces failure snapshot', () async {
+      _writePluginConfig(home, 'demo', enabled: true);
       _seedPluginWithTileCommand(home, 'demo', tileCommand: r'echo "not json"');
 
       final container = _makeContainer(home);
@@ -227,6 +251,29 @@ void main() {
       addTearDown(pluginDashboardService.dispose);
 
       // Wait briefly to ensure no poller would have run.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      expect(pluginDashboardService.seed.containsKey('demo'), isFalse);
+    });
+
+    test('does not poll a plugin whose config enabled is false', () async {
+      // Arrange: plugin has a dashboard block and a valid marker, but the
+      // operator config marks it as disabled (enabled=false). The service
+      // must not spin up a poller for it.
+      _writePluginConfig(home, 'demo', enabled: false);
+      _seedPluginWithTileCommand(
+        home,
+        'demo',
+        tileCommand: r'''echo '{"_status_label":"online"}' ''',
+      );
+
+      final container = _makeContainer(home);
+      addTearDown(container.dispose);
+      final pluginDashboardService = container.read(
+        pluginDashboardServiceProvider,
+      );
+      addTearDown(pluginDashboardService.dispose);
+
+      // Wait long enough for any erroneous poller to have fired.
       await Future<void>.delayed(const Duration(milliseconds: 500));
       expect(pluginDashboardService.seed.containsKey('demo'), isFalse);
     });

@@ -853,5 +853,82 @@ void main() {
       expect(back.configSchema!.label, 'P');
       expect(back.configSchema!.fields.length, 1);
     });
+
+    test('parses a teardown referencing an input-free unit action', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 4, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'down': {'label': 'Disconnect', 'unit': 'p-down.service'},
+        },
+        'permissions': {
+          'privileged_units': ['p-down.service'],
+        },
+        'teardown': 'down',
+      });
+      expect(m.teardown, 'down');
+    });
+
+    test('absent teardown parses as null', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 4, 'min_tui_version': 1, 'name': 'p'},
+      });
+      expect(m.teardown, isNull);
+    });
+
+    test('teardown referencing an unknown action throws', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 4, 'min_tui_version': 1, 'name': 'p'},
+          'teardown': 'nope',
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('teardown action with inputs throws', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 4, 'min_tui_version': 1, 'name': 'p'},
+          'actions': {
+            'connect': {
+              'label': 'Connect',
+              'unit': 'p-connect.service',
+              'inputs': [
+                {'name': 'key', 'label': 'Key', 'type': 'secret'},
+              ],
+            },
+          },
+          'permissions': {
+            'privileged_units': ['p-connect.service'],
+          },
+          'teardown': 'connect',
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('teardown round-trips through toJson', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 4, 'min_tui_version': 1, 'name': 'p'},
+        'actions': {
+          'down': {'label': 'Disconnect', 'unit': 'p-down.service'},
+        },
+        'permissions': {
+          'privileged_units': ['p-down.service'],
+        },
+        'teardown': 'down',
+      });
+      expect(m.toJson()['teardown'], 'down');
+    });
+
+    test('non-string teardown throws', () {
+      expect(
+        () => PluginManifest.fromJson({
+          'manifest': {'schema_version': 4, 'min_tui_version': 1, 'name': 'p'},
+          'teardown': 42,
+        }),
+        throwsA(isA<FormatException>()),
+      );
+    });
   });
 }

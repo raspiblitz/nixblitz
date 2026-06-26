@@ -120,6 +120,29 @@ Future<bool> _requireCleanTree(String baseDir, GitService git) async {
 /// fallback so the CLI doesn't disagree with the in-TUI Apply path
 /// about which target to build.
 Future<int> _runRebuild(String baseDir) async {
+  // Halt any plugins this rebuild removes/disables BEFORE nixos-rebuild, on
+  // the still-live old system — mirrors the TUI Apply path. The CLI has no
+  // ProviderContainer, so the services are built directly. Best-effort.
+  final teardown = PluginTeardownRunner(
+    runAction: PluginActionRunner(sudoSession: SudoSession()).run,
+    readCommitted: GitService(repoDir: baseDir).readCommittedFile,
+    readCurrent: (p) {
+      final f = File('$baseDir/$p');
+      return f.existsSync() ? f.readAsStringSync() : null;
+    },
+  );
+  final pending = await teardown.resolvePending();
+  if (pending.isNotEmpty) {
+    // The teardown units run via `sudo systemctl start --wait`; prime sudo
+    // interactively once (the rebuild below would prompt anyway) so the
+    // SudoSession's `-n` calls succeed instead of silently skipping.
+    final prime = await Process.start('sudo', [
+      '-v',
+    ], mode: ProcessStartMode.inheritStdio);
+    await prime.exitCode;
+    await teardown.run(pending, stdout.writeln);
+  }
+
   final platform = _readPlatform(baseDir);
   final attr = rebuildAttributeFor(platform);
   stdout.writeln('');
