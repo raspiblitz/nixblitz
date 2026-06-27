@@ -18,6 +18,7 @@ export 'src/models/rebuild_outcome.dart';
 export 'src/models/service_status.dart';
 export 'src/models/staged_changes.dart';
 export 'src/models/update_status.dart';
+export 'src/models/updates_display.dart';
 export 'src/services/applied_state_service.dart';
 export 'src/services/config_service.dart';
 export 'src/services/git_service.dart';

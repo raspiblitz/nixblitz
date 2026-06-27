@@ -24,34 +24,54 @@ class CachedPackageDiff extends StatelessComponent {
     final result = status.checkResult;
     final ago = result != null ? humanizeAge(result.checkedAt) : 'unknown';
 
-    // Two body shapes share the same viewer: a populated nvd diff
-    // (substitute-only path) or a "would-build" list (compile-needed
-    // path). diffText takes precedence so that, if both were ever
-    // present, the operator still sees the more informative nvd
-    // output.
-    final compileNeeded =
-        result != null &&
-        result.diffText.trim().isEmpty &&
-        result.compileNeeded;
-    final String title;
-    final List<String> lines;
-    final Color? Function(String)? lineColor;
-    if (compileNeeded) {
-      title = 'Packages needing local compile — checked $ago';
-      lines = [
-        '${result.wouldBuild.length} derivation${result.wouldBuild.length == 1 ? "" : "s"} '
-            'have no binary-cache substitute and would need to be built locally.',
-        'Trigger the build via System → Apply when you have time — on a Pi 5',
-        'a fresh rustc storm can take several hours.',
-        '',
-        ...result.wouldBuild,
-      ];
-      lineColor = null;
-    } else {
-      title = 'Cached package diff — checked $ago';
-      lines = (result?.diffText ?? '').split('\n');
-      lineColor = nvdLineColor;
+    // One combined body: lead with "Updated software" (which inputs /
+    // plugins moved), then any packages that build on the node, then the
+    // per-package nvd diff. Each section renders only when it has content.
+    final lines = <String>[];
+
+    final inputs = result?.inputsAhead ?? const <InputAhead>[];
+    final plugins = result?.pluginsAhead ?? const <PluginAhead>[];
+    if (inputs.isNotEmpty || plugins.isNotEmpty) {
+      lines.add('Updated software');
+      for (final i in inputs) {
+        final name = i.name == kTuiInputName
+            ? '${i.name} (the NixBlitz software)'
+            : i.name;
+        lines.add(
+          '  $name  ${_short(i.currentRev)} → ${_short(i.upstreamRev)}',
+        );
+      }
+      for (final p in plugins) {
+        lines.add('  ${p.pluginId}  ${p.versionDelta}');
+      }
+      lines.add('');
     }
+
+    if (result != null && result.wouldBuild.isNotEmpty) {
+      final n = result.wouldBuild.length;
+      lines.add('Builds on the node ($n)');
+      lines.add(
+        '  No binary-cache substitute — built locally on the next Apply. On a '
+        'Pi 5 a fresh rustc storm can take hours.',
+      );
+      for (final d in result.wouldBuild) {
+        lines.add('  $d');
+      }
+      lines.add('');
+    }
+
+    final diff = (result?.diffText ?? '').trim();
+    if (diff.isNotEmpty) {
+      lines.add('Package changes');
+      lines.addAll(diff.split('\n'));
+    }
+
+    if (lines.isEmpty) {
+      lines.add('Nothing staged from the last check.');
+    }
+
+    final title = "What's changing — checked $ago";
+    final lineColor = nvdLineColor; // colours the [U]/[A]/[R]/Closure lines
 
     return Focusable(
       focused: true,
@@ -109,6 +129,9 @@ class CachedPackageDiff extends StatelessComponent {
     );
   }
 }
+
+/// 7-char short rev for display; passes through anything already short.
+String _short(String rev) => rev.length > 7 ? rev.substring(0, 7) : rev;
 
 /// Per-line colour for `nvd diff` output. Public so the Apply view's
 /// review / done screens (which also render nvd output) share the

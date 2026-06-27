@@ -12,15 +12,15 @@ import '../../providers/viewport_provider.dart';
 import '../../services/check_runner.dart';
 
 // ---------------------------------------------------------------------------
-// System view — sidebar: [Check, Apply].
+// System view — sidebar: [Updates, Apply, Power].
 //
-// Sidebar splits intent: read-only probes (Check) live next to destructive
-// rebuilds (Apply). Each section's body shows the relevant status + actions;
-// the operator stays inside System rather than getting teleported to a
-// separate Update screen.
+// Sidebar splits intent: read-only update probes (the "Updates" section,
+// SystemSection.check) live next to destructive rebuilds (Apply). Each
+// section's body shows the relevant status + actions; the operator stays
+// inside System rather than getting teleported to a separate screen.
 //
 // Apply navigates to ApplyView for the unified review + rebuild-streaming
-// flow. Check actions run inline via `nixblitz check ...` subprocesses and
+// flow. Updates actions run inline via `nixblitz check ...` subprocesses and
 // refresh the status panel on exit.
 // ---------------------------------------------------------------------------
 
@@ -278,7 +278,7 @@ class SystemView extends StatelessComponent {
   }
 
   String _headingFor(SystemSection section) => switch (section) {
-    SystemSection.check => 'Check — read-only probes',
+    SystemSection.check => 'Updates',
     SystemSection.apply => 'Apply — run nixos-rebuild',
     SystemSection.power => 'Power — shutdown / reboot',
   };
@@ -293,37 +293,20 @@ class SystemView extends StatelessComponent {
       _SystemAction(
         label: 'Check for updates',
         description:
-            'Probe each flake input + each installed plugin against '
-            'its pinned rev, then evaluate the new system closure off-'
-            'disk via `nix build --dry-run` + nvd diff (when every '
-            'path is substitutable). Bails before realising the '
-            'toplevel if any path would need a local compile so the '
-            'Pi 5 does not pin all 4 cores for hours; the would-build '
-            'list is reachable via "View packages to compile" below. '
-            'Stages any lock bump + plugin pin moves for the next '
-            'Apply. Daily timer runs this in the background; 1-10 min.',
+            'Probe NixBlitz + each installed plugin for new versions, then '
+            'preview the new system off-disk. Bails before building if any '
+            'package would need a local compile (so a Pi 5 is not pinned for '
+            'hours). Stages anything found for the next Apply. Runs daily in '
+            'the background; 1-10 min.',
         run: (ctx) => runCheckSubprocess(ctx),
       ),
-      if (hasCachedDiff)
+      if (hasCachedDiff || hasCachedWouldBuild)
         _SystemAction(
-          label: 'View package diff',
+          label: "What's changing…",
           description:
-              'Open the nvd output from the most recent check — '
-              'full-screen, scrollable. No subprocess; reads the '
-              'cached diff from update-status.json. Only appears '
-              'when a non-empty cached diff exists.',
-          run: (ctx) => ctx.read(currentViewProvider.notifier).state =
-              AppView.packageDiff,
-        ),
-      if (hasCachedWouldBuild)
-        _SystemAction(
-          label: 'View packages to compile',
-          description:
-              'Open the would-build list from the most recent check '
-              '— derivations that need a local compile because no '
-              'binary-cache substitute is available. Full-screen, '
-              'scrollable. Only appears when the cached check '
-              'reports compile-needed.',
+              'Show the details from the most recent check — which software '
+              'moved, any packages that build on the node, and the per-'
+              'package diff. Read-only.',
           run: (ctx) => ctx.read(currentViewProvider.notifier).state =
               AppView.packageDiff,
         ),
@@ -451,24 +434,33 @@ class _CheckStatusPanel extends StatelessComponent {
     final baseDir = context.watch(baseDirProvider);
     final status = readUpdateStatus();
     final result = status.checkResult;
-    final rootInputs = readRootFlakeInputs(baseDir);
 
     final ready = result != null && result.ok;
     final age = ready ? humanizeAge(result.checkedAt) : '—';
-    // Filter via `filterStillAhead` so cached entries whose
-    // `currentRev` no longer matches the live `flake.lock` get
-    // dropped — same path the dashboard banner uses.
-    final aheadInputs = ready
+    // Inputs still ahead after dropping cached entries whose currentRev no
+    // longer matches the live flake.lock — same path the dashboard uses.
+    final aheadInputCount = ready
         ? UpdateCheckService.filterStillAhead(
             result.inputsAhead,
             flakePath: baseDir,
-          ).map((i) => i.name).toSet()
-        : const <String>{};
+          ).length
+        : 0;
+
+    final display = mapUpdatesDisplay(
+      result: result,
+      aheadInputCount: aheadInputCount,
+    );
 
     final rows = <Component>[
-      const Text(
-        'Last check',
-        style: TextStyle(color: _labelCol, fontWeight: FontWeight.bold),
+      Row(
+        children: [
+          const Text(
+            'Last check',
+            style: TextStyle(color: _labelCol, fontWeight: FontWeight.bold),
+          ),
+          Expanded(child: const SizedBox.shrink()),
+          Text('checked $age', style: const TextStyle(color: _ageCol)),
+        ],
       ),
     ];
 
@@ -477,107 +469,66 @@ class _CheckStatusPanel extends StatelessComponent {
       rows.add(const Spinner(label: 'Running check…'));
     }
 
-    rows.add(const SizedBox(height: 1));
-
-    // ---------- flake inputs (header + per-input list) ----------
-    rows.add(_headerRow('flake inputs:', age));
-    if (rootInputs.error != null) {
-      rows.add(_indentedNote(rootInputs.error!));
-    } else if (rootInputs.inputs.isEmpty && rootInputs.follows.isEmpty) {
-      rows.add(_indentedNote('no root inputs in flake.lock'));
-    } else {
-      for (final input in rootInputs.inputs) {
-        final isTui = input.name == kTuiInputName;
-        rows.add(
-          _inputRow(
-            name: input.name,
-            isTui: isTui,
-            isAhead: aheadInputs.contains(input.name),
-            unknown: !ready,
-          ),
-        );
-      }
-      // Follows entries share another input's lock — no separate
-      // pin to probe — but operators expect to see e.g. `nixpkgs`
-      // listed. Render them after the resolved inputs, dimmed,
-      // with no ahead/up-to-date status.
-      for (final follow in rootInputs.follows) {
-        rows.add(_followsRow(name: follow.name, target: follow.target));
-      }
+    if (display.error != null) {
+      rows.add(const SizedBox(height: 1));
+      rows.add(_indentedNote("Couldn't check for updates — ${display.error}"));
     }
 
     rows.add(const SizedBox(height: 1));
-
-    // ---------- plugins row ----------
-    if (!ready) {
-      rows.add(
-        _topLevelRow('plugins', 'no check yet', '—', state: _RowState.unknown),
-      );
-    } else {
-      final n = result.pluginsAhead.length;
-      rows.add(
-        _topLevelRow(
-          'plugins',
-          n == 0 ? 'up to date' : '$n update${n == 1 ? "" : "s"} available',
-          age,
-          state: n == 0 ? _RowState.ok : _RowState.ahead,
-        ),
-      );
+    rows.add(_statusRow('NixBlitz', display.nixblitz, count: null));
+    rows.add(
+      _statusRow('Plugins', display.plugins, count: display.pluginsAheadCount),
+    );
+    // Per-plugin breakdown — plugins are operator-installed and known by
+    // name, so list which ones moved (and to what version) inline. Infra
+    // inputs stay rolled up under NixBlitz; plugins don't.
+    if (result != null) {
+      for (final p in result.pluginsAhead) {
+        rows.add(_pluginSubRow(p.pluginId, p.versionDelta));
+      }
     }
 
-    // ---------- system closure row ----------
-    if (result == null || !result.ok) {
-      rows.add(
-        _topLevelRow(
-          'system closure',
-          'no full check yet',
-          '—',
-          state: _RowState.unknown,
-        ),
-      );
-    } else if (result.compileNeeded) {
-      final n = result.wouldBuild.length;
-      rows.add(
-        _topLevelRow(
-          'system closure',
-          n == 1 ? '1 needs compile' : '$n need compile',
-          humanizeAge(result.checkedAt),
-          state: _RowState.ahead,
-        ),
-      );
-      rows.add(_indentedNote('see "View packages to compile" below'));
-    } else {
-      final noChange = result.noChanges || result.diffText.trim().isEmpty;
-      rows.add(
-        _topLevelRow(
-          'system closure',
-          noChange ? 'no system changes' : 'changes pending',
-          humanizeAge(result.checkedAt),
-          state: noChange ? _RowState.ok : _RowState.ahead,
-        ),
-      );
+    if (display.applyNote != null) {
+      rows.add(const SizedBox(height: 1));
+      rows.add(_indentedNote(display.applyNote!));
     }
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 
-  /// Header row: indented label, age on the right, no value column.
-  /// Used for the "flake inputs:" parent above the per-input list.
-  Component _headerRow(String label, String age) {
+  /// Status row mapping a [UpdateRowStatus] to the shared `_topLevelRow`.
+  /// [count] (>0) appends "N updates available" for the Plugins row.
+  Component _statusRow(String label, UpdateRowStatus s, {int? count}) {
+    final (value, state) = switch (s) {
+      UpdateRowStatus.upToDate => ('up to date', _RowState.ok),
+      UpdateRowStatus.updateAvailable => (
+        (count != null && count > 0)
+            ? '$count update${count == 1 ? '' : 's'} available'
+            : 'update available',
+        _RowState.ahead,
+      ),
+      UpdateRowStatus.notChecked => ('not checked yet', _RowState.unknown),
+    };
+    return _topLevelRow(label, value, '', state: state);
+  }
+
+  /// Indented per-plugin update row under the Plugins status row:
+  /// `      <id>   <from → to>` (id normal, delta dim).
+  Component _pluginSubRow(String id, String delta) {
     return Row(
       children: [
+        const SizedBox(width: 6),
         SizedBox(
-          width: 18,
-          child: Text('  $label', style: const TextStyle(color: _labelCol)),
+          width: 22,
+          child: Text(id, style: const TextStyle(color: _normalCol)),
         ),
-        Expanded(child: const SizedBox.shrink()),
-        Text('($age)', style: const TextStyle(color: _ageCol)),
+        Text(delta, style: const TextStyle(color: _ageCol)),
       ],
     );
   }
 
-  /// Top-level row with status icon, label, value, age. Used for the
-  /// `plugins` and `system closure` rows.
+  /// Top-level row with status icon, label, value, optional age. Used for
+  /// the NixBlitz / Plugins status rows.
   Component _topLevelRow(
     String label,
     String value,
@@ -603,80 +554,13 @@ class _CheckStatusPanel extends StatelessComponent {
         Expanded(
           child: Text(value, style: TextStyle(color: valueColor)),
         ),
-        Text('($age)', style: const TextStyle(color: _ageCol)),
+        if (age.isNotEmpty)
+          Text('($age)', style: const TextStyle(color: _ageCol)),
       ],
     );
   }
 
-  /// Indented per-input row: status icon, input name (+ optional
-  /// "(this TUI)" annotation), state text. No age column — the
-  /// parent "flake inputs:" header carries it.
-  Component _inputRow({
-    required String name,
-    required bool isTui,
-    required bool isAhead,
-    required bool unknown,
-  }) {
-    final state = unknown
-        ? _RowState.unknown
-        : (isAhead ? _RowState.ahead : _RowState.ok);
-    final (icon, iconColor, valueColor) = switch (state) {
-      _RowState.ok => ('✓ ', _okCol, _normalCol),
-      _RowState.ahead => ('↑ ', _aheadCol, _aheadCol),
-      _RowState.unknown => ('  ', _dimCol, _dimCol),
-    };
-    final stateText = switch (state) {
-      _RowState.ok => 'up to date',
-      _RowState.ahead => 'update available',
-      _RowState.unknown => '—',
-    };
-    final displayName = isTui ? '$name (this TUI)' : name;
-    return Row(
-      children: [
-        SizedBox(
-          width: 26,
-          child: Row(
-            children: [
-              const SizedBox(width: 4),
-              Text(icon, style: TextStyle(color: iconColor)),
-              Text(displayName, style: const TextStyle(color: _normalCol)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Text(stateText, style: TextStyle(color: valueColor)),
-        ),
-      ],
-    );
-  }
-
-  /// Indented row for a follows input. No status icon (the input
-  /// has no independent rev), dimmed name, value reads
-  /// `(follows <target>)` so the operator can see the relationship.
-  Component _followsRow({required String name, required String target}) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 26,
-          child: Row(
-            children: [
-              const SizedBox(width: 4),
-              const Text('  ', style: TextStyle(color: _dimCol)),
-              Text(name, style: const TextStyle(color: _dimCol)),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Text(
-            '(follows $target)',
-            style: const TextStyle(color: _dimCol),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Indented error / fallback note under the "flake inputs:" header.
+  /// Indented note line (the "when you apply" note + probe errors).
   Component _indentedNote(String message) {
     return Row(
       children: [
@@ -705,7 +589,7 @@ class _CompactSystemBackHeader extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final label = switch (section) {
-      SystemSection.check => 'Check',
+      SystemSection.check => 'Updates',
       SystemSection.apply => 'Apply',
       SystemSection.power => 'Power',
     };
@@ -924,7 +808,7 @@ class _SystemSidebar extends StatelessComponent {
           _sidebarEntry(
             context,
             SystemSection.check,
-            'Check',
+            'Updates',
             accent,
             idle,
             dim,

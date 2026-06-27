@@ -196,6 +196,9 @@ class InputAhead {
 ///
 /// Pinned plugins (`autoUpdate == false`) are intentionally skipped
 /// — the operator opted out of automatic refreshes for them.
+/// 7-char short rev for display; passes through anything already short.
+String _shortRev(String rev) => rev.length > 7 ? rev.substring(0, 7) : rev;
+
 class PluginAhead {
   const PluginAhead({
     required this.pluginId,
@@ -242,6 +245,16 @@ class PluginAhead {
   /// check still proceeds; sign-key verification is the real
   /// security mechanism. Logged at WARN.
   final bool forcePushDetected;
+
+  /// Operator-facing "from" label: the manifest version, or a short rev
+  /// when the plugin tracks by SHA only (no `version` field).
+  String get displayFrom => currentVersion ?? _shortRev(currentRev);
+
+  /// Operator-facing "to" label — the new pin candidate.
+  String get displayTo => upstreamVersion ?? _shortRev(upstreamRev);
+
+  /// `from → to` for inline display on the Updates screen + details view.
+  String get versionDelta => '$displayFrom → $displayTo';
 
   factory PluginAhead.fromJson(Map<String, dynamic> j) => PluginAhead(
     // Accept the legacy `dir_name` key as well as the current
