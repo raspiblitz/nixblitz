@@ -107,6 +107,13 @@ final _switchingPluginIdProvider = StateProvider<String?>((ref) => null);
 /// confirm; ScaffoldService rewrites the flake URL on the next Apply.
 final _branchPickerActiveProvider = StateProvider<bool>((ref) => false);
 
+/// Non-null while the operator is confirming removal of an installed
+/// plugin. Holds the plugin id; the build method renders the Remove
+/// confirm takeover. Removal is staged (hard-delete of the plugin dir +
+/// `plugins.list` regen, identical to `nixblitz plugin remove`) and the
+/// node only changes on the next Apply.
+final _removingPluginIdProvider = StateProvider<String?>((ref) => null);
+
 /// Format the System pane's Branch row display value from the
 /// operator's [configValue] and the embedded [manifest].
 ///
@@ -287,6 +294,47 @@ class ConfigureView extends StatelessComponent {
       );
     }
 
+    // ── Plugin remove confirm takeover ───────────────────────────────
+    final removingPluginId = context.watch(_removingPluginIdProvider);
+    if (removingPluginId != null) {
+      final pluginName =
+          context
+              .read(installedPluginsProvider)
+              .where((m) => m.id == removingPluginId)
+              .map((m) => m.name)
+              .firstOrNull ??
+          removingPluginId;
+      return _PluginRemoveConfirmView(
+        pluginId: removingPluginId,
+        pluginName: pluginName,
+        pluginService: context.read(pluginServiceProvider),
+        onConfirmed: () {
+          // Drop the plugin's app_configs entry (symmetric with install
+          // seeding it). This both clears the now-orphaned config AND makes
+          // the removal a config change, so it registers in the top-bar
+          // pending count (pendingChangeKeysProvider diffs config keys).
+          // Via the notifier so the in-memory config + the file both update.
+          final cfg = context.read(configProvider).value;
+          if (cfg != null && cfg.appConfigs.containsKey(removingPluginId)) {
+            context
+                .read(configProvider.notifier)
+                .updateConfig(cfg.removeAppConfig(removingPluginId));
+          }
+          // Sequential provider sets work here (cf. apply_view._reset);
+          // refresh the installed-plugin views so the removed row drops.
+          context.read(_statusMessageProvider.notifier).state =
+              'Removed $removingPluginId — run System → Apply to rebuild.';
+          context.read(_selectedOptionProvider.notifier).state = 0;
+          context.read(_removingPluginIdProvider.notifier).state = null;
+          context.invalidate(installedPluginsProvider);
+          context.invalidate(installedPluginMarkersProvider);
+        },
+        onCancel: () {
+          context.read(_removingPluginIdProvider.notifier).state = null;
+        },
+      );
+    }
+
     // ── Main view ────────────────────────────────────────────────────
     final configAsync = context.watch(configProvider);
     final serviceIndex = context.watch(selectedServiceIndexProvider);
@@ -394,9 +442,12 @@ class ConfigureView extends StatelessComponent {
           final hasMarker = context
               .read(installedPluginMarkersProvider)
               .any((m) => m.id == currentEntry.manifest.id);
+          // +2 synthetic rows for installed plugins: the "Switch branch…"
+          // row and the trailing "Remove plugin" row that bracket the
+          // declared actions. Bundled apps (no marker) have neither.
           contentRowCount =
               currentEntry.manifest.fields.length +
-              (hasMarker ? 1 : 0) +
+              (hasMarker ? 2 : 0) +
               _actionsFor(context, currentEntry.manifest.id).length;
         } else {
           contentRowCount = options.length;
@@ -461,8 +512,9 @@ class ConfigureView extends StatelessComponent {
               }
 
               // Plugins section: Enter on a row drives install (see
-              // _handleEnter); refresh/remove live in System → Apply
-              // and the `nixblitz plugin` CLI respectively.
+              // _handleEnter); refresh lives in System → Apply. Remove is
+              // the synthetic "Remove plugin" action row (or the
+              // `nixblitz plugin remove` CLI).
 
               // Esc: content → sidebar, sidebar → dashboard. The
               // arrow keys (`←/→/h/l`) are reserved for the top
@@ -653,11 +705,25 @@ class ConfigureView extends StatelessComponent {
             });
             return;
           }
-          // Rows after the synthetic Switch-branch slot → declared actions.
-          final actionIndex = selectedOption - fieldCount - 1;
-          if (actionIndex < 0 || actionIndex >= actions.length) return;
-          context.read(_runningPluginActionProvider.notifier).state =
-              actions[actionIndex];
+          // Slots after the synthetic Switch-branch row: the declared
+          // actions, then a synthetic "Remove plugin" row last.
+          final afterSwitch = selectedOption - fieldCount - 1;
+          if (afterSwitch < 0) return;
+          if (afterSwitch < actions.length) {
+            context.read(_runningPluginActionProvider.notifier).state =
+                actions[afterSwitch];
+            return;
+          }
+          if (afterSwitch == actions.length) {
+            // Synthetic Remove row → open the confirm takeover. Deferred
+            // per CLAUDE.md pitfall #1 (a provider set mid-handler discards
+            // the rest of the handler).
+            final pluginId = manifest.id;
+            Future.microtask(() {
+              context.read(_removingPluginIdProvider.notifier).state = pluginId;
+            });
+            return;
+          }
           return;
         } else {
           // No marker — no synthetic row; actions start immediately after
@@ -1010,6 +1076,33 @@ class ConfigureView extends StatelessComponent {
             action: actions[i],
             selected:
                 selectedIndex == fieldCount + (marker != null ? 1 : 0) + i,
+          ),
+        // Synthetic "Remove plugin" row (installed plugins only) — the last
+        // selectable row; Enter opens the confirm. Same shape as the
+        // Switch-branch row above.
+        if (marker != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${selectedIndex == fieldCount + 1 + actions.length ? "> " : "  "}Remove plugin',
+                  style: TextStyle(
+                    color: selectedIndex == fieldCount + 1 + actions.length
+                        ? const Color.fromRGB(247, 147, 26)
+                        : const Color.fromRGB(220, 220, 220),
+                    fontWeight: selectedIndex == fieldCount + 1 + actions.length
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+                const Text(
+                  '    Remove this plugin (takes effect on the next Apply).',
+                  style: TextStyle(color: Color.fromRGB(140, 140, 150)),
+                ),
+              ],
+            ),
           ),
       ],
     ];
@@ -1530,6 +1623,112 @@ class _CompactBackHeader extends StatelessComponent {
 // takeover (mirrors the PasswordInput pattern) when
 // _editingSystemFieldProvider is non-null.
 // ---------------------------------------------------------------------------
+
+/// Confirm takeover for removing an installed plugin via the "Remove
+/// plugin" action row.
+/// Mirrors the `nixblitz plugin remove` CLI: the hard-delete + plugins.list
+/// regen happen immediately on confirm, but the node only changes on the
+/// next Apply (where the plugin's teardown also runs). Modal: swallows all
+/// keys except y / n / Esc.
+class _PluginRemoveConfirmView extends StatefulComponent {
+  final String pluginId;
+  final String pluginName;
+  final PluginService pluginService;
+  final VoidCallback onConfirmed;
+  final VoidCallback onCancel;
+
+  const _PluginRemoveConfirmView({
+    required this.pluginId,
+    required this.pluginName,
+    required this.pluginService,
+    required this.onConfirmed,
+    required this.onCancel,
+  });
+
+  @override
+  State<_PluginRemoveConfirmView> createState() =>
+      _PluginRemoveConfirmViewState();
+}
+
+class _PluginRemoveConfirmViewState extends State<_PluginRemoveConfirmView> {
+  // Guard against a double-trigger; a plain instance var, not a provider
+  // (nocterm pitfall #1 — provider sets mid-handler discard the stack).
+  bool _working = false;
+
+  @override
+  Component build(BuildContext context) {
+    final comp = component;
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.keyY) {
+            if (_working) return true;
+            _working = true;
+            // remove() has no awaits — its body (deleteSync + plugins.list
+            // regen) runs synchronously on call, so the deletion is done
+            // before onConfirmed() refreshes the list. catchError logs the
+            // rare filesystem failure without blocking the UI.
+            comp.pluginService.remove(comp.pluginId).catchError((
+              Object e,
+              StackTrace st,
+            ) {
+              LogService.error(
+                'configure: remove ${comp.pluginId} failed',
+                e,
+                st,
+              );
+            });
+            comp.onConfirmed();
+            return true;
+          }
+          if (event.logicalKey == LogicalKey.keyN ||
+              event.logicalKey == LogicalKey.escape) {
+            comp.onCancel();
+            return true;
+          }
+          // Modal — swallow every other key.
+          return true;
+        } catch (e, st) {
+          LogService.error('Remove confirm key handler failed', e, st);
+          return true;
+        }
+      },
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Remove ${comp.pluginName}?',
+                style: const TextStyle(
+                  color: Color.fromRGB(247, 147, 26),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 1),
+              const Text(
+                "This stages the removal. The plugin's service keeps running\n"
+                'until you apply — it is only gone from the node after the\n'
+                'next Apply (which runs its teardown first).',
+                style: TextStyle(color: Color.fromRGB(200, 200, 200)),
+              ),
+              const SizedBox(height: 1),
+              const Text(
+                '[y] Remove    [n / Esc] Cancel',
+                style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _SystemTextOverlay extends StatefulComponent {
   final String label;

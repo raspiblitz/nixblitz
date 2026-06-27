@@ -331,11 +331,18 @@ class NixblitzConfig {
 
     final allApps = {...appConfigs.keys, ...other.appConfigs.keys};
     for (final app in allApps) {
-      compareSection(
-        app,
-        appConfigs[app] ?? const {},
-        other.appConfigs[app] ?? const {},
-      );
+      final after = appConfigs[app];
+      final before = other.appConfigs[app];
+      // A plugin removed wholesale (present in [other], absent here) is one
+      // pending change, not one per config field: the plugin's Configure tab
+      // is gone, so per-field markers have nowhere to render and would only
+      // inflate the top-bar count. Install / edit (the app is still present
+      // here) keep per-field granularity for the in-tab markers.
+      if (after == null) {
+        keys.add(app);
+      } else {
+        compareSection(app, after, before ?? const {});
+      }
     }
 
     return keys;

@@ -358,6 +358,15 @@ Future<int> _runRemove(PluginService svc, ArgResults args) async {
   }
   final id = rest.first;
   await svc.remove(id);
+  // Drop the plugin's now-orphaned app_configs entry (symmetric with the
+  // install path seeding it). Mirrors what the TUI Remove flow does so the
+  // change registers and config.json doesn't keep stale plugin config.
+  if (svc.configService.configExists()) {
+    final cfg = await svc.configService.readConfig();
+    if (cfg.appConfigs.containsKey(id)) {
+      await svc.configService.writeConfig(cfg.removeAppConfig(id));
+    }
+  }
   stdout.writeln('removed $id');
   stdout.writeln('Run the Apply view (`a` in the TUI) to commit and rebuild.');
   return 0;

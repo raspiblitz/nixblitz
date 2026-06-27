@@ -202,6 +202,31 @@ void main() {
       final b = cfg(['lnurlp', 'copilot']);
       expect(a.diffKeysFrom(b), contains('lnbits.extensions'));
     });
+
+    test('a removed plugin counts as ONE key, not one per field', () {
+      final committed = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+        appConfigs: const {
+          'tailscale': {
+            'enabled': true,
+            'login_server': '',
+            'exit_node': false,
+          },
+        },
+      );
+      final live = committed.removeAppConfig('tailscale');
+      expect(live.diffKeysFrom(committed), {'tailscale'});
+    });
+
+    test('a newly-installed plugin keeps per-field granularity', () {
+      final committed = NixblitzConfig(
+        schemaVersion: 18,
+        system: SystemConfig.defaults(),
+      );
+      final live = committed.setAppConfig('tailscale', const {'enabled': true});
+      expect(live.diffKeysFrom(committed), contains('tailscale.enabled'));
+    });
   });
 
   group('NixblitzConfig.fromJson v18', () {
