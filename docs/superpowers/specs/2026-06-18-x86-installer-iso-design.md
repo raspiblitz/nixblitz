@@ -31,7 +31,7 @@ disk via the existing `disko-install --flake ~/nixblitz#nixblitz-installer` flow
   No new flake input.
 - **Live-medium TUI wiring: a dedicated minimal module in `nix/iso.nix`** (TUI
   package + ~15-line auto-launch + passwordless sudo). The live medium needs
-  *less* than the full node `features.system.base`, and this fully decouples the
+  _less_ than the full node `features.system.base`, and this fully decouples the
   ISO from `templates/`. The auto-launch snippet is duplicated from
   `templates/modules/system/base.nix` (acceptable; see Alternatives).
 - **Tooling: `just iso-build` + repoint `just vm-boot`** at the freshly-built ISO.
@@ -42,13 +42,13 @@ disk via the existing `disko-install --flake ~/nixblitz#nixblitz-installer` flow
   (`nixblitzWrapped`), which already puts `disko` + `git` on PATH — exactly what
   the install wizard's `disko-install` needs.
 - The TUI **embeds the templates** (`EmbeddedTemplates`) and scaffolds the flake
-  to `~/nixblitz` at first run (`ScaffoldService`). So the install flake *source*
+  to `~/nixblitz` at first run (`ScaffoldService`). So the install flake _source_
   is carried by the TUI — "baked in" for free in phase 1.
 - `InstallService.diskoInstall` runs
   `sudo -n disko-install --flake <~/nixblitz>#nixblitz-installer --disk main <dev>`.
   It detects the live source mount (`/iso`, `/run/initramfs/live`). The
   `nixblitz-installer` config stays in `templates/` (it's the disk-install
-  *target*, scaffolded to the node) — the ISO does not embed it in phase 1.
+  _target_, scaffolded to the node) — the ISO does not embed it in phase 1.
 
 ## Design
 

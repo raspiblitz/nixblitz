@@ -34,9 +34,11 @@
 ### Task 1: `nix/iso.nix` — the live-medium ISO config
 
 **Files:**
+
 - Create: `nix/iso.nix`
 
 **Interfaces:**
+
 - Consumes: the top-level flake's `nixpkgs` input; the wrapped TUI package `nixblitzWrapped` (a derivation with `disko` + `git` on PATH, `/bin/nixblitz`).
 - Produces: a function `{ nixpkgs, nixblitzPackage }` → a NixOS system whose `.config.system.build.isoImage` is the bootable ISO. Consumed by `flake.nix` in Task 2.
 
@@ -136,6 +138,7 @@ nix eval --impure --raw --expr '
   in iso.config.system.build.isoImage.name
 '
 ```
+
 Expected: prints a derivation name containing `nixos` / `iso` (proves the module set evaluates and `isoImage` is wired). If it errors on a network fetch of nixpkgs, that's environmental — note it and proceed; Task 2's `nix build` is the real gate.
 
 - [ ] **Step 4: Commit**
@@ -150,9 +153,11 @@ git commit -m "feat(iso): live-medium installer ISO config carrying the TUI"
 ### Task 2: Expose `installer-iso` in the flake
 
 **Files:**
+
 - Modify: `flake.nix` (the `packages = { ... };` block, currently lines 100-105)
 
 **Interfaces:**
+
 - Consumes: `nix/iso.nix`'s function (Task 1); `nixpkgs` (flake input, in scope in `outputs`); `nixblitzWrapped` (in scope in the `let` of `eachDefaultSystem`); `lib = nixpkgs.lib` (in scope, defined at flake.nix:46).
 - Produces: `packages.x86_64-linux.installer-iso` — the ISO derivation (`.config.system.build.isoImage`). Consumed by `just iso-build` / `vm-boot` in Task 3.
 
@@ -222,9 +227,11 @@ git commit -m "feat(iso): expose packages.installer-iso (x86_64-linux)"
 ### Task 3: `just iso-build` + repoint `vm-boot`
 
 **Files:**
+
 - Modify: `justfile` (add `iso-build`; edit `vm-boot`, currently lines 167-193)
 
 **Interfaces:**
+
 - Consumes: `packages.x86_64-linux.installer-iso` (Task 2). The built ISO lands at `result/iso/nixblitz-installer-x86_64.iso` after `nix build .#installer-iso`.
 - Produces: `just iso-build` (build recipe) and an updated `just vm-boot` that boots the built ISO.
 
