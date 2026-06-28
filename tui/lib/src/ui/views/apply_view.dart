@@ -175,9 +175,11 @@ class _ApplyViewState extends State<ApplyView> {
   /// Returns true when a rewrite + commit happened. Designed to be
   /// called as a preflight inside [_continueApply] so drift
   /// introduced by a TUI upgrade (e.g. a schema-shape change like
-  /// v17→v18) is repaired before the main `git commitAll` + rebuild
-  /// runs. Failure is logged and swallowed — the downstream Nix
-  /// build will surface a clear error if templates are still wrong.
+  /// v17→v18) is repaired (and scope-committed as an idempotent fix)
+  /// before the rebuild runs — separate from the main commit-on-success
+  /// step that lands config + lock + SBOM. Failure is logged and
+  /// swallowed — the downstream Nix build surfaces a clear error if
+  /// templates are still wrong.
   Future<bool> _maybeAutoRewriteTemplates(
     String baseDirPath,
     GitService git,
@@ -293,16 +295,14 @@ class _ApplyViewState extends State<ApplyView> {
               _promoteStagedLock(baseDirPath);
               await _promoteStagedPlugins(staged);
             }
-            _append('');
-            _append('> git add -A && git commit -m "Apply pending changes"');
-            git
-                .commitAll('Apply pending changes')
-                .then((committed) async {
-                  _append(
-                    committed
-                        ? 'Committed.'
-                        : 'Nothing staged (no changes to commit).',
-                  );
+            // Commit-on-success ONLY — no commit before the rebuild. The build
+            // runs against the (dirty) working tree; config + lock + SBOM are
+            // committed together AFTER the rebuild AND the SBOM both succeed
+            // (the code==0 branch below). A broken update therefore never
+            // records a committed state — its changes stay in the working tree,
+            // recoverable, and the pending indicator still reads "pending".
+            Future<void>.value()
+                .then((_) async {
                   // Pick the rebuild attribute from the just-applied
                   // platform; the config notifier holds the up-to-date
                   // copy because the Configure view updated it before we
@@ -374,36 +374,28 @@ class _ApplyViewState extends State<ApplyView> {
                           'apply: rebuild exited with code $code',
                         );
                         if (code == 0) {
-                          // Refresh the committed SBOM from the now-live system
-                          // so its git diff records this Apply's package-version
-                          // delta. Best-effort — never undoes a successful Apply.
+                          // Commit-on-success: refresh the SBOM from the now-
+                          // live system, then commit config + lock + SBOM as one
+                          // commit. STRICT — if the SBOM can't be generated, do
+                          // NOT commit: the rebuild stands but the change stays
+                          // uncommitted (recoverable, retried on the next Apply).
                           _append('');
-                          _append('> updating SBOM…');
-                          try {
-                            final ok = await const SbomService().generate(
-                              closure: '/run/current-system',
-                              outPath: '$baseDirPath/sbom.cdx.json',
-                            );
-                            if (ok) {
-                              final committed = await git.commit(
-                                'sbom.cdx.json',
-                                'Update SBOM',
-                              );
+                          _append('> generating SBOM + committing…');
+                          final outcome = await generateSbomAndCommit(
+                            git: git,
+                            baseDir: baseDirPath,
+                            message: 'Apply pending changes',
+                          );
+                          switch (outcome) {
+                            case ApplyCommitOutcome.committed:
+                              _append('  Committed (config + SBOM).');
+                            case ApplyCommitOutcome.nothingToCommit:
+                              _append('  Nothing to commit.');
+                            case ApplyCommitOutcome.sbomFailed:
                               _append(
-                                committed
-                                    ? '  SBOM updated.'
-                                    : '  SBOM unchanged.',
+                                '  ! SBOM generation failed — system rebuilt '
+                                'but NOT committed. Re-apply to retry.',
                               );
-                            } else {
-                              _append('  ! SBOM generation failed — skipped');
-                            }
-                          } catch (e, st) {
-                            LogService.error(
-                              'apply: SBOM update failed',
-                              e,
-                              st,
-                            );
-                            _append('  ! SBOM update failed: $e — skipped');
                           }
                           final startup = context.read(startupBinaryProvider);
                           final updated = await systemService.hasNewerBinary(

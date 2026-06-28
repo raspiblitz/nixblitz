@@ -66,6 +66,17 @@ in {
       # running system and the dry-built next generation. Tiny
       # closure; also useful at the shell.
       nvd
+      # sbomnix generates the CycloneDX SBOM (`sbom.cdx.json`) the TUI commits
+      # after every successful rebuild — the node's package-version changelog.
+      # It is baked in (rather than fetched via `nix run`) ON PURPOSE: an SBOM
+      # failure now *blocks* the Apply commit (strict commit-on-success), so the
+      # tool must be reliably present, including offline. CLOSURE-SIZE TRADE: it
+      # pulls in sbomnix + its Python deps (~tens of MB on disk). That cost is
+      # accepted for the reliability of a commit-blocking dependency; if it ever
+      # becomes a problem, the alternatives are (a) make the SBOM best-effort
+      # again and revert to `nix run nixpkgs#sbomnix`, or (b) gate it behind an
+      # opt-in option. See docs/superpowers/specs/2026-06-28-sbom-version-tracking-design.md.
+      sbomnix
       # Both shells are kept available regardless of the
       # `defaultUserShell` choice — operators flipping the option
       # via Configure shouldn't have to wait on a new closure

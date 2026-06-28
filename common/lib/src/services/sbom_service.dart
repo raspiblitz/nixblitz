@@ -20,10 +20,10 @@ class SbomService {
   }) async {
     final tmp = '$outPath.tmp';
     try {
-      final gen = await Process.run('nix', [
-        'run',
-        'nixpkgs#sbomnix',
-        '--',
+      // `sbomnix` is baked into the node closure (templates base.nix) so it's
+      // on PATH and works offline — required because a failed SBOM now blocks
+      // the Apply commit (strict commit-on-success), so it must be reliable.
+      final gen = await Process.run('sbomnix', [
         closure,
         '--cdx',
         tmp,

@@ -32,14 +32,16 @@ the on-node look-ahead.
 `common` is the only package that runs `Process`. The service:
 
 - **`generate({required String closure, required String outPath})`** — runs
-  `nix run nixpkgs#sbomnix -- <closure> --cdx <tmp> --csv /dev/null --spdx
-/dev/null --impure`, then strips volatile fields with
+  `sbomnix <closure> --cdx <tmp> --csv /dev/null --spdx /dev/null --impure`,
+  then strips volatile fields with
   `jq 'del(.serialNumber) | del(.metadata.timestamp)'` and writes `outPath`.
   `closure` is a realized store path (`/run/current-system`) or a staged
-  candidate toplevel path. `--impure` lets sbomnix read nixpkgs metadata for
-  real versions/purls (verify during impl whether a store-path run needs it;
-  fall back to the flakeref form if version metadata is thin). Returns success /
-  a non-fatal error.
+  candidate toplevel path. `sbomnix` is **baked into the node closure** (templates
+  `base.nix` `systemPackages`) and called on PATH — NOT via `nix run` — because
+  a failed SBOM now blocks the Apply commit (strict, below), so the tool must be
+  reliably present, including offline. CLOSURE-SIZE TRADE documented at the
+  source (`base.nix` comment): ~tens of MB for sbomnix + Python deps, accepted
+  for a commit-blocking dependency. Returns success / a non-fatal error.
 - **`readComponents(String path) → Map<String,String>`** — parse a CycloneDX
   file's `components[]` into `name → version` (pure-ish: file read + JSON).
   Missing/empty file → empty map.
@@ -50,19 +52,32 @@ the on-node look-ahead.
 with `enum SbomChangeKind { added, removed, changed }` and JSON round-trip (it
 rides in `CheckResult`).
 
-### 2. Commit on Apply (the base requirement)
+### 2. Commit-on-success (the base requirement)
 
-In `apply_view._continueApply`, **after a successful rebuild** (`nixos-rebuild
-switch` exit 0): generate the SBOM from `/run/current-system` (realized → a
-closure walk, no eval) into `~/nixblitz/sbom.cdx.json`, then `git`-commit just
-that file with message `Update SBOM`. A small second auto-commit per Apply; its
-diff is exactly the package-version delta this Apply produced. **Best-effort**:
-sbomnix/commit failure logs + emits a line, never fails the (already-completed)
-Apply. Streams `> updating SBOM…` into the Apply log.
+**Nothing is committed before the rebuild.** Both the TUI Apply flow and the CLI
+`update` paths run the rebuild against the _dirty working tree_ (nix builds it,
+just warns "Git tree is dirty"), then — **only on a successful rebuild** —
+refresh the SBOM from `/run/current-system` and commit **everything** (config +
+lock + SBOM) as **one** commit. This means a broken update never records a
+committed state; its changes stay in the working tree (recoverable, retried next
+Apply, and the pending indicator correctly still reads "pending").
 
-(The existing Apply commit happens _before_ the rebuild, so this is necessarily
-a separate post-rebuild commit — which is also what makes it accurate: it
-reflects the system that actually built.)
+The commit step is a shared `common` helper, `generateSbomAndCommit({git,
+baseDir, message})`, called by `apply_view` (message `Apply pending changes`)
+and the CLI `update` commands (their existing messages). One implementation, no
+drift between paths — this also closes the gap where CLI `update` previously
+skipped the SBOM.
+
+**STRICT:** an SBOM-generation failure **aborts the commit** (returns
+`sbomFailed`). The rebuild stands, but the change is _not_ committed — surfaced
+loudly (`! SBOM generation failed — system rebuilt but NOT committed`). This is
+the user-chosen trade: every commit always carries a fresh SBOM, at the cost
+that a broken sbomnix stalls commits — which is exactly why sbomnix is baked
+into the closure (component 1) so it's reliably present.
+
+(The template-drift repair `_maybeAutoRewriteTemplates` still scope-commits its
+idempotent fix before the rebuild — it's a separate concern from the user's
+change, not gated on build success.)
 
 ### 3. Look-ahead on Check (`common` check service)
 

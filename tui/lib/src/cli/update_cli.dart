@@ -215,34 +215,30 @@ Future<int> _updateFlakeInput(
     return 0;
   }
 
-  // 3. Commit the lock bump. Single-file commit keeps this
-  // separable from any later Apply.
-  stdout.writeln('');
-  stdout.writeln('> git commit flake.lock');
-  final addRes = await Process.run('git', [
-    'add',
-    'flake.lock',
-  ], workingDirectory: baseDir);
-  if (addRes.exitCode != 0) {
-    stderr.writeln('git add flake.lock failed: ${addRes.stderr}');
-    return addRes.exitCode;
-  }
-  final commit = await Process.run('git', [
-    'commit',
-    '-m',
-    commitMessage,
-  ], workingDirectory: baseDir);
-  if (commit.exitCode != 0) {
-    stderr.writeln('git commit failed: ${commit.stderr}');
-    return commit.exitCode;
-  }
-
-  // 4. Rebuild.
+  // 3. Rebuild against the (uncommitted) lock bump. Commit-on-success only:
+  // nothing is committed before the build, so a failed rebuild never records
+  // a committed state — the lock bump stays in the working tree.
   final code = await _runRebuild(baseDir);
   if (code != 0) {
     stderr.writeln('');
-    stderr.writeln('nixos-rebuild switch failed (exit $code)');
+    stderr.writeln('nixos-rebuild switch failed (exit $code) — not committed');
     return code;
+  }
+
+  // 4. Commit-on-success: refresh the SBOM, then commit lock + SBOM as one
+  // commit. STRICT — an SBOM failure aborts the commit (the lock bump stays
+  // uncommitted, retried on the next run).
+  final outcome = await generateSbomAndCommit(
+    git: git,
+    baseDir: baseDir,
+    message: commitMessage,
+  );
+  if (outcome == ApplyCommitOutcome.sbomFailed) {
+    stderr.writeln('');
+    stderr.writeln(
+      'rebuilt OK but SBOM generation failed — NOT committed; re-run to retry.',
+    );
+    return 1;
   }
 
   _clearCheckState();
@@ -302,22 +298,29 @@ Future<int> _updatePlugins(String baseDir) async {
     return result.failures.isEmpty ? 0 : 1;
   }
 
-  // refreshAll already wrote the new plugin files + markers +
-  // regen'd plugin loader. Commit the working tree as one
-  // recoverable point.
-  stdout.writeln('');
-  stdout.writeln('> git add -A && git commit -m "Update plugins"');
-  final committed = await git.commitAll('Update plugins');
-  if (!committed) {
-    stderr.writeln('git commit failed — nothing staged?');
-    return 1;
-  }
-
+  // refreshAll already wrote the new plugin files + markers + regen'd the
+  // plugin loader into the working tree. Commit-on-success only: rebuild
+  // against the uncommitted tree first; a failed build never records a commit.
   final code = await _runRebuild(baseDir);
   if (code != 0) {
     stderr.writeln('');
-    stderr.writeln('nixos-rebuild switch failed (exit $code)');
+    stderr.writeln('nixos-rebuild switch failed (exit $code) — not committed');
     return code;
+  }
+
+  // Commit-on-success: SBOM + the refreshed plugin tree as one commit. STRICT
+  // — an SBOM failure aborts the commit (the refresh stays uncommitted).
+  final outcome = await generateSbomAndCommit(
+    git: git,
+    baseDir: baseDir,
+    message: 'Update plugins',
+  );
+  if (outcome == ApplyCommitOutcome.sbomFailed) {
+    stderr.writeln('');
+    stderr.writeln(
+      'rebuilt OK but SBOM generation failed — NOT committed; re-run to retry.',
+    );
+    return 1;
   }
 
   _clearCheckState();

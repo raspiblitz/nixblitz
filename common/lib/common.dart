@@ -21,6 +21,7 @@ export 'src/models/sbom_change.dart';
 export 'src/models/update_status.dart';
 export 'src/models/updates_display.dart';
 export 'src/services/applied_state_service.dart';
+export 'src/services/apply_commit.dart';
 export 'src/services/config_service.dart';
 export 'src/services/git_service.dart';
 export 'src/services/sbom_service.dart';

@@ -14,24 +14,6 @@ const int restartExitCode = 42;
 /// new nixblitz-bin in the store.
 const String _currentSystemBin = '/run/current-system/sw/bin/nixblitz-bin';
 
-/// Result of [SystemService.updateLock]: did we actually move the
-/// flake.lock forward, and (if not) why?
-class LockUpdateResult {
-  const LockUpdateResult({required this.exitCode, required this.committed});
-
-  /// Exit code of the underlying `nix flake update` invocation. Non-
-  /// zero means the lock-update step itself failed and the rest of
-  /// the flow should bail.
-  final int exitCode;
-
-  /// True if the new lock differed from the old AND we successfully
-  /// committed it. False means either the flake's pins didn't move
-  /// (no inputs changed) or the commit failed.
-  final bool committed;
-
-  bool get success => exitCode == 0;
-}
-
 /// Result of [SystemService.previewPackageDiff].
 class PackageDiffResult {
   const PackageDiffResult({
@@ -110,76 +92,6 @@ class SystemService {
 
   Future<List<ServiceStatus>> getAllServiceStatuses() async {
     return Future.wait(serviceUnits.map(getServiceStatus));
-  }
-
-  /// Phase 1 of the Update flow: run `nix flake update <inputs>` in
-  /// [flakePath], commit the new `flake.lock` if (and only if) it
-  /// actually moved, and stream the output for live display.
-  ///
-  /// Caller checks [LockUpdateResult.committed] to decide whether
-  /// to proceed to [previewPackageDiff] / [rebuild]. When
-  /// `committed` is false the flow can short-circuit ("nothing to
-  /// preview").
-  ({Stream<String> output, Future<LockUpdateResult> result}) updateLock({
-    required String flakePath,
-    required List<String> updateArgs,
-    required String commitMessage,
-  }) {
-    final controller = StreamController<String>();
-    final result = () async {
-      controller.add('> nix ${updateArgs.join(" ")}');
-      controller.add('');
-
-      final update = await Process.start(
-        'nix',
-        updateArgs,
-        workingDirectory: flakePath,
-      );
-      update.stdout
-          .transform(const SystemEncoding().decoder)
-          .listen(controller.add);
-      update.stderr
-          .transform(const SystemEncoding().decoder)
-          .listen(controller.add);
-      final updateCode = await update.exitCode;
-      if (updateCode != 0) {
-        controller.add('\nFlake update failed (exit $updateCode).');
-        await controller.close();
-        return LockUpdateResult(exitCode: updateCode, committed: false);
-      }
-
-      // Even when nothing moves, `nix flake update` rewrites the
-      // file with a fresh `lastModified`. Use git as the source of
-      // truth on whether the pins actually changed.
-      final diff = await Process.run('git', [
-        'diff',
-        '--quiet',
-        '--exit-code',
-        'flake.lock',
-      ], workingDirectory: flakePath);
-      final lockChanged = diff.exitCode != 0;
-      if (!lockChanged) {
-        controller.add('');
-        controller.add('No inputs changed — system already up to date.');
-        await controller.close();
-        return const LockUpdateResult(exitCode: 0, committed: false);
-      }
-
-      controller.add('');
-      controller.add('> git commit flake.lock');
-      await Process.run('git', [
-        'add',
-        'flake.lock',
-      ], workingDirectory: flakePath);
-      final commit = await Process.run('git', [
-        'commit',
-        '-m',
-        commitMessage,
-      ], workingDirectory: flakePath);
-      await controller.close();
-      return LockUpdateResult(exitCode: 0, committed: commit.exitCode == 0);
-    }();
-    return (output: controller.stream, result: result);
   }
 
   /// Phase 2 of the Update flow: evaluate the (now-updated) flake's

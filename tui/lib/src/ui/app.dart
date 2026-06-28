@@ -589,11 +589,11 @@ class _ShellState extends State<_Shell> {
               if (event.logicalKey == LogicalKey.keyQ) {
                 // Confirm `q` when an Apply / Update flow is mid-
                 // stream — a fat-fingered `q` in place of `a` must
-                // not nuke a half-finished rebuild. After
-                // `updateLock` commits flake.lock or `commitAll`
-                // commits config.json, an immediate quit leaves
-                // HEAD ahead of `/run/current-system` with no
-                // breadcrumb in the working tree.
+                // not nuke a half-finished rebuild. Quitting mid-
+                // rebuild leaves the working tree changed but
+                // unbuilt (the commit-on-success step never runs),
+                // so the pending indicator stays — but a confirm
+                // still spares the operator an interrupted switch.
                 final busy = context.read(inflightOperationProvider);
                 if (busy) {
                   final armed = context.read(quitArmedProvider);
