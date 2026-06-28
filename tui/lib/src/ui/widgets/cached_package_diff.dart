@@ -60,6 +60,24 @@ class CachedPackageDiff extends StatelessComponent {
       lines.add('');
     }
 
+    // SBOM look-ahead: package versions a candidate update would change,
+    // diffed against the committed sbom.cdx.json (durable; lands at next Apply).
+    final sbom = result?.sbomChanges ?? const <SbomChange>[];
+    if (sbom.isNotEmpty) {
+      lines.add('Package versions (${sbom.length})');
+      for (final c in sbom) {
+        switch (c.kind) {
+          case SbomChangeKind.changed:
+            lines.add('  ${c.name}  ${c.from} → ${c.to}');
+          case SbomChangeKind.added:
+            lines.add('  + ${c.name} ${c.to ?? ''}'.trimRight());
+          case SbomChangeKind.removed:
+            lines.add('  - ${c.name}');
+        }
+      }
+      lines.add('');
+    }
+
     final diff = (result?.diffText ?? '').trim();
     if (diff.isNotEmpty) {
       lines.add('Package changes');

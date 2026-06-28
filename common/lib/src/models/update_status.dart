@@ -9,6 +9,8 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:common/src/models/sbom_change.dart';
+
 /// Attribute name of the flake input that pins the running TUI's
 /// own source — matches `templates/flake.nix:13`. Spelled out once
 /// here so consumers (System Check panel, dashboard banner) don't
@@ -83,6 +85,7 @@ class CheckResult {
     this.diffText = '',
     this.noChanges = false,
     this.wouldBuild = const [],
+    this.sbomChanges = const [],
   });
 
   final DateTime checkedAt;
@@ -120,6 +123,11 @@ class CheckResult {
   /// to avoid pinning the CPU for a potentially multi-hour compile.
   final List<String> wouldBuild;
 
+  /// Package-version changes a candidate (updated) system would bring vs the
+  /// committed `sbom.cdx.json`. Populated only on the substitutable check
+  /// path; empty otherwise (and when there is no committed SBOM baseline).
+  final List<SbomChange> sbomChanges;
+
   /// Convenience: true when [wouldBuild] is non-empty.
   bool get compileNeeded => wouldBuild.isNotEmpty;
 
@@ -136,6 +144,9 @@ class CheckResult {
     diffText: j['diff_text'] as String? ?? '',
     noChanges: j['no_changes'] as bool? ?? false,
     wouldBuild: (j['would_build'] as List?)?.cast<String>() ?? const <String>[],
+    sbomChanges: ((j['sbom_changes'] as List?) ?? const [])
+        .map((e) => SbomChange.fromJson(e as Map<String, dynamic>))
+        .toList(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -149,6 +160,8 @@ class CheckResult {
     'diff_text': diffText,
     'no_changes': noChanges,
     if (wouldBuild.isNotEmpty) 'would_build': wouldBuild,
+    if (sbomChanges.isNotEmpty)
+      'sbom_changes': sbomChanges.map((e) => e.toJson()).toList(),
   };
 }
 

@@ -7,9 +7,11 @@ import 'package:pub_semver/pub_semver.dart';
 
 import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_manifest.dart';
+import 'package:common/src/models/sbom_change.dart';
 import 'package:common/src/models/update_status.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
+import 'package:common/src/services/sbom_service.dart';
 import 'package:common/src/services/staging_service.dart';
 import 'package:common/src/services/system_service.dart'
     show rebuildAttributeFor;
@@ -360,7 +362,31 @@ class UpdateCheckService {
         _staging.writeNvdDiff(diff);
         _staging.writeNewToplevel(newTop);
         _staging.writeCheckedAt(now);
-        return _persist(now, probe, ok: true, diffText: diff);
+        // Look-ahead: diff a candidate SBOM (the realized new toplevel) against
+        // the committed one so the operator previews package-version changes.
+        // Skipped (empty) when there's no committed baseline yet. Best-effort.
+        var sbomChanges = const <SbomChange>[];
+        final committedSbom = '$flakePath/sbom.cdx.json';
+        if (File(committedSbom).existsSync()) {
+          const sbom = SbomService();
+          final candTmp =
+              '${Directory.systemTemp.createTempSync('sbom-check').path}'
+              '/cand.cdx.json';
+          final genOk = await sbom.generate(closure: newTop, outPath: candTmp);
+          if (genOk) {
+            sbomChanges = sbom.diffComponents(
+              sbom.readComponents(committedSbom),
+              sbom.readComponents(candTmp),
+            );
+          }
+        }
+        return _persist(
+          now,
+          probe,
+          ok: true,
+          diffText: diff,
+          sbomChanges: sbomChanges,
+        );
       } on ProcessException catch (e) {
         return _persist(
           now,
@@ -411,6 +437,7 @@ class UpdateCheckService {
     String diffText = '',
     bool noChanges = false,
     List<String> wouldBuild = const [],
+    List<SbomChange> sbomChanges = const [],
   }) {
     final errors = [...probe.errors];
     if (error != null) errors.add(error);
@@ -423,6 +450,7 @@ class UpdateCheckService {
       diffText: diffText,
       noChanges: noChanges,
       wouldBuild: wouldBuild,
+      sbomChanges: sbomChanges,
     );
     final f = File(statusPath);
     f.parent.createSync(recursive: true);

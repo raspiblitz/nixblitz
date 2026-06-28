@@ -374,6 +374,37 @@ class _ApplyViewState extends State<ApplyView> {
                           'apply: rebuild exited with code $code',
                         );
                         if (code == 0) {
+                          // Refresh the committed SBOM from the now-live system
+                          // so its git diff records this Apply's package-version
+                          // delta. Best-effort — never undoes a successful Apply.
+                          _append('');
+                          _append('> updating SBOM…');
+                          try {
+                            final ok = await const SbomService().generate(
+                              closure: '/run/current-system',
+                              outPath: '$baseDirPath/sbom.cdx.json',
+                            );
+                            if (ok) {
+                              final committed = await git.commit(
+                                'sbom.cdx.json',
+                                'Update SBOM',
+                              );
+                              _append(
+                                committed
+                                    ? '  SBOM updated.'
+                                    : '  SBOM unchanged.',
+                              );
+                            } else {
+                              _append('  ! SBOM generation failed — skipped');
+                            }
+                          } catch (e, st) {
+                            LogService.error(
+                              'apply: SBOM update failed',
+                              e,
+                              st,
+                            );
+                            _append('  ! SBOM update failed: $e — skipped');
+                          }
                           final startup = context.read(startupBinaryProvider);
                           final updated = await systemService.hasNewerBinary(
                             startup,
