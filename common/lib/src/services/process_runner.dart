@@ -22,6 +22,34 @@ class RunResult {
 String _fmt(String executable, List<String> args) =>
     args.isEmpty ? executable : '$executable ${args.join(' ')}';
 
+/// Shared shaping for [runCheckedSync] / [runChecked]: type the
+/// stdout/stderr, log the invocation + exit code uniformly, and
+/// optionally throw on failure.
+RunResult _shape(
+  String executable,
+  List<String> args,
+  ProcessResult r,
+  bool throwOnError,
+) {
+  final code = r.exitCode;
+  final stdout = (r.stdout as String?) ?? '';
+  final stderr = (r.stderr as String?) ?? '';
+  LogService.info('run: ${_fmt(executable, args)} → exit $code');
+  if (code != 0) {
+    final detail = stderr.trim().isNotEmpty ? stderr.trim() : stdout.trim();
+    LogService.warn('run failed: ${_fmt(executable, args)} → $detail');
+    if (throwOnError) {
+      throw ProcessException(
+        executable,
+        args,
+        detail.isEmpty ? 'command failed' : detail,
+        code,
+      );
+    }
+  }
+  return RunResult(exitCode: code, stdout: stdout, stderr: stderr);
+}
+
 /// Run [executable] with [args] synchronously, log the invocation and
 /// its exit code uniformly, and return a typed [RunResult].
 ///
@@ -48,21 +76,32 @@ RunResult runCheckedSync(
     workingDirectory: workingDirectory,
     environment: environment,
   );
-  final code = r.exitCode;
-  final stdout = (r.stdout as String?) ?? '';
-  final stderr = (r.stderr as String?) ?? '';
-  LogService.info('run: ${_fmt(executable, args)} → exit $code');
-  if (code != 0) {
-    final detail = stderr.trim().isNotEmpty ? stderr.trim() : stdout.trim();
-    LogService.warn('run failed: ${_fmt(executable, args)} → $detail');
-    if (throwOnError) {
-      throw ProcessException(
-        executable,
-        args,
-        detail.isEmpty ? 'command failed' : detail,
-        code,
-      );
-    }
-  }
-  return RunResult(exitCode: code, stdout: stdout, stderr: stderr);
+  return _shape(executable, args, r, throwOnError);
+}
+
+/// Async twin of [runCheckedSync], for flows that are already async
+/// (e.g. the debug views' background fetches). Same logging + optional
+/// throw-on-failure behaviour.
+Future<RunResult> runChecked(
+  String executable,
+  List<String> args, {
+  String? workingDirectory,
+  Map<String, String>? environment,
+  bool throwOnError = false,
+}) async {
+  final r = await Process.run(
+    executable,
+    args,
+    workingDirectory: workingDirectory,
+    environment: environment,
+  );
+  return _shape(executable, args, r, throwOnError);
+}
+
+/// Write [content] to [path] and mark it executable (`chmod +x`).
+/// Used for the throwaway helper scripts the debug tools drop under
+/// `/tmp`. Synchronous so it's safe from a nocterm key handler.
+void writeExecutableScriptSync(String path, String content) {
+  File(path).writeAsStringSync(content);
+  runCheckedSync('chmod', ['+x', path]);
 }

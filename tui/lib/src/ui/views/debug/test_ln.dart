@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:common/common.dart';
 import '../../widgets/scrollable_log.dart';
@@ -29,9 +28,9 @@ Future<_StepResult> _step({
   final printed = '${label ?? "\$"} $bin ${args.join(' ')}';
   append('> $printed');
   try {
-    final r = await Process.run(bin, args);
-    final so = (r.stdout as String).trim();
-    final se = (r.stderr as String).trim();
+    final r = await runChecked(bin, args);
+    final so = r.stdout.trim();
+    final se = r.stderr.trim();
     if (so.isNotEmpty) {
       for (final l in so.split('\n')) {
         append('  $l');

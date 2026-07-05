@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -29,14 +28,14 @@ class _TailLogViewState extends State<TailLogView> {
 
     Future<void>(() async {
       try {
-        final r = await Process.run('journalctl', [
+        final r = await runChecked('journalctl', [
           '-u',
           unit,
           '-n',
           '200',
           '--no-pager',
         ]);
-        final out = (r.stdout as String) + (r.stderr as String);
+        final out = r.stdout + r.stderr;
         context.read(_tailLinesProvider.notifier).state = out
             .split('\n')
             .where((l) => l.isNotEmpty)

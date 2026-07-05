@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
@@ -79,7 +78,7 @@ class _RegtestAutomineViewState extends State<RegtestAutomineView> {
       // is-active returns 0 / "active" when the unit is up,
       // non-zero / "inactive" / "failed" otherwise. Plain
       // `systemctl` (no sudo) is enough for read-only queries.
-      final res = await Process.run('systemctl', ['is-active', _kUnitName]);
+      final res = await runChecked('systemctl', ['is-active', _kUnitName]);
       final active = res.exitCode == 0;
       if (!mounted) return;
       context.read(_unitActiveProvider.notifier).state = active;
@@ -87,7 +86,7 @@ class _RegtestAutomineViewState extends State<RegtestAutomineView> {
         // Tail the journal so the running view shows what the
         // loop just did. `--no-pager` is essential — without it
         // journalctl detects no tty and would page anyway.
-        final logRes = await Process.run('journalctl', [
+        final logRes = await runChecked('journalctl', [
           '-u',
           _kUnitName,
           '-n',
@@ -96,7 +95,7 @@ class _RegtestAutomineViewState extends State<RegtestAutomineView> {
           '--output=cat',
         ]);
         if (!mounted) return;
-        final lines = (logRes.stdout as String)
+        final lines = logRes.stdout
             .split('\n')
             .where((l) => l.isNotEmpty)
             .toList(growable: false);
@@ -150,8 +149,7 @@ while true; do
       >/dev/null 2>&1 || echo "generatetoaddress failed for \$addr"
 done
 ''';
-    File(scriptPath).writeAsStringSync(script);
-    Process.runSync('chmod', ['+x', scriptPath]);
+    writeExecutableScriptSync(scriptPath, script);
     return scriptPath;
   }
 

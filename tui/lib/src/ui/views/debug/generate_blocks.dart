@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -10,7 +9,7 @@ import '../../widgets/scrollable_log.dart';
 /// million blocks is well past anyone's regtest patience but
 /// safely under int32 — keeps the rendered text width sane and
 /// guards against accidental key-mash overflow into multi-second
-/// `Process.run` timeouts.
+/// `runChecked` timeouts.
 const _kInputMax = 999999;
 
 enum _GbMode { configure, running, done }
@@ -82,21 +81,21 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
       // is loaded before any wallet-scoped RPC (getnewaddress etc.)
       // works.
       _append('> bitcoin-cli -regtest listwallets');
-      final listRes = await Process.run('bitcoin-cli', [
+      final listRes = await runChecked('bitcoin-cli', [
         '-regtest',
         'listwallets',
       ]);
       if (listRes.exitCode == 0 &&
-          !(listRes.stdout as String).contains('"nixblitz-debug"')) {
+          !listRes.stdout.contains('"nixblitz-debug"')) {
         _append('> bitcoin-cli -regtest loadwallet nixblitz-debug');
-        final loadRes = await Process.run('bitcoin-cli', [
+        final loadRes = await runChecked('bitcoin-cli', [
           '-regtest',
           'loadwallet',
           'nixblitz-debug',
         ]);
         if (loadRes.exitCode != 0) {
           _append('> bitcoin-cli -regtest createwallet nixblitz-debug');
-          await Process.run('bitcoin-cli', [
+          await runChecked('bitcoin-cli', [
             '-regtest',
             'createwallet',
             'nixblitz-debug',
@@ -105,7 +104,7 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
       }
 
       _append('> bitcoin-cli -regtest -rpcwallet=nixblitz-debug getnewaddress');
-      final addrRes = await Process.run('bitcoin-cli', [
+      final addrRes = await runChecked('bitcoin-cli', [
         '-regtest',
         '-rpcwallet=nixblitz-debug',
         'getnewaddress',
@@ -116,20 +115,20 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
         context.read(_gbModeProvider.notifier).state = _GbMode.done;
         return;
       }
-      final addr = (addrRes.stdout as String).trim();
+      final addr = addrRes.stdout.trim();
       _append('Mining to: $addr');
 
       // Fast path: zero interval → one batch call.
       if (interval == 0) {
         _append('> bitcoin-cli -regtest generatetoaddress $blocks $addr');
-        final res = await Process.run('bitcoin-cli', [
+        final res = await runChecked('bitcoin-cli', [
           '-regtest',
           'generatetoaddress',
           '$blocks',
           addr,
         ]);
-        final hashes = (res.stdout as String).trim();
-        final err = (res.stderr as String).trim();
+        final hashes = res.stdout.trim();
+        final err = res.stderr.trim();
         if (err.isNotEmpty) _append(err);
         if (hashes.isNotEmpty) _append(hashes);
         context.read(_gbExitCodeProvider.notifier).state = res.exitCode;
@@ -137,22 +136,19 @@ class _GenerateBlocksViewState extends State<GenerateBlocksView> {
         // Slow path: one block per loop, with interval between.
         for (var i = 1; i <= blocks && !_cancelRequested; i++) {
           _append('[$i/$blocks] generatetoaddress 1');
-          final res = await Process.run('bitcoin-cli', [
+          final res = await runChecked('bitcoin-cli', [
             '-regtest',
             'generatetoaddress',
             '1',
             addr,
           ]);
           if (res.exitCode != 0) {
-            _append('failed: ${(res.stderr as String).trim()}');
+            _append('failed: ${res.stderr.trim()}');
             context.read(_gbExitCodeProvider.notifier).state = res.exitCode;
             context.read(_gbModeProvider.notifier).state = _GbMode.done;
             return;
           }
-          final hash = (res.stdout as String).trim().replaceAll(
-            RegExp(r'[\[\]"]'),
-            '',
-          );
+          final hash = res.stdout.trim().replaceAll(RegExp(r'[\[\]"]'), '');
           _append('  $hash');
           if (i < blocks) {
             for (var s = interval; s > 0 && !_cancelRequested; s--) {

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
@@ -33,11 +32,8 @@ class _ServiceHealthViewState extends State<ServiceHealthView> {
       for (final unit in units) {
         String state;
         try {
-          final r = await Process.run('systemctl', [
-            'is-active',
-            unit,
-          ], runInShell: false);
-          state = (r.stdout as String).trim();
+          final r = await runChecked('systemctl', ['is-active', unit]);
+          state = r.stdout.trim();
           if (state.isEmpty) state = '(unknown)';
         } catch (e) {
           state = 'error: $e';

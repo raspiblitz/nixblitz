@@ -102,16 +102,17 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
 ### Maintainability
 
 - `[~]` **M — Architecture-rule violations:** views run `Process`/`File` directly,
-  violating "only `common` calls Process". **Done:** the three core flows —
-  `install_view` (rm/scaffold/`nixos-generate-config`/git init+commit/reboot/
-  `nix flake update`), `setup_view` (git commit), `apply_view` (`nix flake lock`,
-  `readlink`) — now go through `common`: a shared `runCheckedSync` helper,
+  violating "only `common` calls Process". **Done — no `Process` spawn remains in
+  the `tui` UI package.** The core flows (`install_view`, `setup_view`,
+  `apply_view`) went through `common` first (shared `runCheckedSync`,
   `GitService.initSync`/`commitAllSync`, `ScaffoldService.clearTargetSync`/
-  `writeStrippedHardwareConfigSync` (with the testable pure `stripHardwareConfigMounts`),
-  and `SystemService.currentSystemToplevel`. **Follow-up slice:** `apply_view`'s 3
-  `File` reads (staging lock, working-tree plugin file, update-status), the 5
-  `debug/` views (systemctl/journalctl/bitcoin-cli — debug-only), and `app.dart`'s
-  bootstrap reads (`stat`, `/etc/os-release`, `config.json`).
+  `writeStrippedHardwareConfigSync` with the pure `stripHardwareConfigMounts`,
+  `SystemService.currentSystemToplevel`, `StagingService.promoteLockTo`,
+  `environment_service`). Then the 5 `debug/` views (systemctl / journalctl /
+  bitcoin-cli) moved to an async `runChecked` twin plus `writeExecutableScriptSync`
+  for regtest-automine's helper script. **Remaining (File reads only, no process
+  spawns):** `app.dart`'s bootstrap `config.json` reads and `apply_view`'s two
+  file reads (teardown current-file, update-status) — a small later pass.
 - `[x]` **M — No CI.** Added a fast `just ci` gate (test + analyze + template
   freshness + Dart format check) and `.forgejo/workflows/ci.yml` running it on
   push/PR. The workflow needs a self-hosted runner labeled `nix`; until one is
