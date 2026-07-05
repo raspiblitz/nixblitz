@@ -70,6 +70,37 @@ format:
   print "Formatting markdown / yaml / json..."
   prettier -w . --log-level warn
 
+# Fail if the embedded templates are stale — i.e. someone edited
+# templates/ or branches.json without re-running gen-templates. Snapshots
+# the generated file, regenerates, and compares content (VCS-agnostic, so
+# it works with an uncommitted fix in the tree too). On drift the file is
+# left regenerated so you can review + commit it. This is the guard that
+# turns a silently-shipped stale template into a hard failure.
+check-templates:
+  #!/usr/bin/env nu
+  let f = "common/lib/src/services/embedded_templates.g.dart"
+  let before = (open --raw $f)
+  dart run scripts/gen_embedded_templates.dart
+  if ($before != (open --raw $f)) {
+    print $"($f) was stale — regenerated in place; review and commit it."
+    exit 1
+  }
+  print "Embedded templates are in sync."
+
+# Fast CI gate: tests, analyzer, embedded-template freshness, and a
+# Dart format check (no writes). The heavier nix config-eval matrix
+# lives in `test-config` and is intentionally left out of this gate.
+ci:
+  #!/usr/bin/env nu
+  just test
+  just analyze
+  just check-templates
+  cd common; dart format --output=none --set-exit-if-changed .
+  cd ../tui; dart format --output=none --set-exit-if-changed .
+  cd ../website; dart format --output=none --set-exit-if-changed .
+  cd ..
+  print "CI gate green."
+
 # Run the TUI
 run:
   cd tui; dart run bin/nixblitz.dart

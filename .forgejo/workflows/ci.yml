@@ -1,0 +1,27 @@
+# Fast CI gate for NixBlitz. Runs the Dart test / analyze / format
+# checks plus the embedded-template freshness guard on every push to
+# main and every pull request.
+#
+# Requirements: a self-hosted Forgejo Actions runner labeled `nix` with
+# Nix (flakes enabled) available — the job evaluates this repo's `nix
+# develop` devshell to get Dart, just, and the formatters. Until such a
+# runner is registered this workflow simply won't pick up (it does not
+# block anything); register the runner to activate it.
+#
+# The heavier config-eval matrix (`just test-config`, a multi-minute nix
+# build across the stable + unstable channels) is deliberately NOT run
+# here — wire it into a separate, slower workflow when a beefier runner
+# is available. See docs/audits/2026-07-04-architecture-security-audit.md.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: nix
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fast CI gate (test + analyze + format + template freshness)
+        run: nix develop --command just ci
