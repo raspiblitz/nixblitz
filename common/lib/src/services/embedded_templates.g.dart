@@ -17,30 +17,13 @@ const String _flake = r'''
 {
   description = "NixBlitz node configuration";
 
-  # NixBlitz's private binary cache hosted at https://attic.f44.fyi/nixblitz.
-  # Used for closures that don't substitute cleanly from cache.nixos.org —
-  # primarily the Pi 5's Rust-binary set (uv et al.) which bundle
-  # jemalloc-sys and need a JEMALLOC_SYS_WITH_LG_PAGE=14 rebuild that
-  # cache.nixos.org's 4K-page CI doesn't produce. See issue #24 (Attic)
-  # and the operator-facing Pi 5 SIGBUS-on-uv saga.
-  #
-  # `extra-` prefixes mean these LAYER on top of the operator's existing
-  # `substituters` + `trusted-public-keys` (notably cache.nixos.org and
-  # nixos-raspberrypi.cachix.org from `nixos-raspberrypi`'s nixConfig).
-  # If our cache is unreachable, substitution falls through; doesn't break
-  # rebuilds, just makes some derivations take the local-build path.
-  #
-  # `admin` is in `nix.settings.trusted-users` (see modules/system/base.nix)
-  # so this nixConfig is honoured without `--accept-flake-config` prompts
-  # for operator-level commands. The bootstrap path (`nix run` from the
-  # live ISO as `nixos`) does not yet pick this up — it goes through the
-  # nixblitz_ng root flake, not this one.
-  nixConfig = {
-    extra-substituters = ["https://attic.f44.fyi/nixblitz"];
-    extra-trusted-public-keys = [
-      "nixblitz:u7XgfZdWeXp1ilOIlzKzQbxWZZg9r2rVU0VBaffHtbw="
-    ];
-  };
+  # NB: the attic binary cache (https://attic.f44.fyi/nixblitz) is configured
+  # via `nix.settings.extra-substituters` in modules/system/base.nix, NOT here.
+  # A flake `nixConfig` is silently ignored unless `accept-flake-config = true`
+  # (off by default — even for trusted users on some nix builds), so a block
+  # here did nothing except emit "ignoring untrusted flake configuration
+  # setting" warnings on every rebuild. System-level `nix.settings` is the
+  # reliable mechanism. See issue #24 for why the cache exists (Pi 5 jemalloc).
 
   inputs = {
     # Pi 5 isn't supported by upstream NixOS — vendor kernel + firmware
@@ -682,6 +665,17 @@ in {
       # running system and the dry-built next generation. Tiny
       # closure; also useful at the shell.
       nvd
+      # sbomnix generates the CycloneDX SBOM (`sbom.cdx.json`) the TUI commits
+      # after every successful rebuild — the node's package-version changelog.
+      # It is baked in (rather than fetched via `nix run`) ON PURPOSE: an SBOM
+      # failure now *blocks* the Apply commit (strict commit-on-success), so the
+      # tool must be reliably present, including offline. CLOSURE-SIZE TRADE: it
+      # pulls in sbomnix + its Python deps (~tens of MB on disk). That cost is
+      # accepted for the reliability of a commit-blocking dependency; if it ever
+      # becomes a problem, the alternatives are (a) make the SBOM best-effort
+      # again and revert to `nix run nixpkgs#sbomnix`, or (b) gate it behind an
+      # opt-in option. See docs/superpowers/specs/2026-06-28-sbom-version-tracking-design.md.
+      sbomnix
       # Both shells are kept available regardless of the
       # `defaultUserShell` choice — operators flipping the option
       # via Configure shouldn't have to wait on a new closure
@@ -689,6 +683,12 @@ in {
       # working.
       bashInteractive
       nushell
+      # ghostty terminfo for operators SSHing from a ghostty host —
+      # without it, TERM=xterm-ghostty triggers "unknown terminal"
+      # warnings from ncurses-using tools (htop, nvim, less). Tiny
+      # closure; safe to ship as a default. Should move into the
+      # operator-declared `extra_packages` list once #39 lands.
+      ghostty.terminfo
       nixblitz.packages.${pkgs.system}.nixblitz-unwrapped
     ];
 
