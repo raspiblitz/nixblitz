@@ -18,13 +18,19 @@ class ConfigService {
     return NixblitzConfig.fromJson(json);
   }
 
+  // config.json is the single source of truth, so a write must never leave a
+  // half-written file behind. Write to a sibling temp file and rename over the
+  // target: rename(2) within one directory is atomic on POSIX, so a crash
+  // leaves either the old file or the new one intact — never a truncated one.
   Future<void> writeConfig(NixblitzConfig config) async {
-    final file = File(configPath);
-    await file.writeAsString(config.toJsonString());
+    final tmp = File('$configPath.tmp');
+    await tmp.writeAsString(config.toJsonString());
+    await tmp.rename(configPath);
   }
 
   void writeConfigSync(NixblitzConfig config) {
-    final file = File(configPath);
-    file.writeAsStringSync(config.toJsonString());
+    final tmp = File('$configPath.tmp');
+    tmp.writeAsStringSync(config.toJsonString());
+    tmp.renameSync(configPath);
   }
 }

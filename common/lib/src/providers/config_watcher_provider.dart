@@ -64,7 +64,20 @@ final configWatcherProvider = Provider<void>((ref) {
         .watch(recursive: true)
         .listen(
           (event) {
-            if (!_isRelevant(event.path, baseDir)) return;
+            // Atomic writers — our own ConfigService, text editors,
+            // most CLI tools — write a temp file and rename it over
+            // the target. On Linux that surfaces as a
+            // FileSystemMoveEvent whose `path` is the temp file and
+            // whose `destination` is the real file, so the relevant
+            // name lives on the destination side. Check both, or an
+            // atomic config.json write goes unnoticed.
+            final dest = event is FileSystemMoveEvent
+                ? event.destination
+                : null;
+            final relevant =
+                _isRelevant(event.path, baseDir) ||
+                (dest != null && _isRelevant(dest, baseDir));
+            if (!relevant) return;
             // Debounce so a burst of writes from a single CLI
             // operation (`plugin add` does several mkdir + writeFile
             // in sequence) collapses to one reload. 250 ms is
