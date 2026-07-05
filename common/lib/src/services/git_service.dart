@@ -1,6 +1,8 @@
 // common/lib/src/services/git_service.dart
 import 'dart:io';
 
+import 'package:common/src/services/process_runner.dart';
+
 /// Result of `git verify-commit` / `git log --format=%G…`. See
 /// [GitService.verifyCommit].
 ///
@@ -112,6 +114,54 @@ class GitService {
       environment: environment,
     );
     return true;
+  }
+
+  /// Synchronous twin of [init] for nocterm key-handler / confirm
+  /// contexts, where async callbacks can't be awaited (the installer's
+  /// "save config" step runs there). Same effect: `git init` plus the
+  /// NixBlitz commit identity.
+  bool initSync() {
+    final r = runCheckedSync(
+      'git',
+      _g(['init']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    if (!r.ok) return false;
+    runCheckedSync(
+      'git',
+      _g(['config', 'user.email', 'nixblitz@localhost']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    runCheckedSync(
+      'git',
+      _g(['config', 'user.name', 'NixBlitz']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    return true;
+  }
+
+  /// Synchronous twin of [commitAll] for key-handler / confirm
+  /// contexts. Stages every change and commits with [message]; returns
+  /// true only when a commit was created (`git add` failing or
+  /// nothing-to-commit both yield false).
+  bool commitAllSync(String message) {
+    final add = runCheckedSync(
+      'git',
+      _g(['add', '-A']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    if (!add.ok) return false;
+    final commit = runCheckedSync(
+      'git',
+      _g(['commit', '-m', message]),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    return commit.ok;
   }
 
   Future<bool> commit(String filePath, String message) async {

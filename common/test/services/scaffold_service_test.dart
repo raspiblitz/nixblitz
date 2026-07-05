@@ -144,5 +144,47 @@ nixblitz = {
       Directory('${tempDir.path}/nixblitz').createSync();
       expect(service.needsScaffold(), false);
     });
+
+    test('clearTargetSync removes an existing target dir', () async {
+      await service.scaffold();
+      expect(Directory('${tempDir.path}/nixblitz').existsSync(), true);
+      service.clearTargetSync();
+      expect(Directory('${tempDir.path}/nixblitz').existsSync(), false);
+    });
+
+    test('clearTargetSync is a no-op when the target is absent', () {
+      // Must not throw on a missing directory.
+      service.clearTargetSync();
+      expect(Directory('${tempDir.path}/nixblitz').existsSync(), false);
+    });
+  });
+
+  group('stripHardwareConfigMounts', () {
+    test('removes fileSystems and swapDevices blocks, keeps the rest', () {
+      const hw = '''
+{ config, lib, ... }:
+{
+  boot.initrd.availableKernelModules = [ "xhci_pci" ];
+  fileSystems."/" =
+    { device = "/dev/disk/by-uuid/abcd";
+      fsType = "ext4";
+    };
+  swapDevices = [ ];
+  networking.useDHCP = lib.mkDefault true;
+}
+''';
+      final out = stripHardwareConfigMounts(hw);
+      expect(out, contains('availableKernelModules'));
+      expect(out, contains('networking.useDHCP'));
+      expect(out, isNot(contains('fileSystems')));
+      expect(out, isNot(contains('swapDevices')));
+      expect(out, isNot(contains('/dev/disk/by-uuid/abcd')));
+    });
+
+    test('single-line swapDevices with trailing ; is removed', () {
+      final out = stripHardwareConfigMounts('swapDevices = [ ];\nx = 1;');
+      expect(out, isNot(contains('swapDevices')));
+      expect(out, contains('x = 1;'));
+    });
   });
 }

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:common/src/models/branch/branch_manifest.dart';
 import 'package:common/src/services/embedded_templates.dart';
 import 'package:common/src/services/log_service.dart';
+import 'package:common/src/services/process_runner.dart';
 
 class ScaffoldService {
   final String targetDir;
@@ -69,6 +70,35 @@ class ScaffoldService {
       'refreshTemplates: wrote ${templates.length} files to $targetDir',
     );
     return templates.length;
+  }
+
+  /// Remove [targetDir] entirely, so the installer can re-scaffold onto
+  /// a freshly-picked disk/platform profile without stale files from a
+  /// previous run. Falls back to `sudo -n rm -rf` because a prior
+  /// generation may have left read-only files (e.g. nix-store-backed)
+  /// that a plain `rm` can't remove. No-op when the directory is absent.
+  void clearTargetSync() {
+    if (!Directory(targetDir).existsSync()) return;
+    final r = runCheckedSync('rm', ['-rf', targetDir]);
+    if (!r.ok) {
+      LogService.warn('clearTarget: rm -rf failed, retrying with sudo');
+      runCheckedSync('sudo', ['-n', 'rm', '-rf', targetDir]);
+    }
+  }
+
+  /// Generate `hardware-configuration.nix` from the live system and
+  /// write it into [targetDir], stripped of its `fileSystems` /
+  /// `swapDevices` blocks (disko owns those on a NixBlitz node). Returns
+  /// true on success; false when `nixos-generate-config` failed (the
+  /// error is logged by the caller's context).
+  bool writeStrippedHardwareConfigSync() {
+    final r = runCheckedSync('nixos-generate-config', [
+      '--show-hardware-config',
+    ]);
+    if (!r.ok) return false;
+    final stripped = stripHardwareConfigMounts(r.stdout);
+    File('$targetDir/hardware-configuration.nix').writeAsStringSync(stripped);
+    return true;
   }
 
   /// Returns the embedded template map with `flake.nix` optionally
@@ -190,4 +220,56 @@ String substituteNixblitzRef(String template, String ref) {
     match.end,
     '${match.group(1)}$newUrl${match.group(3)}',
   );
+}
+
+/// Strip the `fileSystems.*` and `swapDevices` blocks out of a
+/// `nixos-generate-config --show-hardware-config` dump. disko manages
+/// mounts + swap on a NixBlitz node, so leaving the generated ones in
+/// would double-declare them. Pure string transform — unit-testable
+/// without touching the system.
+String stripHardwareConfigMounts(String hwConfig) {
+  final lines = hwConfig.split('\n');
+  final result = <String>[];
+  var skipping = false;
+  var braceDepth = 0;
+
+  for (final line in lines) {
+    final trimmed = line.trimLeft();
+
+    if (!skipping) {
+      // Detect start of blocks to skip
+      if (trimmed.startsWith('fileSystems.') ||
+          trimmed.startsWith('fileSystems ') ||
+          trimmed.startsWith('swapDevices')) {
+        skipping = true;
+        braceDepth = 0;
+
+        // Track braces/brackets on this line
+        for (final c in line.codeUnits) {
+          if (c == 123 || c == 91) braceDepth++; // { or [
+          if (c == 125 || c == 93) braceDepth--; // } or ]
+        }
+
+        // Check if the statement ends with ;
+        if (trimmed.endsWith(';')) {
+          skipping = false;
+        }
+        continue;
+      }
+      result.add(line);
+    } else {
+      // We're inside a block — track depth
+      for (final c in line.codeUnits) {
+        if (c == 123 || c == 91) braceDepth++;
+        if (c == 125 || c == 93) braceDepth--;
+      }
+
+      // Block ends when we hit the closing ; at depth 0
+      if (trimmed.endsWith(';') && braceDepth <= 0) {
+        skipping = false;
+      }
+    }
+  }
+
+  return result.join('\n');
 }

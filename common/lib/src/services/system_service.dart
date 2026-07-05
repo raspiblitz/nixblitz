@@ -270,6 +270,21 @@ class SystemService {
     }
   }
 
+  /// Resolve the store path behind `/run/current-system` (the toplevel
+  /// of the running generation), or null when it can't be read — a
+  /// non-NixOS host, or the live ISO before install. Used by the Apply
+  /// flow to snapshot what was just activated.
+  Future<String?> currentSystemToplevel() async {
+    try {
+      final r = await Process.run('readlink', ['-f', '/run/current-system']);
+      if (r.exitCode != 0) return null;
+      final p = (r.stdout as String).trim();
+      return p.isEmpty ? null : p;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Run `sudo nixos-rebuild switch --flake <path>#<attr>`.
   ///
   /// [attribute] selects which `nixosConfigurations.<name>` target

@@ -39,6 +39,27 @@ void main() {
       expect(log, contains('initial commit'));
     });
 
+    test('initSync creates a git repository', () {
+      final ok = service.initSync();
+      expect(ok, true);
+      expect(Directory('${tempDir.path}/.git').existsSync(), true);
+    });
+
+    test('commitAllSync stages and commits every change', () {
+      service.initSync();
+      File('${tempDir.path}/a.txt').writeAsStringSync('a');
+      File('${tempDir.path}/b.txt').writeAsStringSync('b');
+      final ok = service.commitAllSync('sync commit');
+      expect(ok, true);
+    });
+
+    test('commitAllSync returns false when there is nothing to commit', () {
+      service.initSync();
+      // Fresh repo, no files → `git commit` exits non-zero.
+      final ok = service.commitAllSync('empty');
+      expect(ok, false);
+    });
+
     test('revertLast reverts the most recent commit', () async {
       await service.init();
       final file = File('${tempDir.path}/test.txt');

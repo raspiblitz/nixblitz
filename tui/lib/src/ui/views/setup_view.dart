@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
@@ -633,33 +632,22 @@ class _SetupViewState extends State<SetupView> {
   /// an error.
   void _commitWizardFiles(String message) {
     try {
-      final baseDirPath = context.read(baseDirProvider);
-      // Stage everything: nixos-rebuild evaluates the flake from git's
-      // tracked tree, so any wizard-installed plugin files (plugins/<id>/…)
-      // and the regenerated plugins.list have to be committed before the
-      // rebuild runs. Staging only config.json + flake.lock used to leave
-      // freshly-installed plugins untracked, so the rebuilt system shipped
-      // with zero plugin modules and the bitcoind-wait step polled forever.
-      final gitAdd = Process.runSync('git', [
-        'add',
-        '-A',
-      ], workingDirectory: baseDirPath);
-      if (gitAdd.exitCode != 0) {
-        LogService.warn('git add failed: ${gitAdd.stderr}');
-      }
-      final gitCommit = Process.runSync('git', [
-        'commit',
-        '-m',
-        message,
-      ], workingDirectory: baseDirPath);
-      LogService.info('git commit "$message" exit=${gitCommit.exitCode}');
+      // Stage everything (commitAllSync does `git add -A`): nixos-rebuild
+      // evaluates the flake from git's tracked tree, so any wizard-installed
+      // plugin files (plugins/<id>/…) and the regenerated plugins.list have
+      // to be committed before the rebuild runs. Staging only config.json +
+      // flake.lock used to leave freshly-installed plugins untracked, so the
+      // rebuilt system shipped with zero plugin modules and the
+      // bitcoind-wait step polled forever.
+      final committed = context.read(gitServiceProvider).commitAllSync(message);
+      LogService.info('git commit "$message" committed=$committed');
       // HEAD just moved; invalidate the cached HEAD-config so
       // pendingChangeKeysProvider diffs against the new HEAD instead
       // of the stale pre-wizard cache. Without this, every section
       // the wizard touched shows up as pending on the post-wizard
       // dashboard until the operator restarts the TUI. Apply / Update
       // already do this at their own commit sites.
-      if (gitCommit.exitCode == 0) {
+      if (committed) {
         context.invalidate(committedConfigProvider);
       }
     } catch (e, st) {

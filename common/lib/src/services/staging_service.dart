@@ -127,6 +127,17 @@ class StagingService {
     }
   }
 
+  /// Promote a staged `flake.lock` into [destDir] (the operator's
+  /// `~/nixblitz/`) as `flake.lock`. Returns true when a copy happened,
+  /// false when nothing was staged. The Apply flow calls this after a
+  /// check found upstream movement, before the rebuild.
+  bool promoteLockTo(String destDir) {
+    final src = File(lockPath);
+    if (!src.existsSync()) return false;
+    src.copySync('$destDir/flake.lock');
+    return true;
+  }
+
   void writePluginPins(List<PluginAhead> pins) {
     _ensureDir();
     try {

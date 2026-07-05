@@ -230,11 +230,10 @@ class _ApplyViewState extends State<ApplyView> {
   /// is an async per-id git clone, while the lock copy is a single
   /// byte-for-byte file move.
   void _promoteStagedLock(String baseDirPath) {
-    final lockSrc = File(_staging.lockPath);
-    if (!lockSrc.existsSync()) return;
     try {
-      lockSrc.copySync('$baseDirPath/flake.lock');
-      _append('  promoted staged flake.lock');
+      if (_staging.promoteLockTo(baseDirPath)) {
+        _append('  promoted staged flake.lock');
+      }
     } catch (e, st) {
       LogService.error('apply: lock promotion failed', e, st);
       _append('  ! lock promotion failed: $e — continuing with build');
@@ -325,14 +324,14 @@ class _ApplyViewState extends State<ApplyView> {
                   _append('');
                   _append('> nix flake lock --update-input nixblitz');
                   try {
-                    final lockResult = Process.runSync('nix', [
+                    final lockResult = runCheckedSync('nix', [
                       'flake',
                       'lock',
                       '--update-input',
                       'nixblitz',
                     ], workingDirectory: baseDirPath);
                     if (lockResult.exitCode != 0) {
-                      final stderr = (lockResult.stderr as String).trim();
+                      final stderr = lockResult.stderr.trim();
                       LogService.warn(
                         'apply: nix flake lock --update-input returned '
                         '${lockResult.exitCode}: $stderr',
@@ -498,13 +497,9 @@ class _ApplyViewState extends State<ApplyView> {
     try {
       final rev = await git.headRef();
       if (rev == null) return;
-      final readlink = Process.runSync('readlink', [
-        '-f',
-        '/run/current-system',
-      ]);
-      final toplevel = readlink.exitCode == 0
-          ? (readlink.stdout as String).trim()
-          : '';
+      final toplevel =
+          await context.read(systemServiceProvider).currentSystemToplevel() ??
+          '';
       context
           .read(appliedStateServiceProvider)
           .write(rev: rev, toplevel: toplevel, flakeAttr: attr);

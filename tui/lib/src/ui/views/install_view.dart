@@ -141,14 +141,14 @@ class _InstallViewState extends State<InstallView> {
       // Nix caches git+https inputs aggressively. Force-refresh the nixblitz
       // input so disko-install pins the *current* remote tip in flake.lock,
       // not a stale cached revision.
-      final updateResult = Process.runSync('nix', [
+      final updateResult = runCheckedSync('nix', [
         'flake',
         'update',
         'nixblitz',
       ], workingDirectory: baseDirPath);
       final updateOutput = [
-        ...((updateResult.stderr as String).trim().split('\n')),
-        ...((updateResult.stdout as String).trim().split('\n')),
+        ...updateResult.stderr.trim().split('\n'),
+        ...updateResult.stdout.trim().split('\n'),
       ].where((l) => l.isNotEmpty).toList();
       _appendInstallLog([
         ...updateOutput,
@@ -487,81 +487,36 @@ class _InstallViewState extends State<InstallView> {
       );
       LogService.info('Save config: updated config prepared');
 
-      final targetDir = Directory(baseDirPath);
-      if (targetDir.existsSync()) {
-        LogService.info('Save config: removing previous $baseDirPath');
-        // Use rm -rf via sudo in case previous files are read-only (e.g. from nix store)
-        final rmResult = Process.runSync('rm', ['-rf', baseDirPath]);
-        if (rmResult.exitCode != 0) {
-          LogService.warn('rm -rf failed, trying with sudo');
-          Process.runSync('sudo', ['-n', 'rm', '-rf', baseDirPath]);
-        }
-      }
+      final scaffold = ScaffoldService(targetDir: baseDirPath);
+
+      LogService.info('Save config: removing previous $baseDirPath');
+      scaffold.clearTargetSync();
 
       LogService.info('Save config: scaffolding templates to $baseDirPath');
-      final templates = EmbeddedTemplates.getAll();
-      for (final entry in templates.entries) {
-        final file = File('$baseDirPath/${entry.key}');
-        file.parent.createSync(recursive: true);
-        file.writeAsStringSync(entry.value);
-      }
-      LogService.info(
-        'Save config: scaffold complete (${templates.length} files)',
-      );
+      final written = scaffold.refreshTemplatesSync();
+      LogService.info('Save config: scaffold complete ($written files)');
 
       configService.writeConfigSync(updatedConfig);
       LogService.info('Save config: config.json written');
 
-      // Generate hardware-configuration.nix from the live system
-      // We strip fileSystems and swapDevices since disko manages those.
+      // Generate hardware-configuration.nix from the live system,
+      // stripped of fileSystems/swapDevices since disko manages those.
       LogService.info('Save config: generating hardware-configuration.nix');
-      final genResult = Process.runSync('nixos-generate-config', [
-        '--show-hardware-config',
-      ]);
-      if (genResult.exitCode == 0) {
-        final hwConfig = _stripFileSystems(genResult.stdout as String);
-        final hwConfigPath = '$baseDirPath/hardware-configuration.nix';
-        File(hwConfigPath).writeAsStringSync(hwConfig);
+      if (scaffold.writeStrippedHardwareConfigSync()) {
         LogService.info('Save config: hardware-configuration.nix generated');
       } else {
-        LogService.error('nixos-generate-config failed: ${genResult.stderr}');
+        LogService.error('Save config: nixos-generate-config failed');
       }
 
-      ProcessResult runGit(List<String> args) {
-        final result = Process.runSync(
-          'git',
-          args,
-          workingDirectory: baseDirPath,
-        );
-        LogService.info(
-          'Save config: git ${args.join(" ")} exit=${result.exitCode}',
-        );
-        if (result.exitCode != 0) {
-          final stderr = result.stderr.toString().trim();
-          final stdout = result.stdout.toString().trim();
-          final details = [
-            if (stderr.isNotEmpty) 'stderr=$stderr',
-            if (stdout.isNotEmpty) 'stdout=$stdout',
-          ].join(' | ');
-          throw ProcessException(
-            'git',
-            args,
-            details.isEmpty ? 'git command failed' : details,
-            result.exitCode,
-          );
-        }
-        return result;
+      final git = context.read(gitServiceProvider);
+      if (!git.initSync()) {
+        throw StateError('git init failed in $baseDirPath');
       }
-
-      runGit(['init']);
-      runGit(['config', 'user.email', 'nixblitz@localhost']);
-      runGit(['config', 'user.name', 'NixBlitz']);
-      runGit(['add', '.']);
-      runGit([
-        'commit',
-        '-m',
+      if (!git.commitAllSync(
         'Initial configuration (schema v$currentConfigVersion)',
-      ]);
+      )) {
+        throw StateError('git commit failed in $baseDirPath');
+      }
       LogService.info('Save config: git repository initialized and committed');
 
       configNotifier.updateConfig(updatedConfig);
@@ -637,69 +592,13 @@ class _InstallViewState extends State<InstallView> {
     return '${s}s';
   }
 
-  /// Strip fileSystems and swapDevices blocks from generated hardware-configuration.nix.
-  /// Disko manages these, so they conflict if left in.
-  ///
-  /// Handles the nixos-generate-config format where blocks look like:
-  ///   fileSystems."/" =
-  ///     { device = "tmpfs";
-  ///       fsType = "tmpfs";
-  ///     };
-  ///   swapDevices = [ ];
-  static String _stripFileSystems(String hwConfig) {
-    final lines = hwConfig.split('\n');
-    final result = <String>[];
-    var skipping = false;
-    var braceDepth = 0;
-
-    for (final line in lines) {
-      final trimmed = line.trimLeft();
-
-      if (!skipping) {
-        // Detect start of blocks to skip
-        if (trimmed.startsWith('fileSystems.') ||
-            trimmed.startsWith('fileSystems ') ||
-            trimmed.startsWith('swapDevices')) {
-          skipping = true;
-          braceDepth = 0;
-
-          // Track braces/brackets on this line
-          for (final c in line.codeUnits) {
-            if (c == 123 || c == 91) braceDepth++; // { or [
-            if (c == 125 || c == 93) braceDepth--; // } or ]
-          }
-
-          // Check if the statement ends with ;
-          if (trimmed.endsWith(';')) {
-            skipping = false;
-          }
-          continue;
-        }
-        result.add(line);
-      } else {
-        // We're inside a block — track depth
-        for (final c in line.codeUnits) {
-          if (c == 123 || c == 91) braceDepth++;
-          if (c == 125 || c == 93) braceDepth--;
-        }
-
-        // Block ends when we hit the closing ; at depth 0
-        if (trimmed.endsWith(';') && braceDepth <= 0) {
-          skipping = false;
-        }
-      }
-    }
-
-    return result.join('\n');
-  }
-
   Component _buildComplete() {
     return Focusable(
       focused: true,
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.enter) {
-            Process.run('sudo', ['-n', 'reboot']);
+            runCheckedSync('sudo', ['-n', 'reboot']);
             return true;
           }
           return false;
