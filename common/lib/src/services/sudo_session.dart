@@ -131,9 +131,13 @@ class SudoSession {
     }
 
     for (var attempt = 1; attempt <= 3; attempt++) {
+      // On a retry the modal re-appears after the previous submit
+      // cleared it; lead with an explicit "incorrect password" so the
+      // operator knows the last attempt was rejected rather than the
+      // prompt having spuriously re-opened.
       final reason = attempt == 1
           ? 'Authorize sudo'
-          : 'Authorize sudo (attempt $attempt of 3)';
+          : 'Incorrect password — try again (attempt $attempt of 3)';
       final pw = await cb(reason);
       if (pw == null) {
         // User cancelled the modal.
