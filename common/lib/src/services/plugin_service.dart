@@ -9,6 +9,14 @@ import 'package:common/src/services/git_service.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_list_regen.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
+import 'package:common/src/services/plugin/plugin_git_ops.dart';
+import 'package:common/src/services/plugin/plugin_url.dart';
+import 'package:common/src/services/plugin/plugin_refresh_all_result.dart';
+
+// Re-export the co-located types so existing importers of
+// plugin_service.dart keep seeing PluginUrl / PluginRefreshAllResult.
+export 'package:common/src/services/plugin/plugin_url.dart';
+export 'package:common/src/services/plugin/plugin_refresh_all_result.dart';
 
 /// Manages installed plugins under `~/nixblitz/plugins/<id>/`.
 ///
@@ -22,10 +30,6 @@ import 'package:common/src/services/plugin/plugin_marker.dart';
 class PluginService {
   final String baseDir;
   final ConfigService configService;
-
-  /// Fixed clone timeout. Remote repos that misbehave shouldn't hang
-  /// the TUI — 60 s is generous for a shallow clone.
-  static const _cloneTimeout = Duration(seconds: 60);
 
   PluginService({required this.baseDir})
     : configService = ConfigService(baseDir: baseDir);
@@ -77,14 +81,14 @@ class PluginService {
       // otherwise falls back to the remote's default HEAD. The
       // manifest may redirect us to a different ref via its
       // `branches` block; a second clone below handles that case.
-      await _gitClone(parsed.cloneUrl, branch, tmpDir.path);
-      var pinnedRev = await _gitRevParseHead(tmpDir.path);
+      await gitClonePlugin(parsed.cloneUrl, branch, tmpDir.path);
+      var pinnedRev = await gitRevParseHead(tmpDir.path);
 
       // Safety: the source repo must not contain symlinks. A
       // malicious plugin could ship plugin.nix as a symlink to e.g.
       // /etc/shadow; `File.copySync` follows links, which would
       // land sensitive content in the tracked config repo.
-      _rejectSymlinks(tmpDir.path);
+      rejectSymlinks(tmpDir.path);
 
       final pluginSourceDir = parsed.subdir == null
           ? tmpDir.path
@@ -95,7 +99,7 @@ class PluginService {
       // them so the user can re-run with --subdir.
       if (!File('$pluginSourceDir/plugin.json').existsSync()) {
         if (parsed.subdir == null) {
-          final candidates = _listPluginSubdirs(tmpDir.path);
+          final candidates = listPluginSubdirs(tmpDir.path);
           if (candidates.isEmpty) {
             throw StateError(
               'No plugin found in this repo: no plugin.json at the root '
@@ -118,8 +122,8 @@ class PluginService {
         }
       }
 
-      var manifest = _readManifest(pluginSourceDir);
-      _requirePluginNix(pluginSourceDir);
+      var manifest = readPluginManifest(pluginSourceDir);
+      requirePluginNix(pluginSourceDir);
 
       // Default-branch resolution: when the caller didn't pin a
       // branch and the manifest declares a default, re-clone at the
@@ -134,13 +138,13 @@ class PluginService {
         // the declared default — saves a network round-trip on the
         // happy path where the publisher's remote HEAD matches their
         // declared default.
-        final currentBranch = await _gitCurrentBranch(tmpDir.path);
+        final currentBranch = await gitCurrentBranch(tmpDir.path);
         if (currentBranch != resolvedRef) {
           await tmpDir.delete(recursive: true);
           await Directory(tmpDir.path).create(recursive: true);
-          await _gitClone(parsed.cloneUrl, resolvedRef, tmpDir.path);
-          pinnedRev = await _gitRevParseHead(tmpDir.path);
-          _rejectSymlinks(tmpDir.path);
+          await gitClonePlugin(parsed.cloneUrl, resolvedRef, tmpDir.path);
+          pinnedRev = await gitRevParseHead(tmpDir.path);
+          rejectSymlinks(tmpDir.path);
           // Re-validate the manifest at the resolved ref. The
           // publisher's branches block should be consistent across
           // branches, but the per-branch manifest may legitimately
@@ -151,8 +155,8 @@ class PluginService {
               'plugin.json not found at the resolved branch `$resolvedRef`',
             );
           }
-          manifest = _readManifest(pluginSourceDir);
-          _requirePluginNix(pluginSourceDir);
+          manifest = readPluginManifest(pluginSourceDir);
+          requirePluginNix(pluginSourceDir);
         }
         branch = resolvedRef;
       }
@@ -161,7 +165,7 @@ class PluginService {
       // caller didn't pin one and no manifest default applied,
       // capture the cloned HEAD's branch so refresh() has something
       // to re-clone from.
-      final effectiveBranch = branch ?? await _gitCurrentBranch(tmpDir.path);
+      final effectiveBranch = branch ?? await gitCurrentBranch(tmpDir.path);
 
       final id = manifest.id;
       final pluginDir = Directory('$pluginsDir/$id');
@@ -287,7 +291,7 @@ class PluginService {
       // Mark the new plugin files as intent-to-add so the Apply
       // view's `git diff` renders them as new-file additions
       // instead of hiding them as untracked. Best-effort.
-      await _gitIntentToAdd(pluginDir.path);
+      await gitIntentToAdd(pluginDir.path, baseDir: baseDir);
 
       // Regenerate plugins.list from the marker set. We pass every
       // non-disabled marker id as `satisfied` because PluginService
@@ -377,8 +381,8 @@ class PluginService {
       'nixblitz-plugin-refresh-',
     );
     try {
-      await _gitClone(parsed.cloneUrl, existing.branch, tmpDir.path);
-      final pinnedRev = await _gitRevParseHead(tmpDir.path);
+      await gitClonePlugin(parsed.cloneUrl, existing.branch, tmpDir.path);
+      final pinnedRev = await gitRevParseHead(tmpDir.path);
 
       // Idempotent no-op when pin matches. Touching the marker on
       // every poll would dirty the working tree even when nothing
@@ -391,7 +395,7 @@ class PluginService {
         return existing;
       }
 
-      _rejectSymlinks(tmpDir.path);
+      rejectSymlinks(tmpDir.path);
 
       final pluginSourceDir = parsed.subdir == null
           ? tmpDir.path
@@ -403,8 +407,8 @@ class PluginService {
           '`${parsed.subdir ?? "(root)"}` in the refreshed repo.',
         );
       }
-      final manifest = _readManifest(pluginSourceDir);
-      _requirePluginNix(pluginSourceDir);
+      final manifest = readPluginManifest(pluginSourceDir);
+      requirePluginNix(pluginSourceDir);
 
       // Approach A signature check. Three cases:
       // - existing pin null + new fp: silent upgrade — adopt the
@@ -449,7 +453,7 @@ class PluginService {
       );
       writeMarker(pluginDir.path, updated);
 
-      await _gitIntentToAdd(pluginDir.path);
+      await gitIntentToAdd(pluginDir.path, baseDir: baseDir);
       _regen();
 
       LogService.info(
@@ -505,10 +509,10 @@ class PluginService {
       'nixblitz-plugin-switch-',
     );
     try {
-      await _gitClone(parsed.cloneUrl, newBranch, tmpDir.path);
-      final pinnedRev = await _gitRevParseHead(tmpDir.path);
+      await gitClonePlugin(parsed.cloneUrl, newBranch, tmpDir.path);
+      final pinnedRev = await gitRevParseHead(tmpDir.path);
 
-      _rejectSymlinks(tmpDir.path);
+      rejectSymlinks(tmpDir.path);
 
       final pluginSourceDir = parsed.subdir == null
           ? tmpDir.path
@@ -520,8 +524,8 @@ class PluginService {
           '`${parsed.subdir ?? "(root)"}` in the switched repo.',
         );
       }
-      final manifest = _readManifest(pluginSourceDir);
-      _requirePluginNix(pluginSourceDir);
+      final manifest = readPluginManifest(pluginSourceDir);
+      requirePluginNix(pluginSourceDir);
 
       final newSignature = await GitService(
         repoDir: tmpDir.path,
@@ -565,7 +569,7 @@ class PluginService {
       );
       writeMarker(pluginDir.path, updated);
 
-      await _gitIntentToAdd(pluginDir.path);
+      await gitIntentToAdd(pluginDir.path, baseDir: baseDir);
       _regen();
 
       LogService.info(
@@ -696,7 +700,7 @@ class PluginService {
   /// imported them; copying the whole tree is the robust shape.
   ///
   /// Only VCS metadata is skipped (`.git`, in [_copyDir]). Symlinks
-  /// were rejected upstream by `_rejectSymlinks`.
+  /// were rejected upstream by `rejectSymlinks`.
   ///
   /// [extraRelPaths] is the manifest's declared `tile_manifests`; the
   /// files themselves are already copied by the full-tree copy, so we
@@ -732,7 +736,7 @@ class PluginService {
       } else if (entity is Directory) {
         _copyDir(entity, Directory('${dst.path}/$name'));
       }
-      // Links rejected upstream by _rejectSymlinks; ignore
+      // Links rejected upstream by rejectSymlinks; ignore
       // defensively here so a future refactor doesn't accidentally
       // open a hole.
     }
@@ -751,445 +755,4 @@ class PluginService {
       return null;
     }
   }
-
-  /// Shallow-clone [url] into [target]. When [branch] is non-null,
-  /// pass `--branch <branch>` so the clone lands on that ref;
-  /// when null, omit the flag and let git pick the remote's
-  /// advertised HEAD (typically `main` or `master`). The null
-  /// case lets the install flow do an unbiased first clone before
-  /// the manifest's own `branches` block redirects it.
-  Future<void> _gitClone(String url, String? branch, String target) async {
-    final r = await Process.run(
-      'git',
-      [
-        'clone',
-        '--depth',
-        '1',
-        if (branch != null) ...['--branch', branch],
-        '--no-recurse-submodules',
-        url,
-        target,
-      ],
-      environment: const {'GIT_TERMINAL_PROMPT': '0'},
-    ).timeout(_cloneTimeout);
-    if (r.exitCode != 0) {
-      final stderr = (r.stderr as String).trim();
-      final hint = _suggestLocalSubdir(url);
-      throw StateError(
-        'git clone failed (exit ${r.exitCode}): $stderr'
-        '${hint == null ? '' : '\n\n$hint'}',
-      );
-    }
-  }
-
-  /// If [url] points at a local path that lives *inside* a git repo
-  /// (rather than being the repo root itself), build a friendly hint
-  /// showing the correct form. The common case: user runs
-  /// `plugin add /path/to/repo/plugin-a --insecure`, which fails
-  /// because /path/to/repo/plugin-a has no .git/. We walk up to
-  /// /path/to/repo, find .git/, and suggest
-  /// `/path/to/repo --subdir plugin-a`.
-  String? _suggestLocalSubdir(String url) {
-    String? fsPath;
-    if (url.startsWith('file://')) {
-      fsPath = url.substring('file://'.length);
-    } else if (url.startsWith('/')) {
-      fsPath = url;
-    }
-    if (fsPath == null) return null;
-    // Strip any ?dir= we appended when subdir was set via flag.
-    final q = fsPath.indexOf('?');
-    if (q >= 0) fsPath = fsPath.substring(0, q);
-
-    final segments = fsPath.split(Platform.pathSeparator);
-    for (var i = segments.length - 1; i > 0; i--) {
-      final candidate = segments.sublist(0, i).join(Platform.pathSeparator);
-      if (candidate.isEmpty) continue;
-      // `.git` is usually a directory but can be a file (worktrees, submodules).
-      if (Directory('$candidate/.git').existsSync() ||
-          File('$candidate/.git').existsSync()) {
-        final subdir = segments.sublist(i).join('/');
-        return 'hint: `$fsPath` sits inside the git repo at `$candidate`. '
-            'Try: `plugin add $candidate --subdir $subdir --insecure`';
-      }
-    }
-    return null;
-  }
-
-  /// List immediate subdirectory names of [repoDir] that look like
-  /// NixBlitz plugins (contain both plugin.json and plugin.nix).
-  /// Used to build a helpful "pick one with --subdir" error when a
-  /// user points at a multi-plugin repo without specifying which
-  /// plugin they want. Sorted for stable output.
-  List<String> _listPluginSubdirs(String repoDir) {
-    final result = <String>[];
-    for (final entity in Directory(repoDir).listSync(followLinks: false)) {
-      if (entity is! Directory) continue;
-      final name = entity.path.split(Platform.pathSeparator).last;
-      if (name.startsWith('.')) continue;
-      final hasManifest = File('${entity.path}/plugin.json').existsSync();
-      final hasPluginNix = File('${entity.path}/plugin.nix').existsSync();
-      if (hasManifest && hasPluginNix) {
-        result.add(name);
-      }
-    }
-    result.sort();
-    return result;
-  }
-
-  /// `git add -N` (intent-to-add) on everything under [path]. Makes
-  /// brand-new files visible in `git diff` as additions. Non-fatal:
-  /// a non-git baseDir just logs a warning.
-  Future<void> _gitIntentToAdd(String path) async {
-    try {
-      final r = await Process.run('git', [
-        'add',
-        '-N',
-        path,
-      ], workingDirectory: baseDir);
-      if (r.exitCode != 0) {
-        LogService.warn(
-          'PluginService: git add -N failed '
-          '(${r.exitCode}): ${(r.stderr as String).trim()}',
-        );
-      }
-    } catch (e) {
-      LogService.warn('PluginService: git add -N threw: $e');
-    }
-  }
-
-  /// Walk the cloned tree and throw if any entry is a symlink.
-  /// Uses `followLinks: false` so symlinks come back as `Link`
-  /// entities instead of being transparently resolved.
-  void _rejectSymlinks(String dir) {
-    for (final entity in Directory(
-      dir,
-    ).listSync(recursive: true, followLinks: false)) {
-      // Skip the .git internals — Dart doesn't descend into them
-      // automatically because of the default list behavior; we
-      // check anyway to avoid flagging any internal link git uses.
-      if (entity.path.contains(
-        '${Platform.pathSeparator}.git${Platform.pathSeparator}',
-      )) {
-        continue;
-      }
-      if (entity is Link) {
-        final rel = entity.path.substring(dir.length);
-        throw StateError(
-          'Plugin repo contains a symlink at `$rel`; refusing to install. '
-          'Plugins must contain only regular files (no symlinks).',
-        );
-      }
-    }
-  }
-
-  Future<String> _gitRevParseHead(String repoDir) async {
-    final r = await Process.run('git', [
-      'rev-parse',
-      'HEAD',
-    ], workingDirectory: repoDir);
-    if (r.exitCode != 0) {
-      throw StateError('git rev-parse failed: ${(r.stderr as String).trim()}');
-    }
-    return (r.stdout as String).trim();
-  }
-
-  /// Return the short name of HEAD's symbolic ref (e.g. `main`) in
-  /// the freshly-cloned [repoDir]. Used when the install flow
-  /// clones at the remote's default (no `--branch`) so the marker
-  /// can still record a concrete branch name for later refreshes.
-  /// Falls back to the empty string if HEAD is detached or
-  /// `symbolic-ref` fails for any reason (e.g. an old git that
-  /// produced a detached shallow checkout).
-  Future<String> _gitCurrentBranch(String repoDir) async {
-    final r = await Process.run('git', [
-      'symbolic-ref',
-      '--short',
-      '-q',
-      'HEAD',
-    ], workingDirectory: repoDir);
-    if (r.exitCode != 0) return '';
-    return (r.stdout as String).trim();
-  }
-
-  PluginManifest _readManifest(String dir) {
-    final f = File('$dir/plugin.json');
-    if (!f.existsSync()) {
-      throw StateError('plugin.json not found at $dir');
-    }
-    return PluginManifest.fromJsonString(f.readAsStringSync());
-  }
-
-  void _requirePluginNix(String dir) {
-    if (!File('$dir/plugin.nix').existsSync()) {
-      throw StateError('plugin.nix not found at $dir');
-    }
-  }
-}
-
-/// Aggregate result from [PluginService.refreshAll]. The TUI walks
-/// these three lists to render successes / warnings / skipped lines
-/// in the bulk refresh log surface.
-class PluginRefreshAllResult {
-  /// Plugins whose refresh advanced the pin to a newer rev.
-  final List<PluginMarker> advanced;
-
-  /// Plugins whose refresh found the pin already at upstream HEAD —
-  /// no files written, working tree clean. Distinguishing these from
-  /// [advanced] lets the CLI suppress the "Run Apply view" hint when
-  /// nothing actually moved (the operator's `git diff` would be empty).
-  final List<PluginMarker> unchanged;
-
-  /// Plugins whose refresh threw. The error is whatever
-  /// [PluginService.refresh] surfaces — typically [StateError] for
-  /// network failures or malformed upstream output, or
-  /// [PluginSignatureMismatch] when the publisher key changed.
-  final List<({PluginMarker plugin, Object error})> failures;
-
-  /// Plugins skipped because [PluginService.refreshAll] was called
-  /// with `includePinned: false` and the plugin had
-  /// `autoUpdate == false`.
-  final List<PluginMarker> skipped;
-
-  const PluginRefreshAllResult({
-    required this.advanced,
-    required this.unchanged,
-    required this.failures,
-    required this.skipped,
-  });
-
-  bool get hasAnyFailure => failures.isNotEmpty;
-  int get totalAttempted =>
-      advanced.length + unchanged.length + failures.length;
-}
-
-/// Parsed plugin URL. Handles the accepted schemes and the
-/// subdirectory convention.
-class PluginUrl {
-  /// Normalized URL used as the canonical ID.
-  final String canonical;
-
-  /// Real URL to pass to `git clone`.
-  final String cloneUrl;
-
-  /// Subdirectory inside the cloned repo that holds the plugin
-  /// (plugin.json + plugin.nix). Null means the repo root is the
-  /// plugin root.
-  final String? subdir;
-
-  /// True for schemes that bypass the default HTTPS-only posture.
-  final bool insecure;
-
-  const PluginUrl({
-    required this.canonical,
-    required this.cloneUrl,
-    this.subdir,
-    required this.insecure,
-  });
-
-  static PluginUrl parse(
-    String raw, {
-    bool allowInsecure = false,
-    String? subdir,
-  }) {
-    // Canonical URLs for non-github schemes encode the subdir as
-    // `?dir=<subdir>` (produced by [_withSubdir]). When we re-parse
-    // a stored marker.url (e.g. during `plugin update`), split
-    // that query-string suffix off before handing to the scheme
-    // parsers — then fold it back in via [_withSubdir] on the way
-    // out. Keeps the round-trip deterministic.
-    String effectiveRaw = raw;
-    String? embeddedSubdir;
-    final qIdx = raw.indexOf('?dir=');
-    if (qIdx >= 0) {
-      embeddedSubdir = raw.substring(qIdx + '?dir='.length);
-      effectiveRaw = raw.substring(0, qIdx);
-    }
-
-    final base = _parseBase(effectiveRaw, allowInsecure: allowInsecure);
-    final finalSubdir = subdir ?? embeddedSubdir;
-    if (finalSubdir == null || finalSubdir.isEmpty) return base;
-    final normalized = finalSubdir.replaceAll(RegExp(r'^/+|/+$'), '');
-    if (normalized.isEmpty) return base;
-    if (base.subdir != null) {
-      if (base.subdir == normalized) return base;
-      throw FormatException(
-        'URL `$raw` already specifies subdir `${base.subdir}`; '
-        'cannot combine with --subdir=$normalized.',
-      );
-    }
-    return base._withSubdir(normalized);
-  }
-
-  static PluginUrl _parseBase(String raw, {required bool allowInsecure}) {
-    if (raw.startsWith('github:')) {
-      return _parseGithub(raw);
-    }
-    if (raw.startsWith('forgejo:')) {
-      return _parseHostedGit(raw, 'forgejo:');
-    }
-    if (raw.startsWith('gitea:')) {
-      return _parseHostedGit(raw, 'gitea:');
-    }
-    if (raw.startsWith('https://')) {
-      return PluginUrl(canonical: raw, cloneUrl: raw, insecure: false);
-    }
-    // Bare absolute local path — equivalent to file:// but saves the
-    // user from worrying about URL syntax. Shell-expanded `~/...`
-    // lands here.
-    if (raw.startsWith('/')) {
-      if (!allowInsecure) {
-        throw FormatException(
-          '`$raw` is a local path. Pass --insecure to opt in.',
-        );
-      }
-      return PluginUrl(
-        canonical: 'file://$raw',
-        cloneUrl: 'file://$raw',
-        insecure: true,
-      );
-    }
-    if (raw.startsWith('file://') ||
-        raw.startsWith('http://') ||
-        raw.startsWith('ssh://')) {
-      // `file://~/...` is a common footgun: the shell doesn't expand
-      // `~` when it's inside a URL, so git reads `~` as the hostname
-      // and fails with a confusing "does not appear to be a git
-      // repository" message. Catch it here with a clearer hint.
-      if (raw.startsWith('file://~')) {
-        throw FormatException(
-          '`$raw` contains `~` that the shell did not expand '
-          '(because it sits inside a URL). Either drop the `file://` '
-          'prefix so the shell expands `~/...`, or substitute your '
-          'home path explicitly (e.g. file:///home/you/...).',
-        );
-      }
-      if (!allowInsecure) {
-        throw FormatException(
-          '`$raw` uses an insecure scheme. Pass --insecure to override.',
-        );
-      }
-      return PluginUrl(canonical: raw, cloneUrl: raw, insecure: true);
-    }
-    throw FormatException(
-      'Unsupported URL in `$raw`. '
-      'Accepted: github:owner/repo, forgejo:host/owner/repo, '
-      'gitea:host/owner/repo, https://host/repo, or a bare '
-      'absolute path (/home/you/...). '
-      'file://, http://, ssh:// require --insecure.',
-    );
-  }
-
-  static PluginUrl _parseGithub(String raw) {
-    final path = raw.substring('github:'.length);
-    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
-    if (segments.length < 2) {
-      throw FormatException(
-        'Invalid github URL `$raw`. Expected `github:owner/repo[/subdir]`.',
-      );
-    }
-    final owner = segments[0];
-    final repo = segments[1];
-    final subdirParts = segments.sublist(2);
-    final subdir = subdirParts.isEmpty ? null : subdirParts.join('/');
-    final canonical = subdir == null
-        ? 'github:$owner/$repo'
-        : 'github:$owner/$repo/$subdir';
-    return PluginUrl(
-      canonical: canonical,
-      cloneUrl: 'https://github.com/$owner/$repo',
-      subdir: subdir,
-      insecure: false,
-    );
-  }
-
-  /// Shared parser for self-hosted shortcut schemes (forgejo:, gitea:)
-  /// where the host must be specified because the instance isn't
-  /// implicit. Shape: `<scheme>host/owner/repo[/subdir]`.
-  static PluginUrl _parseHostedGit(String raw, String schemePrefix) {
-    final path = raw.substring(schemePrefix.length);
-    final segments = path.split('/').where((s) => s.isNotEmpty).toList();
-    if (segments.length < 3) {
-      throw FormatException(
-        'Invalid $schemePrefix URL `$raw`. '
-        'Expected `${schemePrefix}host/owner/repo[/subdir]`.',
-      );
-    }
-    final host = segments[0];
-    final owner = segments[1];
-    final repo = segments[2];
-    final subdirParts = segments.sublist(3);
-    final subdir = subdirParts.isEmpty ? null : subdirParts.join('/');
-    final canonical = subdir == null
-        ? '$schemePrefix$host/$owner/$repo'
-        : '$schemePrefix$host/$owner/$repo/$subdir';
-    return PluginUrl(
-      canonical: canonical,
-      cloneUrl: 'https://$host/$owner/$repo',
-      subdir: subdir,
-      insecure: false,
-    );
-  }
-
-  /// Return a copy with the subdir set. Updates [canonical] using
-  /// the scheme's native convention — path-form for `github:`
-  /// (matches Nix flake URI syntax), `?dir=<subdir>` query-form
-  /// otherwise. Precondition: this PluginUrl has no subdir set.
-  PluginUrl _withSubdir(String sub) {
-    final newCanonical = canonical.startsWith('github:')
-        ? '$canonical/$sub'
-        : '$canonical?dir=$sub';
-    return PluginUrl(
-      canonical: newCanonical,
-      cloneUrl: cloneUrl,
-      subdir: sub,
-      insecure: insecure,
-    );
-  }
-
-  /// Heuristic directory-name derivation kept around for callers
-  /// (e.g. older test fixtures) that want a friendly slug for a
-  /// URL. The unified design uses the manifest's `id` as the
-  /// on-disk directory name, so PluginService itself no longer
-  /// needs this helper at install time.
-  String deriveDirName() {
-    final base = _deriveRepoBaseName();
-    if (subdir == null || subdir!.isEmpty) return base;
-    return '$base-${subdir!.replaceAll("/", "-")}';
-  }
-
-  String _deriveRepoBaseName() {
-    // Shortcut schemes: pull owner/repo out of the canonical path,
-    // skipping the scheme and (for self-hosted) the host segment.
-    for (final entry in const {
-      'github:': 0, // owner at index 0 after scheme
-      'forgejo:': 1, // host owns index 0, owner at index 1
-      'gitea:': 1,
-    }.entries) {
-      final scheme = entry.key;
-      final ownerIdx = entry.value;
-      if (!canonical.startsWith(scheme)) continue;
-      final rest = canonical.substring(scheme.length);
-      final stripped = rest.contains('?')
-          ? rest.substring(0, rest.indexOf('?'))
-          : rest;
-      final segs = stripped.split('/').where((s) => s.isNotEmpty).toList();
-      if (segs.length >= ownerIdx + 2) {
-        return '${segs[ownerIdx]}-${segs[ownerIdx + 1]}';
-      }
-      return segs.join('-');
-    }
-    final uri = Uri.tryParse(cloneUrl);
-    if (uri != null && uri.pathSegments.isNotEmpty) {
-      var last = uri.pathSegments.last;
-      if (last.endsWith('.git')) {
-        last = last.substring(0, last.length - 4);
-      }
-      if (last.isNotEmpty) return _sanitize(last);
-    }
-    return 'plugin';
-  }
-
-  static String _sanitize(String name) =>
-      name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
 }

@@ -136,9 +136,16 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
 
 ### Code simplification
 
-- `[ ]` **M — Split large services:** `PluginService` (~1195 lines) and
-  `UpdateCheckService` (~1239 lines) along natural seams (parse/fetch/lifecycle;
-  probe/staging/diff).
+- `[~]` **M — Split large services:** **`PluginService` done** — split into
+  `services/plugin/`: `plugin_url` (parse), `plugin_git_ops` (fetch — clone /
+  rev-parse / symlink-reject / manifest-read as free functions), and
+  `plugin_refresh_all_result`. Facade re-exports the public types; the class
+  dropped ~1195 → ~760 lines, tests pass unchanged. **`UpdateCheckService`
+  (~1239) deferred** — its internals are coupled (a shared `_http` client +
+  `_httpTimeout`, interdependent private methods like `_parseMarkerVersion` /
+  `_fetchFileAt` / `_findIntroducingCommit`, non-contiguous seams, and external
+  `UpdateCheckService.parseRoot*` static callers), so it needs its own careful
+  pass rather than a mechanical extraction.
 - `[x]` **M — `runChecked()` process helper** in common: added `runCheckedSync`
   (`process_runner.dart`) — one place that runs a command, logs `exe args → exit`
   uniformly, and optionally throws on failure. The migrated view flows now route
