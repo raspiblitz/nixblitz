@@ -71,17 +71,26 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
 
 - `[x]` **M — blitz-web opens port 80 by default.** `blitz-web/plugin.nix:12`
   defaults `open_firewall` to `true` — the only official plugin that opens a port
-  by default. Changed to `false` to match electrs/lnbits.
+  by default. Changed to `false` to match electrs/lnbits. **Follow-up:** the
+  `plugin.json` config_schema still seeded `open_firewall` default `true` (what
+  the TUI writes into config.json), so the nix-side change alone wasn't enough —
+  the manifest default is now `false` too.
 - `[x]` **L — LND `alias` unescaped into `extraConfig`.** `lnd/plugin.nix:44`
   writes `alias=${alias}`; a newline injects an arbitrary lnd config line
   (operator-controlled, low severity, but the reference implementation others
   copy). Sanitized by stripping CR/LF.
 - `[x]` **L — electrs `${address}` unquoted in `/dev/tcp`** tile probe. Safe in
   practice (bash `/dev/tcp` doesn't expand), but a bad example to copy. Quoted.
-- `[ ]` **L — Inconsistent `permissions` blocks.** electrs/lnbits/tailscale/netbird
-  declare them; bitcoind/lnd/cln/blitz-api/blitz-web don't. Informational only
-  (D14), but the reference repo should model the convention.
-- `[ ]` **L — Repo README lists only 4 of 10 plugins**; no per-plugin LICENSE files.
+- `[x]` **L — Inconsistent `permissions` blocks.** All 10 plugins now declare a
+  top-level `permissions` block (previously only electrs/lnbits/tailscale/netbird
+  did). The new blocks are honest and terse: bitcoind → `network:outbound`
+  (P2P/Tor); lnd/cln → `bitcoin:rpc:read` + `lightning:wallet:read/write` +
+  `network:outbound`; blitz-api → `bitcoin:rpc:read` + `lightning:wallet:*`;
+  cachepop → `network:outbound` (Attic push); blitz-web → `{}` (static UI, no
+  bitcoin/LN/privileged access). Still informational only (D14).
+- `[~]` **L — README + LICENSE.** README now lists all 10 plugins (was 4).
+  **Per-plugin LICENSE files still missing** — deferred: which license to apply
+  is the maintainer's call, not something to invent.
 - `[ ]` **L — Boilerplate:** tile-state and app-version scripts repeat across
   plugins; a shared `lib/` would help third-party authors.
 
