@@ -275,7 +275,7 @@ this derivation will be built:
   group('lockedInputForPlugin', () {
     test('parses github: scheme', () {
       final p = _marker(url: 'github:example/foo', rev: 'a' * 40);
-      final li = UpdateCheckService.lockedInputForPlugin(p);
+      final li = lockedInputForPlugin(p);
       expect(li, isNotNull);
       expect(li!.type, 'github');
       expect(li.owner, 'example');
@@ -286,7 +286,7 @@ this derivation will be built:
 
     test('parses forgejo: scheme', () {
       final p = _marker(url: 'forgejo:forge.example/owner/repo', rev: 'b' * 40);
-      final li = UpdateCheckService.lockedInputForPlugin(p);
+      final li = lockedInputForPlugin(p);
       expect(li!.type, 'git');
       expect(li.host, 'forge.example');
       expect(li.owner, 'owner');
@@ -295,7 +295,7 @@ this derivation will be built:
 
     test('returns null for unsupported transport (file://)', () {
       final p = _marker(url: 'file:///tmp/local-plugin', rev: 'c' * 40);
-      expect(UpdateCheckService.lockedInputForPlugin(p), isNull);
+      expect(lockedInputForPlugin(p), isNull);
     });
   });
 

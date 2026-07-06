@@ -108,8 +108,8 @@ class RootInputsResult {
 }
 
 /// Enumerate the operator's root flake inputs from
-/// `<baseDir>/flake.lock`. Wraps [UpdateCheckService.parseRootInputs]
-/// (+ [UpdateCheckService.parseRootFollows]) with file-level error
+/// `<baseDir>/flake.lock`. Wraps [parseRootInputs]
+/// (+ [parseRootFollows]) with file-level error
 /// handling so the Check panel can render rows even when the daily
 /// check hasn't populated `update-status.json` yet.
 RootInputsResult readRootFlakeInputs(String baseDir) {
@@ -125,8 +125,8 @@ RootInputsResult readRootFlakeInputs(String baseDir) {
     final lock =
         jsonDecode(lockFile.readAsStringSync()) as Map<String, dynamic>;
     return RootInputsResult(
-      inputs: UpdateCheckService.parseRootInputs(lock),
-      follows: UpdateCheckService.parseRootFollows(lock),
+      inputs: parseRootInputs(lock),
+      follows: parseRootFollows(lock),
       error: null,
     );
   } catch (e) {

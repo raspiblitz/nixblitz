@@ -6,9 +6,17 @@ import 'package:http/http.dart' as http;
 import 'package:pub_semver/pub_semver.dart';
 
 import 'package:common/src/models/nixblitz_config.dart';
-import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/models/sbom_change.dart';
 import 'package:common/src/models/update_status.dart';
+import 'package:common/src/services/update/update_check_types.dart';
+import 'package:common/src/services/update/flake_lock_parse.dart';
+import 'package:common/src/services/update/upstream_prober.dart';
+
+// Re-export so existing importers of update_check_service.dart keep
+// seeing these types (UpstreamProbeResult / NixBuildPlan / parseDryRunStderr
+// / FollowsInput / LockedInput).
+export 'package:common/src/services/update/update_check_types.dart';
+export 'package:common/src/services/update/flake_lock_parse.dart';
 import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
 import 'package:common/src/services/sbom_service.dart';
@@ -38,7 +46,7 @@ class UpdateCheckService {
     StagingService? stagingService,
     http.Client? httpClient,
     List<PluginMarker> Function()? markersReader,
-  }) : _http = httpClient ?? http.Client(),
+  }) : _prober = UpstreamProber(httpClient: httpClient ?? http.Client()),
        _staging = stagingService ?? StagingService(),
        _markersReader =
            markersReader ?? (() => _defaultMarkersReader(flakePath));
@@ -51,7 +59,7 @@ class UpdateCheckService {
   /// production default.
   final String statusPath;
 
-  final http.Client _http;
+  final UpstreamProber _prober;
   final StagingService _staging;
 
   /// Loads the set of installed plugin markers. Injected by tests
@@ -88,10 +96,6 @@ class UpdateCheckService {
     }
   }
 
-  /// HTTP timeout for upstream-HEAD calls. Stops a misbehaving forge
-  /// from holding the timer indefinitely.
-  static const Duration _httpTimeout = Duration(seconds: 15);
-
   // ── Public entry points ────────────────────────────────────────
 
   /// Pure-network probe: walk root flake inputs + installed plugin
@@ -118,7 +122,7 @@ class UpdateCheckService {
       final inputs = parseRootInputs(lock);
       for (final entry in inputs) {
         try {
-          final upstream = await _queryUpstreamRev(entry);
+          final upstream = await _prober.queryUpstreamRev(entry);
           if (upstream == null) {
             errors.add('${entry.name}: upstream not queryable');
             continue;
@@ -492,7 +496,7 @@ class UpdateCheckService {
   ///   `forcePushDetected=true`. Auto-update proceeds; sign-key
   ///   verification (out of scope here) is the real security gate.
   Future<PluginAhead?> _probePlugin(PluginMarker marker, LockedInput li) async {
-    final upstreamRev = await _queryUpstreamRev(li);
+    final upstreamRev = await _prober.queryUpstreamRev(li);
     if (upstreamRev == null) {
       throw StateError('upstream not queryable');
     }
@@ -502,8 +506,8 @@ class UpdateCheckService {
     // authoritative; SHA equality becomes a tiebreaker. When it
     // doesn't, we drop straight to SHA tracking — same shape as
     // today.
-    final subdir = _subdirFor(marker.url);
-    final upstreamManifest = await _fetchManifestAt(
+    final subdir = subdirFor(marker.url);
+    final upstreamManifest = await _prober.fetchManifestAt(
       li,
       subdir: subdir,
       ref: upstreamRev,
@@ -516,7 +520,7 @@ class UpdateCheckService {
     // pinned commit IS the branch HEAD, no reason to probe.
     final forcePush =
         (upstreamRev != marker.rev) &&
-        !(await _isCommitReachable(li, marker.rev));
+        !(await _prober.isCommitReachable(li, marker.rev));
     if (forcePush) {
       LogService.warn(
         'plugin ${marker.id}: pinned rev ${marker.rev} is not reachable '
@@ -564,7 +568,7 @@ class UpdateCheckService {
 
     // Upstream is newer. Walk back to find the commit that
     // introduced that version — that's our new pin candidate.
-    final introducing = await _findIntroducingCommit(
+    final introducing = await _prober.findIntroducingCommit(
       li,
       subdir: subdir,
       ref: upstreamRev,
@@ -581,41 +585,6 @@ class UpdateCheckService {
     );
   }
 
-  /// Returns the subdir within the upstream repo where the plugin's
-  /// `plugin.json` lives, or null when the repo root is the plugin
-  /// root.
-  ///
-  /// Mirrors the parsing in [lockedInputForPlugin] (which drops
-  /// subdir info because it only needs owner/repo for the branch-
-  /// HEAD probe). For the manifest-fetch path we need the inverse.
-  static String? _subdirFor(String url) {
-    if (url.startsWith('github:')) {
-      // github:owner/repo[/subdir1/subdir2][?dir=…]. Either form is
-      // accepted; the `?dir=` form wins when both are present.
-      final body = url.substring('github:'.length);
-      final qIdx = body.indexOf('?dir=');
-      if (qIdx >= 0) return body.substring(qIdx + '?dir='.length);
-      final parts = body.split('/');
-      if (parts.length <= 2) return null;
-      return parts.sublist(2).join('/');
-    }
-    if (url.startsWith('forgejo:') || url.startsWith('gitea:')) {
-      final scheme = url.startsWith('forgejo:') ? 'forgejo:' : 'gitea:';
-      final body = url.substring(scheme.length);
-      final qIdx = body.indexOf('?dir=');
-      if (qIdx >= 0) return body.substring(qIdx + '?dir='.length);
-      // host/owner/repo[/subdir1/subdir2]
-      final parts = body.split('/');
-      if (parts.length <= 3) return null;
-      return parts.sublist(3).join('/');
-    }
-    if (url.startsWith('git+')) {
-      final qIdx = url.indexOf('?dir=');
-      if (qIdx >= 0) return url.substring(qIdx + '?dir='.length);
-    }
-    return null;
-  }
-
   /// Parse the marker's stored version string. Empty string ⇒ the
   /// plugin was installed before the manifest had a `version` field
   /// (or had a malformed one); fall back to SHA tracking.
@@ -626,235 +595,6 @@ class UpdateCheckService {
     } on FormatException {
       return null;
     }
-  }
-
-  /// Fetch and parse the plugin's manifest at a specific ref.
-  /// Returns null on 404 (subdir renamed / deleted) or any decode
-  /// failure — the caller drops back to SHA-based tracking for that
-  /// plugin without poisoning the rest of the walk.
-  Future<PluginManifest?> _fetchManifestAt(
-    LockedInput entry, {
-    String? subdir,
-    required String ref,
-  }) async {
-    final path = subdir == null || subdir.isEmpty
-        ? 'plugin.json'
-        : '$subdir/plugin.json';
-    final content = await _fetchFileAt(entry, path: path, ref: ref);
-    if (content == null) return null;
-    try {
-      return PluginManifest.fromJsonString(content);
-    } catch (e) {
-      LogService.warn(
-        'plugin ${entry.name}: failed to parse manifest at $ref: $e',
-      );
-      return null;
-    }
-  }
-
-  /// Raw file fetch at a ref; returns the decoded text content or
-  /// null if the file isn't there (404) / decode fails. Both
-  /// GitHub's and Forgejo/Gitea's `contents` endpoints return a JSON
-  /// object with a base64-encoded `content` field and the same
-  /// shape — collapse on that.
-  Future<String?> _fetchFileAt(
-    LockedInput entry, {
-    required String path,
-    required String ref,
-  }) async {
-    Uri uri;
-    if (entry.type == 'github') {
-      uri = Uri.parse(
-        'https://api.github.com/repos/${entry.owner}/${entry.repo}'
-        '/contents/${Uri.encodeComponent(path)}?ref=$ref',
-      );
-    } else if (entry.type == 'git' && entry.host != null) {
-      uri = Uri.parse(
-        'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'
-        '/contents/${Uri.encodeComponent(path)}?ref=$ref',
-      );
-    } else {
-      return null;
-    }
-
-    final resp = await _http.get(uri).timeout(_httpTimeout);
-    if (resp.statusCode != 200) {
-      // 404 = subdir renamed / deleted / plugin file missing.
-      // 4xx / 5xx = transient API error or rate-limit.
-      // Either way we lose version-tracking for this plugin, but
-      // the SHA-only fallback in `_probePlugin` still works. Log
-      // and return null so the caller treats this plugin as
-      // unversioned for this round.
-      if (resp.statusCode != 404) {
-        LogService.warn(
-          '${entry.name}: contents API ${resp.statusCode} for $path@$ref',
-        );
-      }
-      return null;
-    }
-    final j = jsonDecode(resp.body) as Map<String, dynamic>;
-    final encoded = j['content'] as String?;
-    if (encoded == null) return null;
-    // GitHub wraps base64 content with newlines every 60 chars;
-    // strip whitespace before decoding to be safe across providers.
-    try {
-      final bytes = base64.decode(encoded.replaceAll(RegExp(r'\s+'), ''));
-      return utf8.decode(bytes);
-    } on FormatException catch (e) {
-      LogService.warn(
-        '${entry.name}: contents response not valid base64: ${e.message}',
-      );
-      return null;
-    }
-  }
-
-  /// Walk the upstream commit history backward from [ref] on commits
-  /// affecting `<subdir>/plugin.json`, looking for the most ancient
-  /// commit that still reports [targetVersion]. That's the
-  /// "introducing commit" for the version — pinning there means
-  /// subsequent post-version commits don't sneak into our trust
-  /// model under the same label.
-  ///
-  /// Cost: O(N) HTTP calls where N is the number of commits touching
-  /// `<subdir>/plugin.json` since the version bump. Typically 1-2;
-  /// capped at [maxCommits] (50 default) to bound pathological cases.
-  /// Returns null when the walk fails to identify a single
-  /// introducing commit; caller falls back to the branch HEAD SHA.
-  Future<String?> _findIntroducingCommit(
-    LockedInput entry, {
-    String? subdir,
-    required String ref,
-    required Version targetVersion,
-    int maxCommits = 50,
-  }) async {
-    final path = subdir == null || subdir.isEmpty
-        ? 'plugin.json'
-        : '$subdir/plugin.json';
-    final commits = await _listCommitsAffectingPath(
-      entry,
-      path: path,
-      ref: ref,
-      limit: maxCommits,
-    );
-    if (commits.isEmpty) return null;
-
-    String? candidate;
-    for (final sha in commits) {
-      // Newest first. The introducing commit is the OLDEST commit
-      // that still shows targetVersion (i.e., the first one walking
-      // backward where the version differs becomes the boundary,
-      // and the previous candidate is the introducing commit).
-      final m = await _fetchManifestAt(entry, subdir: subdir, ref: sha);
-      if (m?.parsedVersion == targetVersion) {
-        candidate = sha;
-        continue;
-      }
-      // Hit a commit with a different version — stop. The candidate
-      // we have is the introducing commit.
-      return candidate;
-    }
-    // Walked the whole window without seeing a version change. Either
-    // the version has been stable for the full window (return our
-    // last-seen candidate) or we ran past the cap. Return whatever
-    // we held; if commits exhausted, candidate is the oldest fetched.
-    return candidate;
-  }
-
-  Future<List<String>> _listCommitsAffectingPath(
-    LockedInput entry, {
-    required String path,
-    required String ref,
-    int limit = 50,
-  }) async {
-    Uri uri;
-    if (entry.type == 'github') {
-      uri = Uri.parse(
-        'https://api.github.com/repos/${entry.owner}/${entry.repo}/commits'
-        '?path=${Uri.encodeQueryComponent(path)}'
-        '&sha=$ref&per_page=$limit',
-      );
-    } else if (entry.type == 'git' && entry.host != null) {
-      uri = Uri.parse(
-        'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}/commits'
-        '?path=${Uri.encodeQueryComponent(path)}'
-        '&sha=$ref&limit=$limit',
-      );
-    } else {
-      return const [];
-    }
-    final resp = await _http.get(uri).timeout(_httpTimeout);
-    if (resp.statusCode != 200) {
-      throw StateError('commits API ${resp.statusCode}: ${resp.body}');
-    }
-    final list = jsonDecode(resp.body);
-    if (list is! List) return const [];
-    return [
-      for (final c in list)
-        if (c is Map<String, dynamic>) c['sha'] as String,
-    ];
-  }
-
-  /// Cheap probe: does [sha] exist on [entry]'s branch? GitHub and
-  /// Forgejo both expose `/commits/{sha}` returning 200 when the
-  /// commit is reachable. Returns false ONLY on a definitive 404 /
-  /// 422 from the provider — anything else (5xx, network, parse) is
-  /// "we don't know," which we treat as reachable to avoid
-  /// false-positive force-push banners.
-  Future<bool> _isCommitReachable(LockedInput entry, String sha) async {
-    Uri uri;
-    if (entry.type == 'github') {
-      uri = Uri.parse(
-        'https://api.github.com/repos/${entry.owner}/${entry.repo}'
-        '/commits/$sha',
-      );
-    } else if (entry.type == 'git' && entry.host != null) {
-      uri = Uri.parse(
-        'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'
-        '/git/commits/$sha',
-      );
-    } else {
-      return true; // unsupported transport — don't flag
-    }
-    try {
-      final resp = await _http.get(uri).timeout(_httpTimeout);
-      // GitHub returns 422 on malformed SHA strings; Forgejo returns
-      // 404. Both unambiguously mean "not on this branch."
-      if (resp.statusCode == 404 || resp.statusCode == 422) return false;
-      return true; // 200 ⇒ reachable; 5xx / other ⇒ unknown, assume reachable
-    } catch (_) {
-      return true; // transient network error — don't false-flag
-    }
-  }
-
-  Future<String?> _queryUpstreamRev(LockedInput entry) async {
-    if (entry.type == 'github') {
-      final ref = entry.ref;
-      final api = ref == null
-          ? 'https://api.github.com/repos/${entry.owner}/${entry.repo}/commits?per_page=1'
-          : 'https://api.github.com/repos/${entry.owner}/${entry.repo}/commits/$ref';
-      final resp = await _http.get(Uri.parse(api)).timeout(_httpTimeout);
-      if (resp.statusCode != 200) {
-        throw StateError('GitHub API ${resp.statusCode}: ${resp.body}');
-      }
-      final j = jsonDecode(resp.body);
-      if (j is List && j.isNotEmpty) return j.first['sha'] as String?;
-      if (j is Map<String, dynamic>) return j['sha'] as String?;
-      return null;
-    }
-    if (entry.type == 'git' && entry.host != null) {
-      // Forgejo / Gitea API shape (forge.f44.fyi runs Forgejo).
-      final ref = entry.ref ?? 'main';
-      final api =
-          'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'
-          '/branches/$ref';
-      final resp = await _http.get(Uri.parse(api)).timeout(_httpTimeout);
-      if (resp.statusCode != 200) {
-        throw StateError('Forgejo API ${resp.statusCode}: ${resp.body}');
-      }
-      final j = jsonDecode(resp.body) as Map<String, dynamic>;
-      return ((j['commit'] as Map?)?['id']) as String?;
-    }
-    return null; // unsupported transport
   }
 
   /// Re-check cached [InputAhead]s against the live `flake.lock` at
@@ -904,336 +644,7 @@ class UpdateCheckService {
     }
   }
 
-  /// Public for tests: pulls the inputs the user actually depends
-  /// on out of a parsed flake.lock JSON.
-  static List<LockedInput> parseRootInputs(Map<String, dynamic> lock) {
-    final nodes = lock['nodes'] as Map<String, dynamic>?;
-    if (nodes == null) return const [];
-    final root = nodes['root'] as Map<String, dynamic>?;
-    if (root == null) return const [];
-    final rootInputs = (root['inputs'] as Map<String, dynamic>?) ?? const {};
-
-    final out = <LockedInput>[];
-    for (final e in rootInputs.entries) {
-      // Each value is either a node-name string or a follows array.
-      // `follows` inputs share another node's lock; skip them since
-      // querying that other node covers the same upstream.
-      if (e.value is! String) continue;
-      final nodeName = e.value as String;
-      final node = nodes[nodeName] as Map<String, dynamic>?;
-      if (node == null) continue;
-      final locked = node['locked'] as Map<String, dynamic>?;
-      final original = node['original'] as Map<String, dynamic>?;
-      if (locked == null) continue;
-
-      final type = locked['type'] as String?;
-      final rev = locked['rev'] as String?;
-      if (rev == null) continue;
-
-      String? owner;
-      String? repo;
-      String? host;
-      String? urlField;
-
-      if (type == 'github') {
-        owner = locked['owner'] as String?;
-        repo = locked['repo'] as String?;
-      } else if (type == 'git') {
-        urlField = locked['url'] as String?;
-        if (urlField == null) continue;
-        final parsed = _parseGitUrl(urlField);
-        host = parsed?.host;
-        owner = parsed?.owner;
-        repo = parsed?.repo;
-      } else {
-        continue; // path:, tarball:, indirect:, … — skip
-      }
-
-      if (owner == null || repo == null) continue;
-
-      out.add(
-        LockedInput(
-          name: e.key,
-          type: type!,
-          owner: owner,
-          repo: repo,
-          host: host,
-          ref: original?['ref'] as String?,
-          lockedRev: rev,
-          urlForDisplay: urlField ?? 'github:$owner/$repo',
-        ),
-      );
-    }
-    return out;
-  }
-
-  /// Sibling to [parseRootInputs] for the *follows* entries — inputs
-  /// declared as `inputs.foo.follows = "bar/baz"` in `flake.nix`,
-  /// which appear in the lock as a list value under `root.inputs`
-  /// rather than a node-name string. They share another node's lock
-  /// (so there's no independent rev to probe), but operators expect
-  /// to see them in the inputs list — hiding them produces the
-  /// "where's nixpkgs?" puzzlement when nixpkgs follows
-  /// nixos-raspberrypi.
-  ///
-  /// Returns one [FollowsInput] per such entry, with `target` joined
-  /// by `/` so `nixpkgs.follows = ["nixos-raspberrypi", "nixpkgs"]`
-  /// renders as `nixos-raspberrypi/nixpkgs` in the panel.
-  static List<FollowsInput> parseRootFollows(Map<String, dynamic> lock) {
-    final nodes = lock['nodes'] as Map<String, dynamic>?;
-    if (nodes == null) return const [];
-    final root = nodes['root'] as Map<String, dynamic>?;
-    if (root == null) return const [];
-    final rootInputs = (root['inputs'] as Map<String, dynamic>?) ?? const {};
-
-    final out = <FollowsInput>[];
-    for (final e in rootInputs.entries) {
-      final v = e.value;
-      if (v is! List) continue;
-      final segs = v.whereType<String>().toList();
-      if (segs.isEmpty) continue;
-      out.add(FollowsInput(name: e.key, target: segs.join('/')));
-    }
-    return out;
-  }
-
-  /// Translates a plugin marker's url/branch/rev into the same
-  /// shape [_queryUpstreamRev] expects. Returns `null` when the plugin
-  /// uses a transport we can't probe (file://, https:// without a
-  /// recognised forge host, etc.) — caller skips those silently.
-  ///
-  /// Supported schemes: `github:owner/repo`, `forgejo:host/owner/repo`,
-  /// `gitea:host/owner/repo`. The `https://` scheme is *not* supported
-  /// here because the plain URL doesn't tell us which forge API to
-  /// call; if a plugin uses https://forge.example/owner/repo and we
-  /// want to probe it, the operator should switch the URL to the
-  /// `forgejo:` form first.
-  static LockedInput? lockedInputForPlugin(PluginMarker marker) {
-    final raw = marker.url;
-    final ref = marker.branch;
-    final lockedRev = marker.rev;
-
-    if (raw.startsWith('github:')) {
-      final body = raw.substring('github:'.length);
-      // Strip ?dir=... canonical-subdir suffix if present.
-      final qIdx = body.indexOf('?dir=');
-      final core = qIdx >= 0 ? body.substring(0, qIdx) : body;
-      final parts = core.split('/');
-      if (parts.length < 2) return null;
-      final owner = parts[0];
-      final repo = parts[1];
-      if (owner.isEmpty || repo.isEmpty) return null;
-      return LockedInput(
-        name: marker.id,
-        type: 'github',
-        owner: owner,
-        repo: repo,
-        host: null,
-        ref: ref,
-        lockedRev: lockedRev,
-        urlForDisplay: raw,
-      );
-    }
-
-    if (raw.startsWith('forgejo:') || raw.startsWith('gitea:')) {
-      final scheme = raw.startsWith('forgejo:') ? 'forgejo:' : 'gitea:';
-      final body = raw.substring(scheme.length);
-      final qIdx = body.indexOf('?dir=');
-      final core = qIdx >= 0 ? body.substring(0, qIdx) : body;
-      final parts = core.split('/');
-      if (parts.length < 3) return null;
-      final host = parts[0];
-      final owner = parts[1];
-      final repo = parts[2];
-      if (host.isEmpty || owner.isEmpty || repo.isEmpty) return null;
-      return LockedInput(
-        name: marker.id,
-        type: 'git',
-        owner: owner,
-        repo: repo,
-        host: host,
-        ref: ref,
-        lockedRev: lockedRev,
-        urlForDisplay: raw,
-      );
-    }
-
-    return null;
-  }
-
-  static _ParsedGitUrl? _parseGitUrl(String url) {
-    // Strip `git+` prefix.
-    var clean = url;
-    if (clean.startsWith('git+')) clean = clean.substring(4);
-    // Strip query (`?dir=...`, `?ref=...`).
-    final q = clean.indexOf('?');
-    if (q >= 0) clean = clean.substring(0, q);
-    final uri = Uri.tryParse(clean);
-    if (uri == null) return null;
-    if (uri.host.isEmpty) return null;
-    final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
-    if (segments.length < 2) return null;
-    var repo = segments[1];
-    if (repo.endsWith('.git')) {
-      repo = repo.substring(0, repo.length - 4);
-    }
-    return _ParsedGitUrl(host: uri.host, owner: segments[0], repo: repo);
-  }
-
   void close() {
-    _http.close();
+    _prober.close();
   }
-}
-
-/// Result of [UpdateCheckService.probeUpstreamMovement]. Bundles the
-/// inputs-ahead and plugins-ahead lists plus any per-entry errors
-/// the probe collected (one bad URL doesn't sink the whole walk).
-class UpstreamProbeResult {
-  const UpstreamProbeResult({
-    required this.inputsAhead,
-    required this.pluginsAhead,
-    required this.errors,
-  });
-  final List<InputAhead> inputsAhead;
-  final List<PluginAhead> pluginsAhead;
-  final List<String> errors;
-}
-
-/// Result of parsing `nix build --dry-run` stderr. Both lists hold
-/// short derivation names ("the readable part" of
-/// `/nix/store/HASH-NAME.drv` — e.g. `rustc-1.87.0`) so the UI can
-/// show a compact summary without dragging store hashes around.
-/// Lists are alphabetically sorted for stability.
-class NixBuildPlan {
-  const NixBuildPlan({required this.wouldBuild, required this.wouldFetch});
-
-  /// Paths that would be compiled locally (cache miss / non-
-  /// substitutable). Non-empty list = "huge update incoming."
-  final List<String> wouldBuild;
-
-  /// Paths that would be downloaded from a binary cache. Surfaced
-  /// for completeness; not currently used by the TUI gating logic.
-  final List<String> wouldFetch;
-}
-
-/// Parse the stderr output of `nix build --dry-run` into a
-/// [NixBuildPlan]. Nix prints two stanzas when there's work to do:
-///
-/// ```
-/// these 3 derivations will be built:
-///   /nix/store/abc-rustc-1.87.0.drv
-///   ...
-/// these 12 paths will be fetched (456 MB):
-///   /nix/store/xyz-foo.drv
-///   ...
-/// ```
-///
-/// Either stanza may be absent (or both — `noChanges`). Parsing is
-/// lenient: unknown lines are ignored, and we only key off the
-/// leading whitespace + `/nix/store/` marker for the path lines.
-/// Singular `derivation` / `path` variants are accepted.
-NixBuildPlan parseDryRunStderr(String stderr) {
-  final lines = const LineSplitter().convert(stderr);
-  final built = <String>[];
-  final fetched = <String>[];
-  // 0 = looking for a header; 1 = inside builds; 2 = inside fetches.
-  var section = 0;
-  for (final raw in lines) {
-    final line = raw.trimRight();
-    final t = line.trimLeft();
-    // Stanza headers — match both "this/these N derivation(s) will
-    // be built:" and the fetch counterpart.
-    final builtRe = RegExp(
-      r'^(?:this|these).*derivations? will be built:',
-      caseSensitive: false,
-    );
-    final fetchRe = RegExp(
-      r'^(?:this|these).*paths? will be fetched',
-      caseSensitive: false,
-    );
-    if (builtRe.hasMatch(t)) {
-      section = 1;
-      continue;
-    }
-    if (fetchRe.hasMatch(t)) {
-      section = 2;
-      continue;
-    }
-    // Path lines: indented + start with /nix/store/. A blank line
-    // or any other unindented line ends the current section.
-    if (section != 0 && t.startsWith('/nix/store/')) {
-      final name = _derivationShortName(t);
-      if (section == 1) {
-        built.add(name);
-      } else {
-        fetched.add(name);
-      }
-    } else if (line.isEmpty || !line.startsWith(' ')) {
-      section = 0;
-    }
-  }
-  built.sort();
-  fetched.sort();
-  return NixBuildPlan(wouldBuild: built, wouldFetch: fetched);
-}
-
-/// Strip `/nix/store/<hash>-` prefix and the trailing `.drv` from a
-/// store path so the UI shows `rustc-1.87.0` instead of
-/// `/nix/store/abc123…-rustc-1.87.0.drv`. Returns the input
-/// unchanged when the shape doesn't match — defensive against
-/// hypothetical future Nix output changes.
-String _derivationShortName(String storePath) {
-  final m = RegExp(r'^/nix/store/[^-]+-(.+)$').firstMatch(storePath);
-  if (m == null) return storePath;
-  var name = m.group(1)!;
-  if (name.endsWith('.drv')) {
-    name = name.substring(0, name.length - 4);
-  }
-  return name;
-}
-
-/// A root flake input declared as `inputs.X.follows = "Y/Z"` —
-/// shares another input's lock, so there's no separate upstream
-/// pin to probe. Surfaced for display only; consumers who do HEAD
-/// probes (the check service) iterate [UpdateCheckService.parseRootInputs]
-/// not this list.
-class FollowsInput {
-  const FollowsInput({required this.name, required this.target});
-  final String name;
-  final String target;
-}
-
-/// Record of a flake input we know how to query upstream against.
-/// Returned by [UpdateCheckService.parseRootInputs].
-class LockedInput {
-  const LockedInput({
-    required this.name,
-    required this.type,
-    required this.owner,
-    required this.repo,
-    required this.host,
-    required this.ref,
-    required this.lockedRev,
-    required this.urlForDisplay,
-  });
-
-  final String name;
-  final String type; // 'github' | 'git'
-  final String owner;
-  final String repo;
-  final String? host; // populated for 'git' type
-  final String? ref;
-  final String lockedRev;
-  final String urlForDisplay;
-}
-
-class _ParsedGitUrl {
-  const _ParsedGitUrl({
-    required this.host,
-    required this.owner,
-    required this.repo,
-  });
-  final String host;
-  final String owner;
-  final String repo;
 }
