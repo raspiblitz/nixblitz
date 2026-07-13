@@ -151,8 +151,11 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
 - `[ ]` **L — nixpkgs fork is load-bearing** (`dart-workspace-member-filter`);
   needs periodic rebasing. Track an upstreaming attempt / write down the rebase
   procedure.
-- `[ ]` **L — Test gaps in common:** `staging_service`, `applied_state_service`,
-  `scaffold_service`, `sbom_service` untested.
+- `[x]` **L — Test gaps in common.** **Finding was stale** — all four named
+  services turned out to have test files (`staging_service_test` 10 tests,
+  `applied_state_service_test` 7, plus scaffold/sbom suites added during the
+  earlier refactors). Added the one genuinely missing piece: coverage for the
+  new `StagingService.promoteLockTo`.
 - `[ ]` **L — Docs drift:** `plugin-authoring.md` documents manifest schema v2;
   official plugins are on v4.
 

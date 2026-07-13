@@ -42,6 +42,22 @@ void main() {
       expect(File(svc.lockPath).readAsStringSync(), '{"nodes":{}}');
     });
 
+    test('promoteLockTo copies the staged lock and reports true', () {
+      final source = File('${tmp.path}/source.lock')
+        ..writeAsStringSync('{"v":7}');
+      svc.writeLockBump(source);
+      final dest = Directory('${tmp.path}/repo')..createSync();
+
+      expect(svc.promoteLockTo(dest.path), isTrue);
+      expect(File('${dest.path}/flake.lock').readAsStringSync(), '{"v":7}');
+    });
+
+    test('promoteLockTo without a staged lock is a no-op returning false', () {
+      final dest = Directory('${tmp.path}/repo')..createSync();
+      expect(svc.promoteLockTo(dest.path), isFalse);
+      expect(File('${dest.path}/flake.lock').existsSync(), isFalse);
+    });
+
     test('writePluginPins round-trips through read', () {
       final pin = PluginAhead(
         pluginId: 'cachepop',
