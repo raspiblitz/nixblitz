@@ -28,16 +28,19 @@ test trace="":
     print "Unknown argument '{{trace}}'. Pass '-t' for verbose or nothing for default."
   }
 
-# Check that bitcoind/lnd/cln plugins agree on nix-bitcoin rev + share
-# the same lightning tile manifest (CI invariant).
+# Checks that the bitcoind/lnd/cln plugins agree on the nix-bitcoin rev
+# and share the same lightning tile manifest (CI invariant).
+#
+# Check bitcoind/lnd/cln nix-bitcoin rev + lightning tile consistency
 check-plugin-consistency:
   bash tests/scripts/check-plugin-consistency.sh
 
-# Verify the base node config evaluates against nixpkgs stable +
-# unstable (eval tier — instantiates the toplevel, no system build).
-# First run on a cold store is heavy (realizes the build-input
-# closure for both channels); subsequent runs hit the warm store.
+# Eval tier — instantiates the toplevel, no system build. First run on
+# a cold store is heavy (realizes the build-input closure for both
+# channels); subsequent runs hit the warm store.
 # See docs/superpowers/specs/2026-05-19-config-channel-verification-design.md
+#
+# Verify the base node config evaluates against nixpkgs stable + unstable
 test-config:
   #!/usr/bin/env nu
   nix build --no-link .#checks.x86_64-linux.config-installed-stable .#checks.x86_64-linux.config-installed-unstable .#checks.x86_64-linux.config-installer-stable .#checks.x86_64-linux.config-installer-unstable
@@ -70,12 +73,14 @@ format:
   print "Formatting markdown / yaml / json..."
   prettier -w . --log-level warn
 
-# Fail if the embedded templates are stale — i.e. someone edited
-# templates/ or branches.json without re-running gen-templates. Snapshots
-# the generated file, regenerates, and compares content (VCS-agnostic, so
-# it works with an uncommitted fix in the tree too). On drift the file is
-# left regenerated so you can review + commit it. This is the guard that
-# turns a silently-shipped stale template into a hard failure.
+# Guards against someone editing templates/ or branches.json without
+# re-running gen-templates. Snapshots the generated file, regenerates,
+# and compares content (VCS-agnostic, so it works with an uncommitted
+# fix in the tree too). On drift the file is left regenerated so you can
+# review + commit it. This is the guard that turns a silently-shipped
+# stale template into a hard failure.
+#
+# Fail if the embedded templates are stale (edited without gen-templates)
 check-templates:
   #!/usr/bin/env nu
   let f = "common/lib/src/services/embedded_templates.g.dart"
@@ -87,9 +92,11 @@ check-templates:
   }
   print "Embedded templates are in sync."
 
-# Fast CI gate: tests, analyzer, embedded-template freshness, and a
-# Dart format check (no writes). The heavier nix config-eval matrix
-# lives in `test-config` and is intentionally left out of this gate.
+# Runs the Dart format check without writes. The heavier nix
+# config-eval matrix lives in `test-config` and is intentionally left
+# out of this gate.
+#
+# Fast CI gate: tests + analyzer + template freshness + format check
 ci:
   #!/usr/bin/env nu
   just test
@@ -132,10 +139,11 @@ gen-manifests:
 gen-app-schemas:
   dart run scripts/gen_app_config_schemas.dart
 
-# Regenerate shell completion scripts (tui/completions/nixblitz.{bash,zsh}).
 # These are generic shell stubs that call `nixblitz completion` at
 # runtime; they only need regeneration when the cli_completion
 # package is bumped, not when our command tree changes.
+#
+# Regenerate shell completion scripts (tui/completions/nixblitz.{bash,zsh})
 gen-completions:
   dart run scripts/gen_completion_scripts.dart
 
@@ -149,13 +157,14 @@ web-css-watch:
   #!/usr/bin/env nu
   cd website; tailwindcss -i web/input.css -o web/styles.css --watch
 
-# Serve the website locally with hot reload (http://localhost:8383)
 # Passes BUILD_VERSION + BUILD_GIT_HASH the same way `nix build .#website`
 # does so the header version string shows real git context during dev.
 # Optional positional argument is the BASE_PATH for previewing a
 # subpath-served build (e.g. `just web-serve /nixblitz`). The dev
 # server still binds at /, so the rendered href()-prefixed links go
 # 404 — that's the visual check that prefixing is happening at all.
+#
+# Serve the website locally with hot reload (http://localhost:8383)
 web-serve base_path="": web-css
   #!/usr/bin/env nu
   let hash = (git rev-parse --short=7 HEAD | str trim)
@@ -164,9 +173,10 @@ web-serve base_path="": web-css
   cd website
   jaspr serve --dart-define=BUILD_VERSION=0.1.0 --dart-define=BUILD_GIT_HASH=($tagged) --dart-define=BASE_PATH={{base_path}}
 
-# Build the website via Nix (output symlink: ./result/)
 # Optional positional argument sets the BASE_PATH override for the
 # subpath build (e.g. `just web-build /nixblitz`).
+#
+# Build the website via Nix (output symlink: ./result/)
 web-build base_path="":
   #!/usr/bin/env nu
   if "{{base_path}}" == "" {
@@ -175,8 +185,10 @@ web-build base_path="":
     nix build --expr $"\(builtins.getFlake \"(pwd)\"\).packages.x86_64-linux.website.override { basePath = \"{{base_path}}\"; }" --impure
   }
 
-# Build the website locally with `jaspr` on PATH (faster dev iteration; output: website/build/jaspr/)
+# Faster dev iteration than the Nix build; needs `jaspr` on PATH.
 # Optional positional argument sets the BASE_PATH (see `web-serve`).
+#
+# Build the website locally with jaspr (output: website/build/jaspr/)
 web-build-local base_path="": web-css
   #!/usr/bin/env nu
   let hash = (git rev-parse --short=7 HEAD | str trim)
