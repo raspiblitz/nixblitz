@@ -22,6 +22,7 @@ class PluginInstallPreview {
     required this.pinnedRev,
     required this.schemaVersion,
     required this.signature,
+    this.secretFieldNames = const [],
   });
 
   /// Display name from `plugin.json` (e.g. "Tailscale", "LNBits").
@@ -55,6 +56,16 @@ class PluginInstallPreview {
   /// match are escalated to re-consent. See
   /// `docs/decisions/plugin-trust-models.md` Approach A.
   final GitSignature signature;
+
+  /// Names of `type: "secret"` fields in the manifest's
+  /// config_schema. NixBlitz has no secret store: values typed into
+  /// these fields land **cleartext** in the git-tracked
+  /// `config.json` and become world-readable in `/nix/store` once
+  /// the plugin module consumes them. The consent prompt must warn
+  /// loudly when this list is non-empty so the operator knows what
+  /// they're about to persist. Empty for the (recommended) plugins
+  /// that take secrets via ephemeral action inputs instead.
+  final List<String> secretFieldNames;
 }
 
 /// Thrown by `PluginService.install` when the operator declines the

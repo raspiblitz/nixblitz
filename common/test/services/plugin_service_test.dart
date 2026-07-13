@@ -234,8 +234,65 @@ void main() {
       expect(captured!.branch, 'main');
       expect(captured!.pinnedRev, matches(RegExp(r'^[0-9a-f]{40}$')));
       expect(captured!.schemaVersion, 2);
+      // Fixture declares no `type: secret` fields → no cleartext warning.
+      expect(captured!.secretFieldNames, isEmpty);
 
       expect(marker.rev, captured!.pinnedRev);
+    });
+
+    test('install preview surfaces secret config fields', () async {
+      final withSecret = Directory.systemTemp.createTempSync(
+        'nixblitz_plugin_secret_',
+      );
+      try {
+        await _seedPluginRepo(
+          withSecret.path,
+          id: 'with-secret',
+          name: 'with-secret',
+          manifestOverride: {
+            'manifest': {
+              'schema_version': 2,
+              'min_tui_version': 2,
+              'name': 'with-secret',
+            },
+            'id': 'with-secret',
+            'config_schema': {
+              'id': 'with-secret',
+              'label': 'With Secret',
+              'fields': [
+                {
+                  'type': 'bool',
+                  'name': 'enabled',
+                  'label': 'Enabled',
+                  'default': false,
+                },
+                {
+                  'type': 'secret',
+                  'name': 'auth_key',
+                  'label': 'Auth key',
+                  'default': '',
+                },
+              ],
+            },
+          },
+        );
+
+        PluginInstallPreview? captured;
+        await pluginService.install(
+          'file://${withSecret.path}',
+          allowInsecure: true,
+          confirm: (preview) async {
+            captured = preview;
+            return true;
+          },
+        );
+
+        // The consent prompt keys its cleartext-storage warning off
+        // this list — a manifest with a secret field must surface it.
+        expect(captured!.secretFieldNames, ['auth_key']);
+      } finally {
+        withSecret.deleteSync(recursive: true);
+      }
     });
 
     test('install confirm returning false aborts cleanly', () async {

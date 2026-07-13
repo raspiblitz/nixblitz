@@ -342,6 +342,28 @@ class _PluginInstallViewState extends State<PluginInstallView> {
     children.add(
       Text('signature:   ${describeSignature(p.signature)}', style: _body),
     );
+    if (p.secretFieldNames.isNotEmpty) {
+      children.add(const SizedBox(height: 1));
+      children.add(
+        Text(
+          'WARNING: declares secret config field(s): '
+          '${p.secretFieldNames.join(", ")}.',
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          'Values entered there are stored CLEARTEXT in the git-tracked',
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          'config.json and become world-readable in /nix/store.',
+          style: _warn,
+        ),
+      );
+    }
     children.add(const SizedBox(height: 1));
     children.add(
       const Text(

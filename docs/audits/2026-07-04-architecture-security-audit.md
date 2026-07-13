@@ -58,7 +58,11 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   uses it today (tailscale/netbird use ephemeral `/run` action inputs), so the
   exposure is latent. Fix candidates: deprecate `type: secret` in favour of
   action inputs + a token-file convention (cachepop already does this), or
-  integrate systemd `LoadCredential`/sops-nix; at minimum warn loudly at install.
+  integrate systemd `LoadCredential`/sops-nix. **Minimum fix shipped:** the
+  install consent (CLI + TUI) now warns loudly when a manifest declares
+  `type: secret` fields (`PluginInstallPreview.secretFieldNames`), naming the
+  fields and the cleartext-in-git + world-readable-in-store consequences. The
+  structural fix (secret store / LoadCredential) remains open.
 - `[ ]` **M — ZMQ binding dance.** bitcoind publishes ZMQ on 0.0.0.0 and each
   consumer overrides to 127.0.0.1 individually; a missed override leaks block/tx
   events to the LAN. Invert: force localhost at the bitcoind plugin, opt out later.
@@ -100,9 +104,12 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   a wrong password with only an "attempt N of 3" reason. The retry now leads with
   an explicit "Incorrect password — try again" heading so the operator knows the
   last attempt was rejected. (Final give-up surfacing stays a per-caller concern.)
-- `[ ]` **M — CLI/TUI consent asymmetry.** `nixblitz plugin add` skips the
-  consent/signature review the TUI forces. Print the same URL + rev + fingerprint
-  - root-grant warning and require confirmation (`--yes` to bypass).
+- `[x]` **M — CLI/TUI consent asymmetry.** **Finding was WRONG** — verified
+  against source + history: `plugin_cli.dart`'s `_askConsent` has shown the full
+  consent (URL, branch, rev, schema, signature fingerprint, root-grant warning,
+  `--yes` bypass) since the Approach-A trust work (`ba5d3d9`). The audit's survey
+  agent misreported it; no code change needed. Kept as a record of the
+  correction.
 - `[ ]` **L — Setup wizard ends without a success screen** (drops to dashboard);
   add a "you're done / here's what's running / next steps" summary.
 - `[ ]` **L — Mnemonic screen** shows the seed with no rationale for why it can't

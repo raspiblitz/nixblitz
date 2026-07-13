@@ -322,6 +322,24 @@ Future<bool> _askConsent(
   if (insecure) {
     stdout.writeln('insecure:    yes (--insecure given for non-https URL)');
   }
+  if (p.secretFieldNames.isNotEmpty) {
+    stdout.writeln();
+    stdout.writeln(
+      'WARNING: this plugin declares secret config field(s): '
+      '${p.secretFieldNames.join(", ")}.',
+    );
+    stdout.writeln(
+      'NixBlitz has no secret store — values you enter there are stored '
+      'CLEARTEXT in',
+    );
+    stdout.writeln(
+      'the git-tracked config.json and become world-readable in /nix/store. '
+      'Do not',
+    );
+    stdout.writeln(
+      'push that repo anywhere you would not paste the secret itself.',
+    );
+  }
   stdout.writeln();
   stdout.writeln(
     'WARNING: installing this plugin grants the plugin author root '

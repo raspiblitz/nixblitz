@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:common/src/models/configure/app_config_field.dart';
 import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_install_preview.dart';
 import 'package:common/src/models/plugin/plugin_manifest.dart';
@@ -201,6 +202,7 @@ class PluginService {
           pinnedRev: pinnedRev,
           schemaVersion: manifest.schemaVersion,
           signature: signature,
+          secretFieldNames: _secretFieldNames(manifest),
         );
         final ok = await confirm(preview);
         if (!ok) {
@@ -545,6 +547,7 @@ class PluginService {
         pinnedRev: pinnedRev,
         schemaVersion: manifest.schemaVersion,
         signature: newSignature,
+        secretFieldNames: _secretFieldNames(manifest),
       );
       if (confirm != null) {
         final ok = await confirm(preview);
@@ -672,6 +675,14 @@ class PluginService {
   }
 
   // ── private ──────────────────────────────────────────────────
+
+  /// Names of `type: "secret"` config fields declared by [manifest].
+  /// Drives the consent prompt's cleartext-storage warning — see
+  /// [PluginInstallPreview.secretFieldNames].
+  static List<String> _secretFieldNames(PluginManifest manifest) => [
+    for (final f in manifest.configSchema?.fields ?? const <AppConfigField>[])
+      if (f is SecretField) f.name,
+  ];
 
   /// Regenerate plugins.list from the current marker set. Passes
   /// every non-disabled marker id as `satisfied` — see
