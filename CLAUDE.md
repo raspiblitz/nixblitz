@@ -183,7 +183,7 @@ keys.
 
 ## Nix Build
 
-Requires a custom nixpkgs fork (`github:fusion44/nixpkgs/dart-workspace-member-filter`) for Dart workspace support. After changing Dart dependencies: `just gen-locks`.
+Requires a custom nixpkgs fork (`github:fusion44/nixpkgs/dart-workspace-member-filter`) for Dart workspace support. After changing Dart dependencies: `just gen-locks`. Rebase procedure for the fork: `docs/nixpkgs-fork.md`.
 
 ### Flake input rules
 

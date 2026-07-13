@@ -156,16 +156,22 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   templates the TUI scaffolds onto nodes had **no `sbomnix`**. The strict
   commit-on-success SBOM step would therefore fail on a real node (sbomnix not on
   PATH). Fixed by regenerating; the guard prevents a recurrence.
-- `[ ]` **L — nixpkgs fork is load-bearing** (`dart-workspace-member-filter`);
-  needs periodic rebasing. Track an upstreaming attempt / write down the rebase
-  procedure.
+- `[x]` **L — nixpkgs fork is load-bearing** (`dart-workspace-member-filter`).
+  Rebase procedure written down at `docs/nixpkgs-fork.md` (fetch upstream,
+  rebase, verify via `--override-input` + `just ci`, force-push, lock bump) and
+  linked from CLAUDE.md. Upstreaming the patch remains the exit strategy.
 - `[x]` **L — Test gaps in common.** **Finding was stale** — all four named
   services turned out to have test files (`staging_service_test` 10 tests,
   `applied_state_service_test` 7, plus scaffold/sbom suites added during the
   earlier refactors). Added the one genuinely missing piece: coverage for the
   new `StagingService.promoteLockTo`.
-- `[ ]` **L — Docs drift:** `plugin-authoring.md` documents manifest schema v2;
-  official plugins are on v4.
+- `[x]` **L — Docs drift:** `plugin-authoring.md` updated from v2 to v4 —
+  correct file name (`plugin.json`, not `manifest.json`), corrected installed
+  tree (whole-tree copy + `.nixblitz-installed.json` marker; values live in
+  the main config's `app_configs`, not a per-plugin config.json), real
+  `config_schema` shape + field types (enum/string_list, not select/list<>),
+  the v3/v4 additive fields, top-level field reference, and the ephemeral
+  action-`inputs` pattern for credentials.
 
 ### Code simplification
 

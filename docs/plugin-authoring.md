@@ -25,7 +25,7 @@ A plugin is a directory tree with three (sometimes four) files:
 ```
 my-plugin/
 ├── plugin.nix       # NixOS module — what the system runs
-├── manifest.json    # User-facing surface — fields, actions, tile
+├── plugin.json      # Manifest — user-facing surface: fields, actions, tile
 ├── README.md        # Operator-facing docs (recommended)
 └── LICENSE          # (recommended)
 ```
@@ -35,16 +35,19 @@ add`:
 
 ```
 ~/nixblitz/plugins/my-plugin/
-├── plugin.nix       # ← clone of the above
-├── manifest.json    # ← clone of the above
-├── config.json      # ← user's settings, written by the TUI
+├── plugin.nix                # ← clone of the above
+├── plugin.json               # ← clone of the above
+├── .nixblitz-installed.json  # ← marker the TUI writes: pinned rev,
+│                             #    branch, auto_update, disabled, …
 ├── README.md
 └── LICENSE
 ```
 
-`config.json` is per-plugin and the TUI manages it. It mirrors
-what the operator typed into the manifest's `config:` form, plus
-metadata the system tracks (`enabled`, `auto_update`, `pinned_rev`).
+The operator's _values_ for your config fields do **not** live in
+the plugin dir: they're seeded into the node's main
+`~/nixblitz/config.json` under `app_configs.<id>` at install time
+and edited there via the Configure view. The marker file carries
+install metadata (pin, branch, signature fingerprint, disabled).
 
 Hosting: a plugin lives in its own git repo (the simplest case)
 or as a subdir of a multi-plugin repo. The `nixblitz plugin add`
@@ -56,8 +59,11 @@ nixblitz plugin add forgejo:forge.f44.fyi/f44/all-plugins/tailscale
 nixblitz plugin add github:fusion44/some-plugin
 ```
 
-The repo is shallow-cloned; only `plugin.nix`, `manifest.json`,
-`README.md`, and `LICENSE` are copied to the operator's tree.
+The repo is shallow-cloned and the plugin's **whole tree** is
+copied to the operator's tree (minus `.git`; symlinks are
+rejected). Helper modules your `plugin.nix` imports, `streamers/`,
+tile manifests — all of it rides along, so don't rely on files
+being filtered out.
 
 ## The two-stage `plugin.nix` ABI
 
@@ -114,7 +120,7 @@ entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
 ```json
 {
   "manifest": {
-    "schema_version": 2,
+    "schema_version": 4,
     "min_tui_version": 1,
     "name": "Tailscale",
     "description": "Enable Tailscale on this NixBlitz node…"
@@ -124,61 +130,85 @@ entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
 
 | Field             | Required | Meaning                                                                                                                                                        |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_version`  | yes      | Manifest schema your plugin targets. v2 is current.                                                                                                            |
+| `schema_version`  | yes      | Manifest schema your plugin targets. **v4 is current**; the TUI refuses anything below v2 (v1's `run_as_root` action path is gone).                            |
 | `min_tui_version` | yes      | Lowest TUI version that can render this plugin safely.                                                                                                         |
 | `name`            | yes      | Human-readable display name shown in Configure → plugins. Keep it short and properly capitalized (`"Tailscale"`, `"LNBits"`) — _not_ an identifier-style slug. |
 | `description`     | no       | Long-form description shown at install time.                                                                                                                   |
 
-A TUI loading a manifest with `min_tui_version >
-currentPluginManifestVersion` refuses to install with a clear
-error. A TUI loading a `schema_version` it doesn't understand
-hard-fails (no silent partial parsing).
+Schema history: **v2** replaced `run_as_root: true` actions with
+systemd `unit:` dispatch; **v3** added `tile_manifests`; **v4**
+added the `branches` block. Additive fields are ignored by older
+TUIs; a manifest with `min_tui_version` above what the TUI
+understands refuses to install with a clear error.
 
-### `config` block (optional)
+### Top-level fields
 
-User-editable fields. Each field is a typed entry; the TUI
-auto-renders the right editor.
+Sibling keys of the `manifest` header. Everything except `id` is
+optional; the official plugins are the living reference for the
+full shapes.
+
+| Field            | Meaning                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| `id`             | Stable identifier (`"tailscale"`). Directory name under `plugins/`, key in `app_configs`. Defaults to `name`. |
+| `version`        | Plugin semver (`"0.3.1"`). Powers version-aware update tracking; omit to fall back to SHA tracking.           |
+| `url`            | Self-declared canonical install URL; `requires` entries in other plugins match against it verbatim.           |
+| `branches`       | (v4) Publisher-declared branch set: operator label → git ref, with an optional default for install.           |
+| `requires`       | Dependencies: built-in app ids or other plugins by URL. Checked at install + runtime gating.                  |
+| `module`         | Path to the NixOS module inside the checkout when it isn't `plugin.nix`.                                      |
+| `tile_manifests` | (v3) DSL tile-manifest paths the dashboard registers while the plugin is enabled.                             |
+| `streamers`      | Subprocess streamers launched at TUI startup, emitting dashboard tile events.                                 |
+| `app_version`    | Command the TUI runs on demand to read the managed app's real version.                                        |
+| `config_schema`  | User-editable fields — see below.                                                                             |
+| `actions`        | Operator-triggerable verbs — see below.                                                                       |
+| `permissions`    | Declarative access summary — see below.                                                                       |
+| `dashboard`      | Polled dashboard tile — see below.                                                                            |
+| `teardown`       | Id of a no-input action to run on the live system when the plugin is disabled/removed, before the rebuild.    |
+
+### `config_schema` block (optional)
+
+User-editable fields. `fields` is a **list** of typed entries; the
+TUI auto-renders the right editor for each and seeds the defaults
+into the node's main `config.json` under `app_configs.<id>` at
+install time.
 
 ```json
-"config": {
-  "login_server": {
-    "type": "string",
-    "label": "Login server URL (headscale, etc.)",
-    "required": false
-  },
-  "auth_key": {
-    "type": "secret",
-    "label": "Tailnet auth key",
-    "required": false
-  },
-  "exit_node": {
-    "type": "bool",
-    "label": "Advertise this node as an exit node",
-    "default": false
-  }
+"config_schema": {
+  "id": "tailscale",
+  "label": "Tailscale",
+  "fields": [
+    { "name": "enabled", "type": "bool", "label": "Enabled",
+      "default": false },
+    { "name": "login_server", "type": "string",
+      "label": "Login server URL (headscale, etc.)", "default": "" },
+    { "name": "exit_node", "type": "bool",
+      "label": "Advertise this node as an exit node", "default": false }
+  ]
 }
 ```
 
-Available `type`s:
+Available `type`s (see `app_config_field.dart` for exact keys):
 
-- `bool` — checkbox-style toggle.
-- `int` — number input.
-- `string` — single-line text.
-- `secret` — masked input. Stored cleartext in `config.json`
-  today; the masking is just UI hygiene.
-- `select<a|b|c>` — pick one. Pipe-separated choices.
-- `list<string>` / `list<int>` / `list<bool>` — homogeneous list.
+- `bool` — toggle.
+- `int` (`integer`) — number input; supports `min` / `max`.
+- `string` (`str`) — single-line text.
+- `secret` — masked input. **Stored cleartext** in the git-tracked
+  main `config.json` and world-readable in `/nix/store` once your
+  `plugin.nix` consumes it — the masking is UI hygiene only. The
+  install consent prompt warns the operator when a manifest
+  declares one. Prefer ephemeral action `inputs` (below) for
+  credentials, like the tailscale/netbird plugins do.
+- `enum` — pick one of `choices: ["a", "b"]`.
+- `string_list` — homogeneous list of strings.
 
-`label` is the displayed prompt. `required: true` makes the field
-mandatory; `default` provides an initial value (defaults are NOT
-written to `config.json` until the user touches them — the
-plugin code should re-derive the default if absent).
+`label` is the displayed prompt; `default` provides the value
+seeded into `app_configs.<id>` at install.
 
-In `plugin.nix`, read each field via `pluginCfg.<key> or
-<fallback>`:
+In `plugin.nix`, read each field via `pluginCfg.<name> or
+<fallback>` — keep the fallbacks in sync with the manifest
+defaults so a not-yet-seeded config resolves to the same shape:
 
 ```nix
-authKey = pluginCfg.auth_key or "";
+loginServer = pluginCfg.login_server or "";
 exitNode = pluginCfg.exit_node or false;
 ```
 
@@ -232,6 +262,21 @@ matters:
 Without the allow-list cross-check, a manifest could trigger
 arbitrary system units; with it, the operator sees exactly which
 units a plugin claims root for at install-time consent.
+
+An action may also declare `inputs` — values the operator is
+prompted for when triggering it, delivered to the unit as
+environment variables (`NIXBLITZ_INPUT_<NAME>`) via a root-owned,
+mode-0600 env file under `/run/nixblitz/` that the TUI deletes
+after the run. `"type": "secret"` masks the prompt. This is the
+right home for credentials (Tailscale pre-auth keys, NetBird setup
+keys): unlike a `config_schema` `secret` field, the value is
+**never persisted** — not in config.json, not in the store.
+
+```json
+"inputs": [
+  { "name": "authkey", "label": "Pre-auth key", "type": "secret" }
+]
+```
 
 ### `dashboard` block (optional)
 
@@ -555,9 +600,11 @@ If a future TUI bump changes the manifest format breaking-ly
 matching plugin update. Existing operators of the old plugin
 hit a hard-fail on next `plugin refresh` until they upgrade.
 
-The schema-version bump is rare (so far: just once, for sudo
-posture A). When it happens, plugins.md will document the
-migration shape; this doc gets updated alongside.
+Breaking bumps are rare (so far: just v1 → v2, for sudo posture
+A). v3 (`tile_manifests`) and v4 (`branches`) were additive — old
+TUIs keep loading those manifests and ignore the new fields. When
+a breaking bump happens, plugins.md will document the migration
+shape; this doc gets updated alongside.
 
 ## Worked examples
 
