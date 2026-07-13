@@ -99,8 +99,14 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
 - `[~]` **L — README + LICENSE.** README now lists all 10 plugins (was 4).
   **Per-plugin LICENSE files still missing** — deferred: which license to apply
   is the maintainer's call, not something to invent.
-- `[ ]` **L — Boilerplate:** tile-state and app-version scripts repeat across
-  plugins; a shared `lib/` would help third-party authors.
+- `[x]` **L — Boilerplate shared `lib/`: NOT VIABLE as proposed.** Assessed
+  2026-07-06: `plugin add` copies **only the plugin's subdir** to the node
+  (`_copyPluginFiles(pluginSourceDir, …)`), so a repo-level `lib/` would never
+  land on operators' machines and `../lib` imports in `plugin.nix` would break
+  at rebuild. The workable shape is vendoring the shared snippets into each
+  plugin plus a CI byte-identity check (the pattern `tile-lightning.json`
+  already uses for lnd/cln) — a heavier design to take up only if the
+  boilerplate meaningfully grows.
 
 ### Ease of use
 
@@ -201,10 +207,21 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   surfaces as a `FileSystemMoveEvent` whose `path` is the temp file, so the
   watcher missed the write. Fixed to also honour the move `destination` — now
   robust to any atomic-rename writer (editors, CLI tools), not just ours.
-- `[ ]` **L — TUI widget dedup:** shared selection-popup/modal base (viewport
-  clamp, j/k/Enter/Esc, try/catch wrapper) and a `SelectableListView`.
-- `[ ]` **L — `check` subprocess:** the TUI spawns `nixblitz check` as a child
-  while the CLI calls `UpdateCheckService` directly; unify on the direct call.
+- `[x]` **L — TUI widget dedup: WON'T DO.** Assessed 2026-07-06: the four
+  popups total ~480 lines with maybe 40–60 lines of genuinely shared
+  boilerplate, and their key models differ subtly (y/n vs j/k+Enter vs
+  Esc-only). Extracting a shared base means wrapping `Focusable`s in a new
+  abstraction — the exact structural churn the nocterm-pitfalls doc marks as
+  this codebase's most regression-prone area (modal focus gating). Cost/risk
+  exceeds the payoff; revisit only if a fifth+ popup materialises.
+- `[x]` **L — `check` subprocess: WON'T DO.** Assessed 2026-07-06: the
+  subprocess is load-bearing, not an accident. The systemd timer runs the
+  identical `nixblitz check` command (`update-check.nix:43`), so TUI-triggered
+  and timer-triggered checks share one code path and one IPC surface
+  (update-status.json + staging/); and a subprocess survives TUI exits —
+  including the deliberate binary-swap restart after a rebuild — where an
+  in-process call would die mid-staging-write. Unifying on the direct call
+  would trade real robustness for cosmetic simplification.
 
 ## Lockdown mode (design sketch)
 
