@@ -126,9 +126,15 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   `SystemService.currentSystemToplevel`, `StagingService.promoteLockTo`,
   `environment_service`). Then the 5 `debug/` views (systemctl / journalctl /
   bitcoin-cli) moved to an async `runChecked` twin plus `writeExecutableScriptSync`
-  for regtest-automine's helper script. **Remaining (File reads only, no process
-  spawns):** `app.dart`'s bootstrap `config.json` reads and `apply_view`'s two
-  file reads (teardown current-file, update-status) — a small later pass.
+  for regtest-automine's helper script. **Finished:** the last `File` reads in
+  the UI moved behind common APIs — `ConfigService.readRawSync` /
+  `readRawJsonSync` / `readConfigSync` (app.dart bootstrap, config-too-new
+  screen, update-cli platform read), `clearUpdateStatus()` next to
+  `readUpdateStatus` (apply + update-cli post-apply wipe), and
+  `PluginTeardownRunner.workingTreeReader` (the shared readCurrent binding for
+  TUI Apply + CLI update). `app.dart` and `apply_view.dart` no longer import
+  `dart:io` at all. (`check_runner.dart` — a tui _service_ module, not a view —
+  keeps its two file reads; the rule targets views/UI.)
 - `[x]` **M — No CI.** Added a fast `just ci` gate (test + analyze + template
   freshness + Dart format check) and `.forgejo/workflows/ci.yml` running it on
   push/PR. The workflow needs a self-hosted runner labeled `nix`; until one is

@@ -16,14 +16,15 @@ class ConfigTooNewView extends StatelessComponent {
   @override
   Component build(BuildContext context) {
     final baseDir = context.read(baseDirProvider);
-    final path = '$baseDir/config.json';
+    final configService = ConfigService(baseDir: baseDir);
+    final path = configService.configPath;
 
     String rawConfig = '';
     int diskVersion = 0;
     bool setupComplete = false;
 
     try {
-      rawConfig = File(path).readAsStringSync();
+      rawConfig = configService.readRawSync();
       final json = jsonDecode(rawConfig) as Map<String, dynamic>;
       diskVersion = (json['version'] as int?) ?? 0;
       // Wizard is fully done iff the last completed step is the

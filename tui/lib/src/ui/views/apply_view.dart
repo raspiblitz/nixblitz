@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
@@ -281,10 +280,7 @@ class _ApplyViewState extends State<ApplyView> {
             await PluginTeardownRunner(
               runAction: context.read(pluginActionRunnerProvider).run,
               readCommitted: git.readCommittedFile,
-              readCurrent: (p) {
-                final f = File('$baseDirPath/$p');
-                return f.existsSync() ? f.readAsStringSync() : null;
-              },
+              readCurrent: PluginTeardownRunner.workingTreeReader(baseDirPath),
             ).runPending(_append);
             final staged =
                 context.read(_applyStagedProvider) ?? _staging.read();
@@ -426,10 +422,7 @@ class _ApplyViewState extends State<ApplyView> {
                           // refresh tick so any watching view re-reads.
                           // The daily timer or a manual [c] repopulates.
                           try {
-                            final statusFile = File(updateStatusPath);
-                            if (statusFile.existsSync()) {
-                              statusFile.deleteSync();
-                            }
+                            clearUpdateStatus();
                             context
                                 .read(checkRefreshTickProvider.notifier)
                                 .state++;

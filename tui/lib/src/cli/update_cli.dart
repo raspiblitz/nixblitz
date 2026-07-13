@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -126,10 +125,7 @@ Future<int> _runRebuild(String baseDir) async {
   final teardown = PluginTeardownRunner(
     runAction: PluginActionRunner(sudoSession: SudoSession()).run,
     readCommitted: GitService(repoDir: baseDir).readCommittedFile,
-    readCurrent: (p) {
-      final f = File('$baseDir/$p');
-      return f.existsSync() ? f.readAsStringSync() : null;
-    },
+    readCurrent: PluginTeardownRunner.workingTreeReader(baseDir),
   );
   final pending = await teardown.resolvePending();
   if (pending.isNotEmpty) {
@@ -164,8 +160,7 @@ Future<int> _runRebuild(String baseDir) async {
 /// pre-rebuild state. Non-fatal: the next check overwrites.
 void _clearCheckState() {
   try {
-    final statusFile = File(updateStatusPath);
-    if (statusFile.existsSync()) statusFile.deleteSync();
+    clearUpdateStatus();
     StagingService().clearAll();
   } catch (e) {
     stderr.writeln('warning: failed to clear cached check state: $e');
@@ -336,13 +331,9 @@ Future<int> _updatePlugins(String baseDir) async {
 /// Apply path about which target to build.
 String _readPlatform(String baseDir) {
   try {
-    final f = File('$baseDir/config.json');
-    if (!f.existsSync()) return 'x86';
-    final raw = f.readAsStringSync();
-    final json = NixblitzConfig.fromJson(
-      jsonDecode(raw) as Map<String, dynamic>,
-    );
-    return json.system.platform;
+    final svc = ConfigService(baseDir: baseDir);
+    if (!svc.configExists()) return 'x86';
+    return svc.readConfigSync().system.platform;
   } catch (_) {
     return 'x86';
   }

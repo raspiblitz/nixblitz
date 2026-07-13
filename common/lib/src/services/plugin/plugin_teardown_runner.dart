@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_action.dart';
@@ -35,6 +36,15 @@ class PluginTeardownRunner {
   /// Reads a repo-relative path from the working tree. Returns null when
   /// absent.
   final String? Function(String relPath) readCurrent;
+
+  /// The production [readCurrent] binding: read repo-relative paths from
+  /// the working tree at [baseDir]. Kept here so callers (TUI Apply, CLI
+  /// update) don't each hand-roll the file access.
+  static String? Function(String relPath) workingTreeReader(String baseDir) =>
+      (p) {
+        final f = File('$baseDir/$p');
+        return f.existsSync() ? f.readAsStringSync() : null;
+      };
 
   /// Resolve the teardowns pending for this rebuild. Reads HEAD vs the working
   /// tree, so call BEFORE any commit that would collapse the diff.

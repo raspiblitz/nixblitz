@@ -46,6 +46,17 @@ UpdateStatus readUpdateStatus({String? path}) {
   }
 }
 
+/// Delete the on-disk status. Called after a successful Apply — the
+/// cached CheckResult describes a pre-apply delta, so leaving it would
+/// keep the dashboard banner claiming stale pending updates. Returns
+/// true when a file was actually removed; missing file is a no-op.
+bool clearUpdateStatus({String? path}) {
+  final f = File(path ?? updateStatusPath);
+  if (!f.existsSync()) return false;
+  f.deleteSync();
+  return true;
+}
+
 class UpdateStatus {
   const UpdateStatus({this.checkResult});
 

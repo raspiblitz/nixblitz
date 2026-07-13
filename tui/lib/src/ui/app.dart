@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:common/common.dart';
@@ -252,15 +250,10 @@ List<FooterHint> _hintsFor(BuildContext context, AppView view) {
 void _autoMigrateConfig(String baseDir) {
   try {
     // Read + re-write config so migrations run and the
-    // `version` field bumps. Synchronous path — ConfigService
-    // has both async and sync variants; we want sync here to
+    // `version` field bumps. Synchronous path — we want to
     // block before the UI renders.
     final configService = ConfigService(baseDir: baseDir);
-    final json =
-        jsonDecode(File('$baseDir/config.json').readAsStringSync())
-            as Map<String, dynamic>;
-    final config = NixblitzConfig.fromJson(json);
-    configService.writeConfigSync(config);
+    configService.writeConfigSync(configService.readConfigSync());
 
     LogService.info(
       'Auto-migrate complete: config migrated to v$currentConfigVersion. '
@@ -288,8 +281,8 @@ class NixBlitzApp extends StatelessComponent {
     // we always start in install mode regardless of existing
     // config so a failed install attempt can be retried.
     final isInstaller = isInstallerEnvironment();
-    final configPath = '$baseDir/config.json';
-    final configExists = File(configPath).existsSync();
+    final configService = ConfigService(baseDir: baseDir);
+    final configExists = configService.configExists();
 
     // Safety: if we're NOT in an installer image AND there's no
     // config, this is an installed non-NixBlitz system. Refuse to
@@ -305,8 +298,7 @@ class NixBlitzApp extends StatelessComponent {
     } else {
       // configExists is guaranteed true here (refusal above handles the else)
       try {
-        final content = File(configPath).readAsStringSync();
-        final json = jsonDecode(content) as Map<String, dynamic>;
+        final json = configService.readRawJsonSync();
         final diskVersion = (json['version'] as int?) ?? 1;
         // `setup_step_completed` is the name of the last wizard
         // step the operator finished (the wizard's SetupStep
