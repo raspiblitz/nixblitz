@@ -63,13 +63,17 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   `type: secret` fields (`PluginInstallPreview.secretFieldNames`), naming the
   fields and the cleartext-in-git + world-readable-in-store consequences. The
   structural fix (secret store / LoadCredential) remains open.
-- `[ ]` **M — ZMQ binding dance.** bitcoind publishes ZMQ on 0.0.0.0 and each
-  consumer overrides to 127.0.0.1 individually; a missed override leaks block/tx
-  events to the LAN. Invert: force localhost at the bitcoind plugin, opt out later.
-- `[ ]` **M — Uneven systemd hardening.** cachepop is exemplary
-  (`ProtectSystem=strict`, `PrivateTmp`, `LockPersonality`); others delegate to
-  nix-bitcoin/upstream. A shared hardening mixin for plugin-declared oneshot
-  units would raise the floor.
+- `[x]` **M — ZMQ binding dance.** Verified real (`test-lnd.nix:34-37` documents
+  nix-bitcoin's `tcp://0.0.0.0` publisher form). Inverted as suggested: the
+  bitcoind plugin now `mkForce`s both ZMQ endpoints to `127.0.0.1` — consumers
+  read the options, so publisher + subscribers stay consistent by construction
+  (and LND gets a connectable address without test-lnd's rewrite).
+- `[~]` **M — Uneven systemd hardening.** All seven plugin action oneshots
+  (electrs restart, lnbits reset-db, tailscale connect/leave/down, netbird
+  connect/down) now carry `PrivateTmp` + `ProtectHome` + `NoNewPrivileges` +
+  `ProtectSystem=full`. Deliberately not `strict` (unix-socket / `/var` access;
+  each unit carries the rationale) — tighten after validating on a node. The
+  long-lived services still delegate to nix-bitcoin/upstream defaults.
 
 ### Official plugins (`examples_redesign/nixblitz_official_plugins/`)
 
@@ -110,10 +114,14 @@ Severity: **H** high, **M** medium, **L** low. Status: `[ ]` open, `[x]` done,
   `--yes` bypass) since the Approach-A trust work (`ba5d3d9`). The audit's survey
   agent misreported it; no code change needed. Kept as a record of the
   correction.
-- `[ ]` **L — Setup wizard ends without a success screen** (drops to dashboard);
-  add a "you're done / here's what's running / next steps" summary.
-- `[ ]` **L — Mnemonic screen** shows the seed with no rationale for why it can't
-  be copied; one explanatory sentence.
+- `[x]` **L — Setup wizard success screen.** Partly a stale finding — a
+  "Setup Complete!" summary already existed (`_buildSummary`). Enriched it with
+  a "Running:" section derived from the just-written config (bitcoind network,
+  LN backend + alias) and next-step key hints.
+- `[x]` **L — Mnemonic screen rationale.** The seed panel already explained the
+  SCB caveat and offline-storage rules; added the missing sentence explaining
+  why there's deliberately no copy/save affordance (clipboard/scrollback/file =
+  one compromise from wallet drain).
 
 ### Maintainability
 

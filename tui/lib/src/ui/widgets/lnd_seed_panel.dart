@@ -71,6 +71,10 @@ class LndSeedPanel extends StatelessComponent {
         const Text('in the wallet. Write on paper, store offline, never'),
         const Text('type or photograph them.'),
         const SizedBox(height: 1),
+        const Text('There is deliberately no copy/save button: a seed that'),
+        const Text('touches the clipboard, scrollback, or a file on this'),
+        const Text('node is one compromise away from draining the wallet.'),
+        const SizedBox(height: 1),
         const Text(
           'Note: this is LND aezeed (NOT BIP-39). It restores into',
           style: TextStyle(color: Color.fromRGB(200, 200, 100)),

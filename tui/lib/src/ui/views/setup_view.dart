@@ -1661,15 +1661,51 @@ class _SetupViewState extends State<SetupView> {
             ),
             const SizedBox(height: 1),
             const Text('Your NixBlitz node is configured and running.'),
+            ..._summaryRunningLines(),
             const SizedBox(height: 1),
             const Text('Remember to:'),
             const Text('  - Back up your Lightning wallet seed'),
             const Text('  - Keep your SSH password safe'),
+            const SizedBox(height: 1),
+            const Text('From the dashboard: [c] configure services,'),
+            const Text('[a] apply changes, [D] debug tools, [?] help.'),
             const SizedBox(height: 1),
             const Text('Press Enter to go to the dashboard.'),
           ],
         ),
       ),
     );
+  }
+
+  /// "Running:" lines for the summary screen, derived from the config
+  /// the wizard just wrote. Best-effort — an unreadable config just
+  /// omits the section rather than blocking the operator's exit.
+  List<Component> _summaryRunningLines() {
+    try {
+      final config = context.read(configProvider).value;
+      if (config == null) return const [];
+      const dim = TextStyle(color: Color.fromRGB(150, 150, 180));
+      final lines = <Component>[const SizedBox(height: 1)];
+      if (config.isAppEnabled('bitcoind')) {
+        final network =
+            config.appOption<String>('bitcoind', 'network') ?? 'mainnet';
+        lines.add(Text('  Running: bitcoind ($network)', style: dim));
+      }
+      if (config.isAppEnabled('lnd')) {
+        final alias = config.appOption<String>('lnd', 'alias') ?? '';
+        lines.add(
+          Text(
+            alias.isEmpty ? '  Running: lnd' : '  Running: lnd (alias: $alias)',
+            style: dim,
+          ),
+        );
+      } else if (config.isAppEnabled('cln')) {
+        lines.add(const Text('  Running: cln', style: dim));
+      }
+      return lines.length > 1 ? lines : const [];
+    } catch (e) {
+      LogService.warn('summary running-lines failed: $e');
+      return const [];
+    }
   }
 }
