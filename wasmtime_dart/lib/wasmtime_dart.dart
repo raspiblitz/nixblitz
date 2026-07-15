@@ -1,5 +1,8 @@
 export 'src/engine.dart';
+export 'src/func.dart';
+export 'src/instance.dart';
 export 'src/library.dart';
+export 'src/linker.dart';
 export 'src/module.dart';
 export 'src/store.dart';
 export 'src/trap.dart';
