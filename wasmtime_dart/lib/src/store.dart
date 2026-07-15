@@ -4,6 +4,7 @@ import 'engine.dart';
 import 'generated/raw.dart';
 import 'library.dart';
 import 'trap.dart';
+import 'wasi.dart';
 
 /// Owns a wasmtime_store_t. Everything created against its [context]
 /// (instances, funcs, memories) is only valid while the store lives.
@@ -55,4 +56,12 @@ class Context {
   /// relative to the engine's current epoch.
   void setEpochDeadline(int ticks) =>
       lib.raw.wasmtime_context_set_epoch_deadline(ptr, ticks);
+
+  /// Installs WASI on this store. Pair with Linker.defineWasi().
+  /// Consumes [config] — a WasiConfig cannot be reused.
+  void setWasi(WasiConfig config) => checkError(
+    lib.raw,
+    lib.raw.wasmtime_context_set_wasi(ptr, config.buildNative(lib)),
+    'set_wasi',
+  );
 }
