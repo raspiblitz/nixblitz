@@ -5,6 +5,7 @@ import 'package:ffi/ffi.dart';
 import 'func.dart';
 import 'generated/raw.dart';
 import 'library.dart';
+import 'memory.dart';
 import 'store.dart';
 import 'trap.dart';
 
@@ -54,6 +55,21 @@ class Instance {
       final funcPtr = calloc<wasmtime_func_t>();
       funcPtr.ref = item.ref.of.func; // struct copy, no private-field access
       return Func.owned(lib, funcPtr);
+    } finally {
+      calloc.free(item);
+    }
+  }
+
+  Memory getMemory(Context context, String name) {
+    final item = calloc<wasmtime_extern_t>();
+    try {
+      // WASMTIME_EXTERN_MEMORY == 3 (wasmtime/extern.h).
+      if (!exportGet(context, name, item) || item.ref.kind != 3) {
+        throw WasmtimeError('export `$name` not found or not a memory');
+      }
+      final memPtr = calloc<wasmtime_memory_t>();
+      memPtr.ref = item.ref.of.memory;
+      return Memory.owned(lib, memPtr);
     } finally {
       calloc.free(item);
     }

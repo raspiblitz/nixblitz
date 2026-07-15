@@ -5,6 +5,7 @@ import 'package:ffi/ffi.dart';
 import 'generated/raw.dart';
 import 'instance.dart';
 import 'library.dart';
+import 'memory.dart';
 import 'store.dart';
 import 'trap.dart';
 import 'value.dart';
@@ -216,6 +217,30 @@ class Caller {
       final funcPtr = calloc<wasmtime_func_t>();
       funcPtr.ref = item.ref.of.func;
       return Func.owned(lib, funcPtr);
+    } finally {
+      calloc.free(nameBytes);
+      calloc.free(item);
+    }
+  }
+
+  /// Looks up one of the calling instance's exports as a memory.
+  Memory getMemory(String name) {
+    final nameBytes = name.toNativeUtf8();
+    final item = calloc<wasmtime_extern_t>();
+    try {
+      final found = lib.raw.wasmtime_caller_export_get(
+        _ptr,
+        nameBytes.cast(),
+        nameBytes.length,
+        item,
+      );
+      // WASMTIME_EXTERN_MEMORY == 3.
+      if (!found || item.ref.kind != 3) {
+        throw WasmtimeError('caller export `$name` not found or not a memory');
+      }
+      final memPtr = calloc<wasmtime_memory_t>();
+      memPtr.ref = item.ref.of.memory;
+      return Memory.owned(lib, memPtr);
     } finally {
       calloc.free(nameBytes);
       calloc.free(item);
