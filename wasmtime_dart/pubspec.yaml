@@ -1,0 +1,17 @@
+name: wasmtime_dart
+description: Dart bindings for the wasmtime C API — sandboxed WASM/WASI execution.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.4
+
+resolution: workspace
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  ffigen: ^20.0.0
+  lints: ^6.1.0
+  test: ^1.31.0

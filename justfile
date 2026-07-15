@@ -147,6 +147,25 @@ gen-app-schemas:
 gen-completions:
   dart run scripts/gen_completion_scripts.dart
 
+# Resolves the wasmtime C headers from nixpkgs (`wasmtime.dev`), symlinks
+# them to a stable path (ffigen.yaml cannot expand env vars), and runs
+# ffigen. Rerun after every nixpkgs wasmtime bump; commit the result.
+#
+# Regenerate wasmtime_dart's raw FFI bindings from the wasmtime C headers
+gen-wasmtime-bindings:
+  #!/usr/bin/env nu
+  let dev = (nix build nixpkgs#wasmtime.dev --no-link --print-out-paths | str trim)
+  # libclang (invoked directly, not via the gcc/clang wrapper) doesn't
+  # pick up glibc's headers on its own on NixOS; symlink them next to
+  # the wasmtime headers so ffigen.yaml's compiler-opts can reach them
+  # without hardcoding a nix store path.
+  let glibc = (nix build nixpkgs#glibc.dev --no-link --print-out-paths | str trim)
+  cd wasmtime_dart
+  mkdir .dart_tool
+  ^ln -sfn $"($dev)/include" .dart_tool/wasmtime-include
+  ^ln -sfn $"($glibc)/include" .dart_tool/glibc-include
+  dart run ffigen --config ffigen.yaml
+
 # Compile Tailwind CSS for the website (web/input.css → web/styles.css)
 web-css:
   #!/usr/bin/env nu

@@ -8,3 +8,4 @@ workspace:
   - common
   - tui
   - website
+  - wasmtime_dart

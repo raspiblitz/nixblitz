@@ -44,7 +44,16 @@ in {
     # embedding outside the asciinema-player JS widget.
     pkgs.asciinema
     pkgs.asciinema-agg
+    pkgs-unstable.wasmtime.lib
+    pkgs-unstable.wasmtime.dev
+    pkgs-unstable.libclang.lib
   ];
+
+  env = {
+    WASMTIME_DART_LIB = "${pkgs-unstable.wasmtime.lib}/lib/libwasmtime.so";
+    WASMTIME_INCLUDE = "${pkgs-unstable.wasmtime.dev}/include";
+    LIBCLANG_PATH = "${pkgs-unstable.libclang.lib}/lib";
+  };
 
   android = {
     enable = true;
