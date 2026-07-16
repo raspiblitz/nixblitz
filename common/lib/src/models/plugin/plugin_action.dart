@@ -82,6 +82,35 @@ class PluginActionInput {
   String get envVarName => 'NIXBLITZ_INPUT_${name.toUpperCase()}';
 }
 
+/// A `wasm:` action — a sandboxed guest module invoked through the
+/// WASM runtime instead of bash or systemd.
+class WasmActionSpec {
+  const WasmActionSpec({required this.module, this.export = 'run'});
+
+  /// Plugin-dir-relative path to the compiled `.wasm`.
+  final String module;
+
+  /// Exported guest function to invoke (no params, no results).
+  final String export;
+
+  factory WasmActionSpec.fromJson(Map<String, dynamic> json) {
+    final module = json['module'];
+    if (module is! String || module.isEmpty) {
+      throw const FormatException('action.wasm.module is required');
+    }
+    final export = json['export'] as String? ?? 'run';
+    if (export.isEmpty) {
+      throw const FormatException('action.wasm.export must be non-empty');
+    }
+    return WasmActionSpec(module: module, export: export);
+  }
+
+  Map<String, dynamic> toJson() => {
+    'module': module,
+    if (export != 'run') 'export': export,
+  };
+}
+
 /// A single user-triggerable verb declared by a plugin manifest.
 ///
 /// Plugins use this to expose post-install operations the operator
@@ -98,7 +127,10 @@ class PluginActionInput {
 ///   require the unit to be listed in `permissions.privileged_units`.
 ///   This is the only path to root from a plugin (Posture A).
 ///
-/// Exactly one of `command` / `unit` must be set per action.
+/// - `wasm:` actions invoke an exported function in a sandboxed guest
+///   module through the WASM runtime. Never privileged.
+///
+/// Exactly one of `command` / `unit` / `wasm` must be set per action.
 class PluginAction {
   /// Human-readable menu entry. Required.
   final String label;
@@ -115,6 +147,9 @@ class PluginAction {
   /// with [command]. Must appear in
   /// `PluginPermissions.privilegedUnits`.
   final String? unit;
+
+  /// Sandboxed WASM action. Mutually exclusive with [command]/[unit].
+  final WasmActionSpec? wasm;
 
   /// When true, the TUI shows a y/N prompt before launching.
   /// Default true — most actions are at least state-touching;
@@ -135,6 +170,7 @@ class PluginAction {
     this.description = '',
     this.command,
     this.unit,
+    this.wasm,
     this.confirm = true,
     this.timeoutSeconds = 300,
     this.inputs = const [],
@@ -143,6 +179,9 @@ class PluginAction {
   /// True when this action dispatches a systemd unit (and therefore
   /// runs privileged via SudoSession + systemctl).
   bool get isPrivileged => unit != null;
+
+  /// True when this action runs a sandboxed WASM guest.
+  bool get isWasm => wasm != null;
 
   factory PluginAction.fromJson(Map<String, dynamic> json) {
     final label = json['label'] as String?;
@@ -160,14 +199,20 @@ class PluginAction {
     }
     final command = json['command'] as String?;
     final unit = json['unit'] as String?;
-    if (command == null && unit == null) {
+    final wasmRaw = json['wasm'];
+    final wasm = wasmRaw is Map<String, dynamic>
+        ? WasmActionSpec.fromJson(wasmRaw)
+        : null;
+    final variants = [command, unit, wasm].where((v) => v != null).length;
+    if (variants == 0) {
       throw FormatException(
-        'action `$label` must declare either `command` or `unit`',
+        'action `$label` must declare one of `command`, `unit`, or `wasm`',
       );
     }
-    if (command != null && unit != null) {
+    if (variants > 1) {
       throw FormatException(
-        'action `$label` declares both `command` and `unit`; pick one',
+        'action `$label` declares more than one of `command`/`unit`/`wasm`; '
+        'pick one',
       );
     }
     if (command != null && command.isEmpty) {
@@ -199,6 +244,7 @@ class PluginAction {
       description: json['description'] as String? ?? '',
       command: command,
       unit: unit,
+      wasm: wasm,
       confirm: json['confirm'] as bool? ?? true,
       timeoutSeconds: timeout,
       inputs: inputs,
@@ -210,6 +256,7 @@ class PluginAction {
     if (description.isNotEmpty) 'description': description,
     if (command != null) 'command': command,
     if (unit != null) 'unit': unit,
+    if (wasm != null) 'wasm': wasm!.toJson(),
     if (!confirm) 'confirm': confirm,
     if (timeoutSeconds != 300) 'timeout_seconds': timeoutSeconds,
     if (inputs.isNotEmpty) 'inputs': inputs.map((i) => i.toJson()).toList(),
