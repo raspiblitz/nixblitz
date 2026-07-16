@@ -4,6 +4,10 @@
   ...
 }: let
   pkgs-unstable = import inputs.nixpkgs-unstable {inherit (pkgs.stdenv) system;};
+  # Pinned wasmtime c-api (see nix/wasmtime.nix) — the dev shell exports
+  # its lib/headers so tests + gen-wasmtime-bindings use the exact version
+  # the FFI bindings were generated against, same as the flake wrapper.
+  wasmtimePinned = pkgs.callPackage ./nix/wasmtime.nix {};
   androidConfig = {
     platformVersion = "36";
     buildToolsVersion = "35.0.1"; # version for aapt, dx, apksigner
@@ -44,14 +48,15 @@ in {
     # embedding outside the asciinema-player JS widget.
     pkgs.asciinema
     pkgs.asciinema-agg
-    pkgs-unstable.wasmtime.lib
-    pkgs-unstable.wasmtime.dev
+    # Pinned wasmtime (lib + headers) — the ONE version the FFI bindings
+    # match. Same derivation the flake wrapper bakes; see nix/wasmtime.nix.
+    wasmtimePinned
     pkgs-unstable.libclang.lib
   ];
 
   env = {
-    WASMTIME_DART_LIB = "${pkgs-unstable.wasmtime.lib}/lib/libwasmtime.so";
-    WASMTIME_INCLUDE = "${pkgs-unstable.wasmtime.dev}/include";
+    WASMTIME_DART_LIB = "${wasmtimePinned}/lib/libwasmtime.so";
+    WASMTIME_INCLUDE = "${wasmtimePinned}/include";
     LIBCLANG_PATH = "${pkgs-unstable.libclang.lib}/lib";
   };
 

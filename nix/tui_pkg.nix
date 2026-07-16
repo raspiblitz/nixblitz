@@ -32,6 +32,9 @@ buildDartApplication {
     include = [
       "common"
       "tui"
+      # common depends on wasmtime_dart (the WASM sandbox binding), so its
+      # source must be in the build sandbox for the workspace to resolve.
+      "wasmtime_dart"
       "templates"
       "scripts"
       "branches.json"
@@ -60,7 +63,7 @@ buildDartApplication {
     nocterm_riverpod = "sha256-t/eJb/OJPh/MNvBKPDZfG6kVFZkvOH7VydNlyc6aMvQ=";
   };
 
-  workspaceMembers = ["common" "tui"];
+  workspaceMembers = ["common" "tui" "wasmtime_dart"];
   workspaceMember = "tui";
   workspaceDependencyGraph = lib.importJSON ./workspace_dependency_graph.json;
 
@@ -80,6 +83,7 @@ buildDartApplication {
     workspace:
       - common
       - tui
+      - wasmtime_dart
     EOF
   '';
 

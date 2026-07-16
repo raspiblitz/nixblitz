@@ -44,6 +44,12 @@
         pkgs = nixpkgs.legacyPackages.${system};
         pkgsUnstable = nixpkgs-unstable.legacyPackages.${system};
         lib = nixpkgs.lib;
+        # The ONE wasmtime version nixblitz controls (pinned c-api
+        # release, independent of any nixpkgs input) — its lib is baked
+        # into the wrapper and its headers feed the ffigen bindings, so
+        # runtime ABI can never drift from the generated code. See
+        # nix/wasmtime.nix and CLAUDE.md → Flake input rules.
+        wasmtimePinned = pkgs.callPackage ./nix/wasmtime.nix {};
         version = "0.1.0";
         # Short git hash of the source tree at build time, tagged with
         # "-dirty" when the worktree has uncommitted changes. Surfaces
@@ -83,6 +89,7 @@
             disko.packages.${system}.default
             pkgs.git
           ]}:$PATH"
+          export WASMTIME_DART_LIB="${wasmtimePinned}/lib/libwasmtime.so"
           exec ${nixblitzUnwrapped}/bin/nixblitz "$@"
         '';
 
@@ -103,6 +110,9 @@
             nixblitz = nixblitzWrapped;
             nixblitz-unwrapped = nixblitzUnwrapped;
             website = nixblitzWebsite;
+            # Pinned wasmtime c-api (lib + headers). `gen-wasmtime-bindings`
+            # reads its headers; the wrapper bakes its lib.
+            wasmtime-pinned = wasmtimePinned;
           }
           # x86 installer ISO — a dev/release artifact (see nix/iso.nix).
           # Gated to x86_64-linux: it's an x86 live medium and references

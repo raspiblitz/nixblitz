@@ -172,11 +172,13 @@ gen-completions:
   dart run scripts/gen_completion_scripts.dart
 
 # Resolves the wasmtime C headers + libclang, symlinks them to stable
-# paths (ffigen.yaml cannot expand env vars), and runs ffigen. Prefers
-# the devenv-exported WASMTIME_INCLUDE/LIBCLANG_PATH so codegen is
-# pinned to the exact toolchain tests run against (pkgs-unstable in
-# devenv.nix); falls back to the flake registry for CI shells without
-# devenv. Rerun after every nixpkgs wasmtime bump; commit the result.
+# paths (ffigen.yaml cannot expand env vars), and runs ffigen. The
+# wasmtime headers come from our PINNED wasmtime (.#wasmtime-pinned,
+# nix/wasmtime.nix) — the same derivation whose lib the TUI wrapper
+# bakes — so the generated bindings and the runtime library are the same
+# version by construction. Prefers $WASMTIME_INCLUDE if the devenv
+# exported it (also the pinned one). Rerun after a wasmtime bump in
+# nix/wasmtime.nix; commit the result.
 #
 # Regenerate wasmtime_dart's raw FFI bindings from the wasmtime C headers
 gen-wasmtime-bindings:
@@ -184,7 +186,7 @@ gen-wasmtime-bindings:
   let dev_include = (if ($env.WASMTIME_INCLUDE? | is-not-empty) {
     $env.WASMTIME_INCLUDE
   } else {
-    let dev = (nix build nixpkgs#wasmtime.dev --no-link --print-out-paths | str trim)
+    let dev = (nix build ".#wasmtime-pinned" --no-link --print-out-paths | str trim)
     $"($dev)/include"
   })
   let libclang_lib = (if ($env.LIBCLANG_PATH? | is-not-empty) {
