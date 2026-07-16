@@ -16,6 +16,7 @@ nixblitz/
 │   ├── lib/src/services/     # ConfigService, GitService, SystemService, InstallService, LogService
 │   ├── lib/src/providers/    # Riverpod providers
 │   └── test/                 # Unit tests
+├── wasmtime_dart/            # Dart bindings for the wasmtime C API (WASM plugin sandbox)
 ├── tui/                      # Terminal UI (nocterm + Riverpod)
 │   ├── bin/nixblitz.dart     # Entry point
 │   └── lib/src/ui/           # Views and widgets

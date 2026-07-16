@@ -6,7 +6,7 @@ set positional-arguments
 default:
 	just --list
 
-# Run all Dart tests (common + tui) + the plugin-consistency invariant
+# Run all Dart tests (common + tui + wasmtime_dart) + the plugin-consistency invariant
 test trace="":
   #!/usr/bin/env nu
   if ("{{trace}}" == "-t" or "{{trace}}" == "--trace") {
@@ -15,12 +15,16 @@ test trace="":
     dart test
     cd ../tui
     dart test
+    cd ../wasmtime_dart
+    dart test
     cd ..
     bash tests/scripts/check-plugin-consistency.sh
   } else if ("{{trace}}" == "") {
     cd common
     dart test
     cd ../tui
+    dart test
+    cd ../wasmtime_dart
     dart test
     cd ..
     bash tests/scripts/check-plugin-consistency.sh
@@ -52,13 +56,14 @@ analyze:
   cd common; dart analyze
   cd ../tui; dart analyze
   cd ../website; dart analyze
+  cd ../wasmtime_dart; dart analyze
 
 # Format Dart, Nix, and Markdown/YAML/JSON (skips ./examples_redesign + dev dirs)
 format:
   #!/usr/bin/env nu
   do -c {
     print "Formatting Dart code..."
-    let dirs = ["common", "tui", "website"]
+    let dirs = ["common", "tui", "website", "wasmtime_dart"]
     for dir in $dirs {
       if ($dir | path exists) {
         print $"Formatting ($dir)..."
@@ -92,6 +97,23 @@ check-templates:
   }
   print "Embedded templates are in sync."
 
+# Guards against editing ffigen.yaml or bumping wasmtime without
+# regenerating. Snapshots the generated file, regenerates, compares
+# content; on drift the file is left regenerated so you can review +
+# commit it (same pattern as check-templates).
+#
+# Fail if wasmtime_dart's generated bindings are stale
+check-wasmtime-bindings:
+  #!/usr/bin/env nu
+  let f = "wasmtime_dart/lib/src/generated/bindings.g.dart"
+  let before = (open --raw $f)
+  just gen-wasmtime-bindings
+  if ($before != (open --raw $f)) {
+    print $"($f) was stale — regenerated in place; review and commit it."
+    exit 1
+  }
+  print "wasmtime_dart bindings are in sync."
+
 # Runs the Dart format check without writes. The heavier nix
 # config-eval matrix lives in `test-config` and is intentionally left
 # out of this gate.
@@ -102,9 +124,11 @@ ci:
   just test
   just analyze
   just check-templates
+  just check-wasmtime-bindings
   cd common; dart format --output=none --set-exit-if-changed .
   cd ../tui; dart format --output=none --set-exit-if-changed .
   cd ../website; dart format --output=none --set-exit-if-changed .
+  cd ../wasmtime_dart; dart format --output=none --set-exit-if-changed .
   cd ..
   print "CI gate green."
 
@@ -147,22 +171,37 @@ gen-app-schemas:
 gen-completions:
   dart run scripts/gen_completion_scripts.dart
 
-# Resolves the wasmtime C headers from nixpkgs (`wasmtime.dev`), symlinks
-# them to a stable path (ffigen.yaml cannot expand env vars), and runs
-# ffigen. Rerun after every nixpkgs wasmtime bump; commit the result.
+# Resolves the wasmtime C headers + libclang, symlinks them to stable
+# paths (ffigen.yaml cannot expand env vars), and runs ffigen. Prefers
+# the devenv-exported WASMTIME_INCLUDE/LIBCLANG_PATH so codegen is
+# pinned to the exact toolchain tests run against (pkgs-unstable in
+# devenv.nix); falls back to the flake registry for CI shells without
+# devenv. Rerun after every nixpkgs wasmtime bump; commit the result.
 #
 # Regenerate wasmtime_dart's raw FFI bindings from the wasmtime C headers
 gen-wasmtime-bindings:
   #!/usr/bin/env nu
-  let dev = (nix build nixpkgs#wasmtime.dev --no-link --print-out-paths | str trim)
+  let dev_include = (if ($env.WASMTIME_INCLUDE? | is-not-empty) {
+    $env.WASMTIME_INCLUDE
+  } else {
+    let dev = (nix build nixpkgs#wasmtime.dev --no-link --print-out-paths | str trim)
+    $"($dev)/include"
+  })
+  let libclang_lib = (if ($env.LIBCLANG_PATH? | is-not-empty) {
+    $env.LIBCLANG_PATH
+  } else {
+    $"(nix build nixpkgs#libclang.lib --no-link --print-out-paths | str trim)/lib"
+  })
   # libclang (invoked directly, not via the gcc/clang wrapper) doesn't
   # pick up glibc's headers on its own on NixOS; symlink them next to
   # the wasmtime headers so ffigen.yaml's compiler-opts can reach them
-  # without hardcoding a nix store path.
+  # without hardcoding a nix store path. No devenv env var covers this
+  # one, so it stays on the flake registry.
   let glibc = (nix build nixpkgs#glibc.dev --no-link --print-out-paths | str trim)
   cd wasmtime_dart
   mkdir .dart_tool
-  ^ln -sfn $"($dev)/include" .dart_tool/wasmtime-include
+  ^ln -sfn $dev_include .dart_tool/wasmtime-include
+  ^ln -sfn $libclang_lib .dart_tool/libclang-lib
   ^ln -sfn $"($glibc)/include" .dart_tool/glibc-include
   dart run ffigen --config ffigen.yaml
 

@@ -3,10 +3,15 @@ description: Raw bindings over the wasmtime C API. Generated — do not edit.
 output: lib/src/generated/bindings.g.dart
 # ffigen calls `clang -print-file-name=libclang.so` to locate libclang,
 # but `clang` isn't on PATH in this dev shell (only libclang.lib is).
-# Pin the store path directly; regenerate with the path from
-# `echo $LIBCLANG_PATH` if this goes stale after a nixpkgs bump.
+# `just gen-wasmtime-bindings` maintains `.dart_tool/libclang-lib` as a
+# symlink to $LIBCLANG_PATH (devenv) or the flake-registry
+# libclang.lib, so this points at a recipe-maintained relative path
+# instead of a hardcoded, bump-prone store path. Points at the .so
+# file directly (ffigen's "complete dylib path" branch) rather than
+# the directory, since ffigen's directory-search convention expects a
+# literal `lib/` child which the symlink name doesn't provide.
 llvm-path:
-  - /nix/store/7306wrcri9nmdp7w4pbqc5rqdn6y048d-clang-21.1.8-lib
+  - .dart_tool/libclang-lib/libclang.so
 headers:
   entry-points:
     - .dart_tool/wasmtime-include/wasmtime.h
