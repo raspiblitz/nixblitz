@@ -93,9 +93,14 @@ final _pendingInstallUrlProvider = StateProvider<String?>((ref) => null);
 /// to run the chosen action. The configure-view body is replaced
 /// for the duration of the run, same pattern as
 /// [_installingPluginProvider] uses for the install wizard.
-final _runningPluginActionProvider = StateProvider<PluginAction?>(
-  (ref) => null,
-);
+///
+/// Carries the owning plugin's id alongside the action — [wasm:]
+/// actions need it to resolve the plugin's [PluginManifest] (for its
+/// `sandbox` block) and installed source dir; [PluginActionView]
+/// looks both up via [installedPluginsProvider] /
+/// [pluginServiceProvider] rather than have every trigger site do it.
+final _runningPluginActionProvider =
+    StateProvider<({PluginAction action, String pluginId})?>((ref) => null);
 
 /// When non-null, Configure delegates to [PluginSwitchBranchView] for
 /// the plugin id stored here. Cleared on dismiss.
@@ -286,7 +291,8 @@ class ConfigureView extends StatelessComponent {
     final runningAction = context.watch(_runningPluginActionProvider);
     if (runningAction != null) {
       return PluginActionView(
-        action: runningAction,
+        action: runningAction.action,
+        pluginId: runningAction.pluginId,
         runner: context.read(pluginActionRunnerProvider),
         onDismiss: () {
           context.read(_runningPluginActionProvider.notifier).state = null;
@@ -710,8 +716,10 @@ class ConfigureView extends StatelessComponent {
           final afterSwitch = selectedOption - fieldCount - 1;
           if (afterSwitch < 0) return;
           if (afterSwitch < actions.length) {
-            context.read(_runningPluginActionProvider.notifier).state =
-                actions[afterSwitch];
+            context.read(_runningPluginActionProvider.notifier).state = (
+              action: actions[afterSwitch],
+              pluginId: manifest.id,
+            );
             return;
           }
           if (afterSwitch == actions.length) {
@@ -730,8 +738,10 @@ class ConfigureView extends StatelessComponent {
           // fields.
           final actionIndex = selectedOption - fieldCount;
           if (actionIndex < 0 || actionIndex >= actions.length) return;
-          context.read(_runningPluginActionProvider.notifier).state =
-              actions[actionIndex];
+          context.read(_runningPluginActionProvider.notifier).state = (
+            action: actions[actionIndex],
+            pluginId: manifest.id,
+          );
           return;
         }
       }

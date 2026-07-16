@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
+import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
 import '../widgets/password_input.dart';
 import '../widgets/scrollable_log.dart';
@@ -29,12 +31,22 @@ enum _Phase { collectingInputs, confirm, running, done }
 
 class PluginActionView extends StatefulComponent {
   final PluginAction action;
+
+  /// Id of the plugin that declared [action]. Used only for the
+  /// `wasm:` path — resolves the owning [PluginManifest] (for its
+  /// `sandbox` block) and the plugin's installed source dir via
+  /// [installedPluginsProvider] / [pluginServiceProvider]. `command:`
+  /// and `unit:` actions ignore it; they run through [runner] as
+  /// before.
+  final String pluginId;
+
   final PluginActionRunner runner;
   final VoidCallback onDismiss;
 
   const PluginActionView({
     super.key,
     required this.action,
+    required this.pluginId,
     required this.runner,
     required this.onDismiss,
   });
@@ -103,6 +115,10 @@ class _PluginActionViewState extends State<PluginActionView> {
   void _startAction() {
     if (_started) return;
     _started = true;
+    if (component.action.isWasm) {
+      unawaited(_startWasmAction());
+      return;
+    }
     try {
       final run = component.runner.run(component.action, inputs: _collected);
       _outputSub = run.output.listen(
@@ -133,6 +149,84 @@ class _PluginActionViewState extends State<PluginActionView> {
           });
     } catch (e, st) {
       LogService.error('Plugin action launch failed', e, st);
+      setState(() {
+        _exitCode = 1;
+        _output.add('plugin-action: launch failed: $e');
+        _phase = _Phase.done;
+      });
+    }
+  }
+
+  /// `wasm:` counterpart to [_startAction]'s command/unit path. The
+  /// only structural difference is that [WasmActionRunner.run] itself
+  /// is async (it has to spin up an Engine/Store before it can hand
+  /// back the `(output, exitCode)` record), so the stream/exitCode
+  /// wiring below happens after an `await` instead of synchronously.
+  /// Once wired, the rest is identical: same [ScrollableLog] stream,
+  /// same exit-code → [_Phase.done] transition.
+  Future<void> _startWasmAction() async {
+    try {
+      final action = component.action;
+      final manifest = context
+          .read(installedPluginsProvider)
+          .where((m) => m.id == component.pluginId)
+          .firstOrNull;
+      if (manifest == null) {
+        throw StateError(
+          'plugin "${component.pluginId}" is not installed '
+          '(installedPluginsProvider has no matching manifest)',
+        );
+      }
+      final pluginDir =
+          '${context.read(pluginServiceProvider).pluginsDir}/'
+          '${component.pluginId}';
+      final sandbox = manifest.sandbox ?? const SandboxSpec();
+      final home = Platform.environment['HOME'] ?? '.';
+      final handler = HostCallHandler(
+        sandbox: sandbox,
+        ledger: BudgetLedger(
+          '$home/nixblitz/state/sandbox/budgets/${component.pluginId}.json',
+        ),
+        executor: BitcoinCliExecutor(),
+        clock: DateTime.now,
+      );
+      final wasmRunner = context.read(wasmActionRunnerProvider);
+      final run = await wasmRunner.run(
+        wasmPath: '$pluginDir/${action.wasm!.module}',
+        export: action.wasm!.export,
+        sandbox: sandbox,
+        hostCall: handler,
+      );
+      if (!mounted) return;
+      _outputSub = run.output.listen(
+        (line) {
+          if (!mounted) return;
+          setState(() => _output.add(line));
+        },
+        onError: (Object e, StackTrace st) {
+          LogService.error('Plugin wasm action output stream error', e, st);
+        },
+      );
+      run.exitCode
+          .then((code) {
+            if (!mounted) return;
+            setState(() {
+              _exitCode = code;
+              _phase = _Phase.done;
+            });
+          })
+          .catchError((Object e, StackTrace st) {
+            LogService.error('Plugin wasm action failed', e, st);
+            if (!mounted) return;
+            setState(() {
+              _exitCode = 1;
+              _output.add('plugin-action: $e');
+              _phase = _Phase.done;
+            });
+          });
+    } catch (e, st) {
+      LogService.error('Plugin wasm action launch failed', e, st);
+      if (!mounted) return;
       setState(() {
         _exitCode = 1;
         _output.add('plugin-action: launch failed: $e');
