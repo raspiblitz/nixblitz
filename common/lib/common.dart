@@ -29,6 +29,7 @@ export 'src/services/git_service.dart';
 export 'src/services/process_runner.dart';
 export 'src/services/sbom_service.dart';
 export 'src/services/system_service.dart';
+export 'src/services/wasm/budget_ledger.dart';
 export 'src/providers/config_provider.dart';
 export 'src/providers/config_watcher_provider.dart';
 export 'src/providers/dashboard_provider.dart';
