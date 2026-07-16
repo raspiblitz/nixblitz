@@ -126,7 +126,16 @@
     "cli_util": ["meta", "path"],
     "clock": [],
     "collection": [],
-    "common": ["riverpod", "path", "http", "meta", "pub_semver", "nocterm"],
+    "common": [
+      "riverpod",
+      "path",
+      "http",
+      "meta",
+      "pub_semver",
+      "nocterm",
+      "crypto",
+      "wasmtime_dart"
+    ],
     "convert": ["typed_data"],
     "coverage": [
       "args",
@@ -236,6 +245,23 @@
     "extension_discovery": ["yaml"],
     "fbh_front_matter": ["yaml"],
     "ffi": [],
+    "ffigen": [
+      "args",
+      "cli_util",
+      "collection",
+      "dart_style",
+      "ffi",
+      "file",
+      "glob",
+      "logging",
+      "meta",
+      "package_config",
+      "path",
+      "pub_semver",
+      "quiver",
+      "yaml",
+      "yaml_edit"
+    ],
     "file": ["meta", "path"],
     "fixnum": [],
     "frontend_server_client": ["async", "path"],
@@ -548,6 +574,7 @@
     "uuid": ["crypto", "fixnum"],
     "vm_service": [],
     "vm_service_interface": ["vm_service"],
+    "wasmtime_dart": ["ffi"],
     "watcher": ["async", "path"],
     "web": [],
     "web_socket": ["web"],
@@ -569,7 +596,16 @@
   "roots": {
     "common": {
       "dev": ["lints", "test"],
-      "main": ["riverpod", "path", "http", "meta", "pub_semver", "nocterm"]
+      "main": [
+        "riverpod",
+        "path",
+        "http",
+        "meta",
+        "pub_semver",
+        "nocterm",
+        "crypto",
+        "wasmtime_dart"
+      ]
     },
     "tui": {
       "dev": ["lints", "test"],
@@ -581,6 +617,10 @@
         "nocterm_riverpod",
         "common"
       ]
+    },
+    "wasmtime_dart": {
+      "dev": ["ffigen", "lints", "test"],
+      "main": ["ffi"]
     },
     "website": {
       "dev": [
