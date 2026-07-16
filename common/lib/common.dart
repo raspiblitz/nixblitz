@@ -14,6 +14,7 @@ export 'src/models/plugin/plugin_install_preview.dart';
 export 'src/models/plugin/plugin_manifest.dart';
 export 'src/models/plugin/plugin_permissions.dart';
 export 'src/models/plugin/plugin_tile.dart';
+export 'src/models/plugin/sandbox_spec.dart';
 export 'src/models/rebuild_outcome.dart';
 export 'src/models/service_status.dart';
 export 'src/models/staged_changes.dart';
