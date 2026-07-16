@@ -13,11 +13,38 @@ import 'package:common/src/services/plugin/plugin_marker.dart';
 import 'package:common/src/services/plugin/plugin_git_ops.dart';
 import 'package:common/src/services/plugin/plugin_url.dart';
 import 'package:common/src/services/plugin/plugin_refresh_all_result.dart';
+import 'package:common/src/services/wasm/sandbox_policy.dart';
 
 // Re-export the co-located types so existing importers of
 // plugin_service.dart keep seeing PluginUrl / PluginRefreshAllResult.
 export 'package:common/src/services/plugin/plugin_url.dart';
 export 'package:common/src/services/plugin/plugin_refresh_all_result.dart';
+
+/// Install-time sandbox validation. A spend-capable method is only
+/// permitted if (a) the daily budget is positive AND (b) its sat cost is
+/// attributable from params (v1: only sendtoaddress). Rejecting here
+/// means the runtime never faces an un-cappable spend.
+void validateSandbox(PluginManifest manifest) {
+  final cap = manifest.sandbox?.bitcoinRpc;
+  if (cap == null) return;
+  for (final method in cap.methods) {
+    if (!isSpendCapable(method)) continue;
+    if (cap.spendSatsPerDay <= 0) {
+      throw FormatException(
+        'sandbox: method `$method` can move funds but the plugin\'s '
+        'spend_sats_per_day is ${cap.spendSatsPerDay}. Grant a positive '
+        'daily budget or remove the method.',
+      );
+    }
+    if (attributedSpendSats(method, const [0, 0.0]) == null) {
+      throw FormatException(
+        'sandbox: method `$method` has a spend cost that cannot be '
+        'attributed from its arguments; it is not permitted in a sandboxed '
+        'plugin (v1).',
+      );
+    }
+  }
+}
 
 /// Manages installed plugins under `~/nixblitz/plugins/<id>/`.
 ///
@@ -124,7 +151,8 @@ class PluginService {
       }
 
       var manifest = readPluginManifest(pluginSourceDir);
-      requirePluginNix(pluginSourceDir);
+      validateSandbox(manifest);
+      requireModuleOrLogicOnly(pluginSourceDir, manifest);
 
       // Default-branch resolution: when the caller didn't pin a
       // branch and the manifest declares a default, re-clone at the
@@ -157,7 +185,8 @@ class PluginService {
             );
           }
           manifest = readPluginManifest(pluginSourceDir);
-          requirePluginNix(pluginSourceDir);
+          validateSandbox(manifest);
+          requireModuleOrLogicOnly(pluginSourceDir, manifest);
         }
         branch = resolvedRef;
       }
@@ -203,6 +232,8 @@ class PluginService {
           schemaVersion: manifest.schemaVersion,
           signature: signature,
           secretFieldNames: _secretFieldNames(manifest),
+          sandbox: manifest.sandbox,
+          hasNixModule: manifest.module != null,
         );
         final ok = await confirm(preview);
         if (!ok) {
@@ -410,7 +441,8 @@ class PluginService {
         );
       }
       final manifest = readPluginManifest(pluginSourceDir);
-      requirePluginNix(pluginSourceDir);
+      validateSandbox(manifest);
+      requireModuleOrLogicOnly(pluginSourceDir, manifest);
 
       // Approach A signature check. Three cases:
       // - existing pin null + new fp: silent upgrade — adopt the
@@ -527,7 +559,8 @@ class PluginService {
         );
       }
       final manifest = readPluginManifest(pluginSourceDir);
-      requirePluginNix(pluginSourceDir);
+      validateSandbox(manifest);
+      requireModuleOrLogicOnly(pluginSourceDir, manifest);
 
       final newSignature = await GitService(
         repoDir: tmpDir.path,
@@ -548,6 +581,8 @@ class PluginService {
         schemaVersion: manifest.schemaVersion,
         signature: newSignature,
         secretFieldNames: _secretFieldNames(manifest),
+        sandbox: manifest.sandbox,
+        hasNixModule: manifest.module != null,
       );
       if (confirm != null) {
         final ok = await confirm(preview);

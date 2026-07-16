@@ -207,13 +207,18 @@ class PluginManifest {
     this.sandbox,
   }) : id = id ?? name;
 
-  /// A logic-only plugin needs no NixOS config: no nix module, no
-  /// privileged unit action, no streamers. Such plugins may omit
-  /// plugin.nix (their only surface is sandboxed wasm actions).
+  /// A logic-only plugin's only surface is sandboxed wasm actions:
+  /// no nix module, no streamers, and every action is a wasm action.
+  /// Such plugins may omit plugin.nix. The `actions.isNotEmpty` clause
+  /// matters — a manifest with zero actions is NOT logic-only (it has
+  /// no wasm surface to justify skipping plugin.nix), and a plugin
+  /// with any `command:` / `unit:` action is not logic-only either
+  /// (those run unsandboxed and still need the nix module / consent).
   bool get isLogicOnly =>
       module == null &&
       streamers.isEmpty &&
-      !actions.values.any((a) => a.unit != null);
+      actions.isNotEmpty &&
+      actions.values.every((a) => a.isWasm);
 
   factory PluginManifest.fromJsonString(String s) =>
       PluginManifest.fromJson(jsonDecode(s) as Map<String, dynamic>);

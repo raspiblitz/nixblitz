@@ -227,5 +227,31 @@ void main() {
       });
       expect(m.isLogicOnly, isFalse);
     });
+
+    test('a plugin with no actions at all is not logic-only', () {
+      // module null + no streamers + zero actions. Vacuously it has no
+      // privileged surface, but it also has no wasm surface justifying
+      // a plugin.nix skip — installing without plugin.nix would be a
+      // bypass, so isLogicOnly must be false.
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 5, 'name': 'x'},
+      });
+      expect(m.actions, isEmpty);
+      expect(m.isLogicOnly, isFalse);
+    });
+
+    test('a command-only plugin is not logic-only', () {
+      // A `command:` action runs an unsandboxed bash command as admin.
+      // It is not wasm, so the plugin still needs its nix module and
+      // must not be classified as logic-only (which would skip
+      // plugin.nix and mis-render the sandbox consent card).
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 5, 'name': 'x'},
+        'actions': {
+          'restart': {'label': 'Restart', 'command': 'systemctl restart x'},
+        },
+      });
+      expect(m.isLogicOnly, isFalse);
+    });
   });
 }

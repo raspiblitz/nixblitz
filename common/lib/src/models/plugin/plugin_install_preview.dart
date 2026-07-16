@@ -1,3 +1,4 @@
+import 'package:common/src/models/plugin/sandbox_spec.dart';
 import 'package:common/src/services/git_service.dart';
 
 /// Snapshot of what `PluginService.install` is about to land. Built
@@ -23,6 +24,8 @@ class PluginInstallPreview {
     required this.schemaVersion,
     required this.signature,
     this.secretFieldNames = const [],
+    this.sandbox,
+    this.hasNixModule = true,
   });
 
   /// Display name from `plugin.json` (e.g. "Tailscale", "LNBits").
@@ -66,6 +69,17 @@ class PluginInstallPreview {
   /// they're about to persist. Empty for the (recommended) plugins
   /// that take secrets via ephemeral action inputs instead.
   final List<String> secretFieldNames;
+
+  /// The manifest's sandbox spec (bitcoin RPC allowlist + budgets),
+  /// when present. Null for a manifest with no `sandbox` block —
+  /// e.g. a plugin.nix-only plugin with no wasm actions.
+  final SandboxSpec? sandbox;
+
+  /// Whether the manifest declares a nix module (`manifest.module`).
+  /// False for a logic-only plugin (sandboxed wasm actions with no
+  /// plugin.nix). Defaults to `true` so call sites that predate this
+  /// field (if any) keep their prior assumption.
+  final bool hasNixModule;
 }
 
 /// Thrown by `PluginService.install` when the operator declines the

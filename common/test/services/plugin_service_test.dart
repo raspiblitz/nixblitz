@@ -3,11 +3,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-import 'package:common/src/models/nixblitz_config.dart';
-import 'package:common/src/models/plugin/plugin_install_preview.dart';
-import 'package:common/src/services/config_service.dart';
-import 'package:common/src/services/plugin/plugin_marker.dart';
-import 'package:common/src/services/plugin_service.dart';
+import 'package:common/common.dart';
 
 import '../test_helpers/git_isolation.dart';
 
@@ -343,10 +339,29 @@ void main() {
       final noPluginNix = Directory.systemTemp.createTempSync(
         'nixblitz_plugin_nopkg_',
       );
-      await _seedPluginRepo(noPluginNix.path, includePluginNix: false);
+      // The manifest carries a `command:` action, so it is NOT
+      // logic-only — requireModuleOrLogicOnly must still demand
+      // plugin.nix and reject the install.
+      await _seedPluginRepo(
+        noPluginNix.path,
+        id: 'no-nix',
+        name: 'no-nix',
+        includePluginNix: false,
+        manifestOverride: {
+          'manifest': {
+            'schema_version': 5,
+            'min_tui_version': 5,
+            'name': 'no-nix',
+          },
+          'id': 'no-nix',
+          'actions': {
+            'restart': {'label': 'Restart', 'command': 'systemctl restart x'},
+          },
+        },
+      );
 
-      expect(
-        () => pluginService.install(
+      await expectLater(
+        pluginService.install(
           'file://${noPluginNix.path}',
           allowInsecure: true,
         ),
@@ -354,6 +369,47 @@ void main() {
       );
 
       noPluginNix.deleteSync(recursive: true);
+    });
+
+    test('install accepts a logic-only plugin with no plugin.nix', () async {
+      // The positive side of the relaxation: a manifest whose only
+      // surface is a sandboxed wasm action legitimately ships no
+      // plugin.nix, so the install must succeed.
+      final logicOnly = Directory.systemTemp.createTempSync(
+        'nixblitz_plugin_logiconly_',
+      );
+      await _seedPluginRepo(
+        logicOnly.path,
+        id: 'logic-only',
+        name: 'logic-only',
+        includePluginNix: false,
+        manifestOverride: {
+          'manifest': {
+            'schema_version': 5,
+            'min_tui_version': 5,
+            'name': 'logic-only',
+          },
+          'id': 'logic-only',
+          'actions': {
+            'summary': {
+              'label': 'Summary',
+              'wasm': {'module': 'actions/summary.wasm'},
+            },
+          },
+        },
+      );
+
+      final marker = await pluginService.install(
+        'file://${logicOnly.path}',
+        allowInsecure: true,
+      );
+      expect(marker.id, 'logic-only');
+      expect(
+        File('${home.path}/plugins/logic-only/plugin.nix').existsSync(),
+        isFalse,
+      );
+
+      logicOnly.deleteSync(recursive: true);
     });
 
     test('insecure schemes refused without --insecure', () async {
@@ -1513,6 +1569,74 @@ void main() {
       expect(roundTripped.canonical, original.canonical);
       expect(roundTripped.cloneUrl, 'file:///home/user/plugins');
       expect(roundTripped.subdir, 'tailscale');
+    });
+  });
+
+  group('validateSandbox', () {
+    PluginManifest mf(Map<String, dynamic> sandbox) => PluginManifest.fromJson({
+      'manifest': {'schema_version': 5, 'name': 'x'},
+      'actions': {
+        'a': {
+          'label': 'a',
+          'wasm': {'module': 'a.wasm'},
+        },
+      },
+      'sandbox': sandbox,
+    });
+
+    test('accepts a read-only sandbox', () {
+      expect(
+        () => validateSandbox(
+          mf({
+            'bitcoin_rpc': {
+              'methods': ['getblockchaininfo'],
+            },
+          }),
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('rejects a spend method with zero budget', () {
+      expect(
+        () => validateSandbox(
+          mf({
+            'bitcoin_rpc': {
+              'methods': ['sendtoaddress'],
+              'budgets': {'spend_sats_per_day': 0},
+            },
+          }),
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects an unattributable spend method even with a budget', () {
+      expect(
+        () => validateSandbox(
+          mf({
+            'bitcoin_rpc': {
+              'methods': ['sendmany'], // unattributable in v1
+              'budgets': {'spend_sats_per_day': 1000},
+            },
+          }),
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('accepts an attributable spend method with a budget', () {
+      expect(
+        () => validateSandbox(
+          mf({
+            'bitcoin_rpc': {
+              'methods': ['sendtoaddress'],
+              'budgets': {'spend_sats_per_day': 1000},
+            },
+          }),
+        ),
+        returnsNormally,
+      );
     });
   });
 }

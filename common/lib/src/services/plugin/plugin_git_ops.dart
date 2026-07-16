@@ -184,3 +184,12 @@ void requirePluginNix(String dir) {
     throw StateError('plugin.nix not found at $dir');
   }
 }
+
+/// Requires plugin.nix UNLESS the manifest is logic-only (its only
+/// surface is sandboxed wasm actions — no nix module, no privileged
+/// unit, no streamer). Logic-only plugins legitimately ship no
+/// plugin.nix.
+void requireModuleOrLogicOnly(String dir, PluginManifest manifest) {
+  if (manifest.isLogicOnly) return;
+  requirePluginNix(dir);
+}
