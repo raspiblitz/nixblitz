@@ -178,4 +178,54 @@ void main() {
       expect(back.branches!.defaultKey, 'stable');
     });
   });
+
+  group('plugin manifest schema v5 — sandbox + isLogicOnly', () {
+    test('currentPluginManifestVersion is 5', () {
+      expect(currentPluginManifestVersion, 5);
+    });
+
+    test('parses a v5 logic-only wasm plugin with a sandbox block', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 5, 'name': 'Node Summary'},
+        'id': 'node-summary',
+        'actions': {
+          'summary': {
+            'label': 'Node summary',
+            'wasm': {'module': 'actions/summary.wasm'},
+          },
+        },
+        'sandbox': {
+          'bitcoin_rpc': {
+            'methods': ['getblockchaininfo'],
+            'budgets': {'spend_sats_per_day': 0},
+          },
+        },
+      });
+      expect(m.sandbox, isNotNull);
+      expect(m.sandbox!.bitcoinRpc!.methods, ['getblockchaininfo']);
+      expect(m.isLogicOnly, isTrue);
+    });
+
+    test('a plugin with a nix module is not logic-only', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 5, 'name': 'x'},
+        'module': 'module.nix',
+      });
+      expect(m.isLogicOnly, isFalse);
+    });
+
+    test('a plugin with a streamer is not logic-only', () {
+      final m = PluginManifest.fromJson({
+        'manifest': {'schema_version': 5, 'name': 'x'},
+        'streamers': [
+          {
+            'name': 's',
+            'command': 'echo',
+            'tile_ids': ['t'],
+          },
+        ],
+      });
+      expect(m.isLogicOnly, isFalse);
+    });
+  });
 }

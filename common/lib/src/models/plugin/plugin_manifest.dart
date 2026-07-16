@@ -13,6 +13,8 @@ import 'package:common/src/models/plugin/plugin_streamer_spec.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
 import 'package:common/src/services/log_service.dart';
 
+import 'sandbox_spec.dart';
+
 /// Plugin manifest schema (see `docs/decisions/plugins.md`, D1/D6/D14/D16).
 ///
 /// Versioning mirrors the main config schema (see
@@ -33,7 +35,10 @@ import 'package:common/src/services/log_service.dart';
 
 /// What version of the manifest schema this TUI understands.
 ///
-/// v4 (current): `branches` field added — publishers may declare a
+/// v5 (current): wasm actions, top-level sandbox block, optional
+/// plugin.nix for logic-only plugins.
+///
+/// v4: `branches` field added — publishers may declare a
 /// branch set (operator-facing labels → git refs + metadata) at the
 /// manifest level so the install / switch-branch flow can pick a
 /// default and offer alternatives. Backward-compatible with v3
@@ -48,7 +53,7 @@ import 'package:common/src/services/log_service.dart';
 /// references rather than `command:` + `run_as_root: true`.
 /// Tile commands always run as the admin user (no `run_as_root` on
 /// `dashboard`). See sudo posture / Posture A in the project plan.
-const int currentPluginManifestVersion = 4;
+const int currentPluginManifestVersion = 5;
 
 /// Lowest manifest schema version this TUI can safely load. v1
 /// manifests are rejected because their `run_as_root: true` action
@@ -175,6 +180,10 @@ class PluginManifest {
   /// inputs (teardown runs non-interactively and cannot prompt).
   final String? teardown;
 
+  /// Declarative WASM sandbox capability set (schema v5). Null when the
+  /// plugin declares no `sandbox` block.
+  final SandboxSpec? sandbox;
+
   const PluginManifest({
     required this.schemaVersion,
     required this.minTuiVersion,
@@ -195,7 +204,16 @@ class PluginManifest {
     this.appVersionCommand,
     this.branches,
     this.teardown,
+    this.sandbox,
   }) : id = id ?? name;
+
+  /// A logic-only plugin needs no NixOS config: no nix module, no
+  /// privileged unit action, no streamers. Such plugins may omit
+  /// plugin.nix (their only surface is sandboxed wasm actions).
+  bool get isLogicOnly =>
+      module == null &&
+      streamers.isEmpty &&
+      !actions.values.any((a) => a.unit != null);
 
   factory PluginManifest.fromJsonString(String s) =>
       PluginManifest.fromJson(jsonDecode(s) as Map<String, dynamic>);
@@ -430,6 +448,11 @@ class PluginManifest {
       teardown = rawTeardown;
     }
 
+    final sandboxRaw = json['sandbox'];
+    final sandbox = sandboxRaw is Map<String, dynamic>
+        ? SandboxSpec.fromJson(sandboxRaw)
+        : null;
+
     return PluginManifest(
       schemaVersion: schemaVersion,
       minTuiVersion: minTui,
@@ -450,6 +473,7 @@ class PluginManifest {
       appVersionCommand: appVersionCommand,
       branches: branches,
       teardown: teardown,
+      sandbox: sandbox,
     );
   }
 
@@ -476,5 +500,6 @@ class PluginManifest {
     if (appVersionCommand != null) 'app_version': appVersionCommand!.toJson(),
     if (branches != null) 'branches': branches!.toJson(),
     if (teardown != null) 'teardown': teardown,
+    if (sandbox != null) 'sandbox': sandbox!.toJson(),
   };
 }
