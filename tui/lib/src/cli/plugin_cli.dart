@@ -340,27 +340,51 @@ Future<bool> _askConsent(
       'push that repo anywhere you would not paste the secret itself.',
     );
   }
-  stdout.writeln();
-  stdout.writeln(
-    'WARNING: installing this plugin grants the plugin author root '
-    'on this node.',
-  );
-  stdout.writeln(
-    'plugin.nix is arbitrary Nix code that runs at nixos-rebuild '
-    'time as root and',
-  );
-  stdout.writeln(
-    'can declare any systemd service, activation script, or external '
-    'dependency.',
-  );
-  stdout.writeln(
-    'This prompt is consent to run that code, not a sandbox. If you '
-    "don't trust",
-  );
-  stdout.writeln(
-    'the source + commit above, read plugin.nix at the upstream URL '
-    'before answering yes.',
-  );
+  if (!p.hasNixModule && p.sandbox != null) {
+    final cap = p.sandbox!.bitcoinRpc;
+    stdout.writeln();
+    stdout.writeln('SANDBOX: this plugin runs in a WASM sandbox. It can only:');
+    if (cap != null) {
+      stdout.writeln('  • call bitcoind: ${cap.methods.join(", ")}');
+      stdout.writeln(
+        '  • spend at most ${cap.spendSatsPerDay} sats/day '
+        '(0 = never)',
+      );
+    } else {
+      stdout.writeln('  • (no node access requested)');
+    }
+    stdout.writeln(
+      '  • time limit ${p.sandbox!.limits.timeoutSeconds}s, '
+      'no network, no filesystem, no shell.',
+    );
+    stdout.writeln(
+      'The cap governs what the plugin initiates through this '
+      'API — it is not a',
+    );
+    stdout.writeln('wallet-level or node-wide policy.');
+  } else {
+    stdout.writeln();
+    stdout.writeln(
+      'WARNING: installing this plugin grants the plugin author root '
+      'on this node.',
+    );
+    stdout.writeln(
+      'plugin.nix is arbitrary Nix code that runs at nixos-rebuild '
+      'time as root and',
+    );
+    stdout.writeln(
+      'can declare any systemd service, activation script, or external '
+      'dependency.',
+    );
+    stdout.writeln(
+      'This prompt is consent to run that code, not a sandbox. If you '
+      "don't trust",
+    );
+    stdout.writeln(
+      'the source + commit above, read plugin.nix at the upstream URL '
+      'before answering yes.',
+    );
+  }
   stdout.writeln();
   stdout.write('Proceed? [y/N]: ');
   final line = stdin.readLineSync() ?? '';

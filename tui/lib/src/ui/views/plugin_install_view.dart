@@ -365,42 +365,84 @@ class _PluginInstallViewState extends State<PluginInstallView> {
       );
     }
     children.add(const SizedBox(height: 1));
-    children.add(
-      const Text(
-        'WARNING: installing this plugin grants the plugin author root on',
-        style: _warn,
-      ),
-    );
-    children.add(
-      const Text(
-        'this node. plugin.nix is arbitrary Nix code that runs at',
-        style: _warn,
-      ),
-    );
-    children.add(
-      const Text(
-        'nixos-rebuild time as root and can declare any systemd service,',
-        style: _warn,
-      ),
-    );
-    children.add(
-      const Text(
-        'activation script, or external dependency. This prompt is consent',
-        style: _warn,
-      ),
-    );
-    children.add(
-      const Text(
-        "to run that code, not a sandbox. If you don't trust the source +",
-        style: _warn,
-      ),
-    );
-    children.add(
-      const Text(
-        'commit above, read plugin.nix at the upstream URL before answering yes.',
-        style: _warn,
-      ),
-    );
+    if (!p.hasNixModule && p.sandbox != null) {
+      final cap = p.sandbox!.bitcoinRpc;
+      children.add(
+        const Text(
+          'SANDBOX: this plugin runs in a WASM sandbox. It can only:',
+          style: _body,
+        ),
+      );
+      if (cap != null) {
+        children.add(
+          Text('  • call bitcoind: ${cap.methods.join(", ")}', style: _body),
+        );
+        children.add(
+          Text(
+            '  • spend at most ${cap.spendSatsPerDay} sats/day (0 = never)',
+            style: _body,
+          ),
+        );
+      } else {
+        children.add(
+          const Text('  • (no node access requested)', style: _body),
+        );
+      }
+      children.add(
+        Text(
+          '  • time limit ${p.sandbox!.limits.timeoutSeconds}s, '
+          'no network, no filesystem, no shell.',
+          style: _body,
+        ),
+      );
+      children.add(
+        const Text(
+          'The cap governs what the plugin initiates through this API — '
+          'it is not a',
+          style: _dim,
+        ),
+      );
+      children.add(
+        const Text('wallet-level or node-wide policy.', style: _dim),
+      );
+    } else {
+      children.add(
+        const Text(
+          'WARNING: installing this plugin grants the plugin author root on',
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          'this node. plugin.nix is arbitrary Nix code that runs at',
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          'nixos-rebuild time as root and can declare any systemd service,',
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          'activation script, or external dependency. This prompt is consent',
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          "to run that code, not a sandbox. If you don't trust the source +",
+          style: _warn,
+        ),
+      );
+      children.add(
+        const Text(
+          'commit above, read plugin.nix at the upstream URL before answering yes.',
+          style: _warn,
+        ),
+      );
+    }
     children.add(const SizedBox(height: 1));
     children.add(const Text('[y] confirm   [n / Esc] cancel', style: _dim));
     return children;
