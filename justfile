@@ -340,12 +340,32 @@ vm-run:
     -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
     -device virtio-blk-pci,drive=virtio0)
 
-# Deploy unwrapped nixblitz binary to VM for quick testing (no disko)
+# Deploy unwrapped nixblitz binary to VM for quick testing (no disko).
+# The binary carries the pinned wasmtime lib path as a compile-time
+# define (see nix/tui_pkg.nix), so it finds the sandbox runtime with no
+# env var — but that store path must exist in the VM store, so we copy
+# the closure over first (best-effort; it's usually already there from
+# an installed wrapped system).
+#
+# Deploy the dev TUI to the VM for quick testing
 vm-deploy:
   #!/usr/bin/env nu
   let unwrapped = (nix build .#nixblitz-unwrapped --print-out-paths | str trim)
+  let wt = (nix build ".#wasmtime-pinned" --print-out-paths | str trim)
+  let sshopts = "-oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no"
+  # Ensure the baked wasmtime path exists in the VM store. Non-fatal on
+  # failure (e.g. an untrusted nixos user) — the closure is usually
+  # already present via the installed system.
+  print $"Ensuring pinned wasmtime closure on VM ($wt)..."
+  try {
+    with-env {NIX_SSHOPTS: $"($sshopts) -p 10022"} {
+      nix copy --to "ssh://nixos@localhost" --no-check-sigs $wt
+    }
+  } catch {
+    print "  nix copy skipped (closure likely already present via the system)"
+  }
   print $"Deploying ($unwrapped)/bin/nixblitz-bin to VM..."
-  ssh -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no nixos@localhost -p 10022 'rm -f /tmp/nixblitz; rm -rf ~/nixblitz; rm -f ~/nixblitz.log'
+  ssh -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no nixos@localhost -p 10022 'rm -f /tmp/nixblitz /tmp/nixblitz-bin; rm -rf ~/nixblitz; rm -f ~/nixblitz.log'
   scp -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -P 10022 $"($unwrapped)/bin/nixblitz-bin" nixos@localhost:/tmp/nixblitz
   print "Deployed. Run on VM: /tmp/nixblitz"
   print "For full install test (with disko), run on the VM instead:"
