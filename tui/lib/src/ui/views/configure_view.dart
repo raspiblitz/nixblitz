@@ -1126,8 +1126,21 @@ class ConfigureView extends StatelessComponent {
   List<PluginAction> _actionsFor(BuildContext ctx, String appId) {
     final installed = ctx.read(installedPluginsProvider);
     final plugin = installed.where((p) => p.id == appId).firstOrNull;
-    final enabled =
-        ctx.read(configProvider).value?.isAppEnabled(appId) ?? false;
+    // The actions gate keeps a halted service's actions hidden. For a
+    // plugin with a config_schema that means the config enable toggle.
+    // A logic-only plugin (no config_schema, e.g. a sandboxed wasm plugin)
+    // has no enable toggle and no service — its actions are available
+    // whenever it's installed and not disabled.
+    final bool enabled;
+    if (plugin?.configSchema != null) {
+      enabled = ctx.read(configProvider).value?.isAppEnabled(appId) ?? false;
+    } else {
+      final marker = ctx
+          .read(installedPluginMarkersProvider)
+          .where((m) => m.id == appId)
+          .firstOrNull;
+      enabled = marker != null && !marker.disabled;
+    }
     return visiblePluginActions(plugin: plugin, enabled: enabled);
   }
 

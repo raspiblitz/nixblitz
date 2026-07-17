@@ -5,18 +5,28 @@ import 'package:common/src/providers/installed_plugins_provider.dart';
 import 'package:common/src/services/configure/app_manifest_registry.dart';
 import 'package:common/src/services/configure/bundled/registry.dart';
 
-/// Combined bundled + plugin app manifests. Plugin schemas are
-/// pulled from every installed plugin that declares a top-level
-/// `config_schema` block in its plugin.json. Without this merge,
-/// post-extraction plugins (bitcoind / lnd / cln / blitz-api / …)
-/// wouldn't appear in [AppManifestRegistry.serviceIds()] and the
-/// service-status polling that feeds the wizard's wait-bitcoind
-/// step would have no `bitcoind.service` to probe.
+/// Combined bundled + plugin app manifests. Each installed plugin
+/// contributes one [AppManifest] so it appears as a Configure sidebar
+/// entry:
+///
+///  - A plugin with a top-level `config_schema` block contributes that
+///    schema (its config fields + actions render under the entry). This
+///    is also what puts post-extraction plugins (bitcoind / lnd / cln /
+///    blitz-api / …) into [AppManifestRegistry.serviceIds()] so the
+///    wizard's wait-bitcoind step has a `bitcoind.service` to probe.
+///  - A logic-only plugin with actions but NO `config_schema` (e.g. a
+///    sandboxed wasm plugin like node-summary) contributes a synthetic
+///    fieldless manifest, so its actions are still reachable in the
+///    sidebar. Without this, such a plugin installs but has no screen to
+///    run its actions from.
 final appManifestRegistryProvider = Provider<AppManifestRegistry>((ref) {
   final plugins = ref.watch(installedPluginsProvider);
   final pluginSchemas = <AppManifest>[
     for (final p in plugins)
-      if (p.configSchema != null) p.configSchema!,
+      if (p.configSchema != null)
+        p.configSchema!
+      else if (p.actions.isNotEmpty)
+        AppManifest(id: p.id, label: p.name, fields: const []),
   ];
   return AppManifestRegistry(
     bundled: bundledAppManifests,
