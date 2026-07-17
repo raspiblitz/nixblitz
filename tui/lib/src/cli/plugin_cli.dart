@@ -340,7 +340,7 @@ Future<bool> _askConsent(
       'push that repo anywhere you would not paste the secret itself.',
     );
   }
-  if (!p.hasNixModule && p.sandbox != null) {
+  if (p.isLogicOnly && p.sandbox != null) {
     final cap = p.sandbox!.bitcoinRpc;
     stdout.writeln();
     stdout.writeln('SANDBOX: this plugin runs in a WASM sandbox. It can only:');

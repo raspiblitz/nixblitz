@@ -40,6 +40,16 @@ class _Entry {
 /// reserve-then-settle accounting. Synchronous, atomic JSON persistence
 /// (matches the codebase's sync-IO discipline). One instance ≈ one
 /// plugin id; construct fresh per invocation (it reloads from disk).
+///
+/// NOT safe for concurrent instances on the same [path] — each instance
+/// loads the full entry list once at construction and `_persist()`
+/// overwrites the whole file on every mutation, so a second concurrent
+/// writer's in-memory view doesn't see the first's reservation and its
+/// next write clobbers it (fail-open: the dropped reservation's sats
+/// vanish from the tracked total). v1 is safe because the TUI only ever
+/// runs one plugin action at a time; real file locking (e.g. an flock on
+/// [path]) is required before any concurrent action runner is
+/// introduced.
 class BudgetLedger {
   BudgetLedger(this.path) {
     _load();

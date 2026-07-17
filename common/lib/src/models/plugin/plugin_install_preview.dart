@@ -26,6 +26,7 @@ class PluginInstallPreview {
     this.secretFieldNames = const [],
     this.sandbox,
     this.hasNixModule = true,
+    this.isLogicOnly = false,
   });
 
   /// Display name from `plugin.json` (e.g. "Tailscale", "LNBits").
@@ -79,7 +80,23 @@ class PluginInstallPreview {
   /// False for a logic-only plugin (sandboxed wasm actions with no
   /// plugin.nix). Defaults to `true` so call sites that predate this
   /// field (if any) keep their prior assumption.
+  ///
+  /// Kept for display/back-compat, but the consent gate must key off
+  /// [isLogicOnly] instead — see that field's doc.
   final bool hasNixModule;
+
+  /// `manifest.isLogicOnly` — true when the plugin's entire surface is
+  /// sandboxed wasm actions (no nix module, no privileged unit, no
+  /// streamer). **This, not [hasNixModule], is what the consent screen
+  /// must gate the sandbox card on.** `hasNixModule` only reflects
+  /// whether `manifest.module` is set; a manifest could set no `module`
+  /// yet still declare a privileged `unit:` action or a streamer, in
+  /// which case it is root-capable and must get the root-grant warning,
+  /// not the sandbox card. [isLogicOnly] is the actual "this plugin can
+  /// only ever run inside the sandbox" fact. Defaults to `false` so call
+  /// sites that predate this field fall back to the (safer) root-grant
+  /// warning.
+  final bool isLogicOnly;
 }
 
 /// Thrown by `PluginService.install` when the operator declines the

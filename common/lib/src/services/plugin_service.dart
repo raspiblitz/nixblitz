@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'package:common/src/models/configure/app_config_field.dart';
 import 'package:common/src/models/nixblitz_config.dart';
 import 'package:common/src/models/plugin/plugin_install_preview.dart';
@@ -41,6 +43,55 @@ void validateSandbox(PluginManifest manifest) {
         'sandbox: method `$method` has a spend cost that cannot be '
         'attributed from its arguments; it is not permitted in a sandboxed '
         'plugin (v1).',
+      );
+    }
+  }
+}
+
+/// Install-time validation of `wasm:` action module paths (design spec
+/// §1a). Each action's `module` is resolved against [pluginDir] and must:
+///
+/// - stay within [pluginDir] (no `../` escape), checked structurally so
+///   it also catches a target that doesn't exist yet;
+/// - not be reachable only via a symlink pointing outside [pluginDir];
+/// - exist as a regular file.
+///
+/// A malicious/broken path is otherwise only discovered when
+/// `WasmActionRunner` tries to load it at action-run time — validating
+/// here fails the install/refresh/switch-branch up front, before the
+/// plugin tree lands on disk or gets a chance to run.
+void validateWasmModulePaths(PluginManifest manifest, String pluginDir) {
+  final root = Directory(pluginDir).resolveSymbolicLinksSync();
+  final normalizedPluginDir = p.normalize(pluginDir);
+  for (final entry in manifest.actions.entries) {
+    final wasm = entry.value.wasm;
+    if (wasm == null) continue;
+
+    final joined = p.normalize(p.join(pluginDir, wasm.module));
+    if (joined != normalizedPluginDir &&
+        !p.isWithin(normalizedPluginDir, joined)) {
+      throw FormatException(
+        'action `${entry.key}`: wasm module `${wasm.module}` escapes the '
+        'plugin directory',
+      );
+    }
+
+    final file = File(joined);
+    if (!file.existsSync()) {
+      throw FormatException(
+        'action `${entry.key}`: wasm module `${wasm.module}` does not exist',
+      );
+    }
+
+    // Symlink check: the entry itself passed the structural check above,
+    // but its target could still point outside the plugin dir. Resolve
+    // the real path and require it stays under the plugin dir's real
+    // path too.
+    final resolved = file.resolveSymbolicLinksSync();
+    if (resolved != root && !p.isWithin(root, resolved)) {
+      throw FormatException(
+        'action `${entry.key}`: wasm module `${wasm.module}` is a symlink '
+        'that escapes the plugin directory',
       );
     }
   }
@@ -153,6 +204,7 @@ class PluginService {
       var manifest = readPluginManifest(pluginSourceDir);
       validateSandbox(manifest);
       requireModuleOrLogicOnly(pluginSourceDir, manifest);
+      validateWasmModulePaths(manifest, pluginSourceDir);
 
       // Default-branch resolution: when the caller didn't pin a
       // branch and the manifest declares a default, re-clone at the
@@ -187,6 +239,7 @@ class PluginService {
           manifest = readPluginManifest(pluginSourceDir);
           validateSandbox(manifest);
           requireModuleOrLogicOnly(pluginSourceDir, manifest);
+          validateWasmModulePaths(manifest, pluginSourceDir);
         }
         branch = resolvedRef;
       }
@@ -234,6 +287,7 @@ class PluginService {
           secretFieldNames: _secretFieldNames(manifest),
           sandbox: manifest.sandbox,
           hasNixModule: manifest.module != null,
+          isLogicOnly: manifest.isLogicOnly,
         );
         final ok = await confirm(preview);
         if (!ok) {
@@ -443,6 +497,7 @@ class PluginService {
       final manifest = readPluginManifest(pluginSourceDir);
       validateSandbox(manifest);
       requireModuleOrLogicOnly(pluginSourceDir, manifest);
+      validateWasmModulePaths(manifest, pluginSourceDir);
 
       // Approach A signature check. Three cases:
       // - existing pin null + new fp: silent upgrade — adopt the
@@ -561,6 +616,7 @@ class PluginService {
       final manifest = readPluginManifest(pluginSourceDir);
       validateSandbox(manifest);
       requireModuleOrLogicOnly(pluginSourceDir, manifest);
+      validateWasmModulePaths(manifest, pluginSourceDir);
 
       final newSignature = await GitService(
         repoDir: tmpDir.path,
@@ -583,6 +639,7 @@ class PluginService {
         secretFieldNames: _secretFieldNames(manifest),
         sandbox: manifest.sandbox,
         hasNixModule: manifest.module != null,
+        isLogicOnly: manifest.isLogicOnly,
       );
       if (confirm != null) {
         final ok = await confirm(preview);
@@ -720,19 +777,53 @@ class PluginService {
   ];
 
   /// Regenerate plugins.list from the current marker set. Passes
-  /// every non-disabled marker id as `satisfied` — see
+  /// every non-disabled, non-logic-only marker id as `satisfied` — see
   /// `regeneratePluginsList` in `plugin_list_regen.dart`. The Nix
-  /// module path includes every marker; runtime gating (dep check)
-  /// happens in the Riverpod provider for the streamer registry,
-  /// and at Nix-eval time via each plugin's `lib.mkIf cfg.enable`
-  /// gate inside its plugin.nix.
+  /// module path includes every listed marker; runtime gating (dep
+  /// check) happens in the Riverpod provider for the streamer
+  /// registry, and at Nix-eval time via each plugin's `lib.mkIf
+  /// cfg.enable` gate inside its plugin.nix.
+  ///
+  /// Logic-only plugins (manifest.isLogicOnly — their entire surface is
+  /// sandboxed wasm actions) are excluded. `templates/flake.nix`'s
+  /// `pluginModules` derivation imports `<id>/plugin.nix` (falling back
+  /// to that filename when the manifest declares no `module`) for
+  /// every id in `plugins.list`; a logic-only plugin legitimately ships
+  /// no `plugin.nix` at all, so listing it would break the next
+  /// `nixos-rebuild` eval with "path does not exist". The wasm runtime
+  /// discovers logic-only plugins straight from the marker set — it
+  /// has no need for `plugins.list`.
   void _regen() {
     final markers = discoverInstalledMarkers(pluginsDir);
-    final eligibleIds = markers
-        .where((m) => !m.disabled)
-        .map((m) => m.id)
-        .toSet();
+    final eligibleIds = <String>{};
+    for (final m in markers) {
+      if (m.disabled) continue;
+      if (_isLogicOnlyPlugin(m.id)) continue;
+      eligibleIds.add(m.id);
+    }
     regeneratePluginsList(baseDir: baseDir, satisfiedPluginIds: eligibleIds);
+  }
+
+  /// Best-effort `manifest.isLogicOnly` lookup for plugin [id] used by
+  /// [_regen]. A manifest that fails to read or parse is treated as
+  /// NOT logic-only — the safer failure mode: a genuine module gets
+  /// listed and surfaces its error at the next nix eval, rather than a
+  /// broken manifest silently vanishing from `plugins.list` with no
+  /// operator-visible signal.
+  bool _isLogicOnlyPlugin(String id) {
+    final f = File('$pluginsDir/$id/plugin.json');
+    try {
+      final manifest = PluginManifest.fromJsonString(f.readAsStringSync());
+      return manifest.isLogicOnly;
+    } catch (e, st) {
+      LogService.error(
+        'PluginService._regen: failed to read/parse manifest for `$id`; '
+        'treating as not logic-only so it stays listed',
+        e,
+        st,
+      );
+      return false;
+    }
   }
 
   /// Copy the plugin's entire source tree from [src] into [dst].

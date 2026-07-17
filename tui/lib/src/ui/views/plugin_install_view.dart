@@ -365,7 +365,7 @@ class _PluginInstallViewState extends State<PluginInstallView> {
       );
     }
     children.add(const SizedBox(height: 1));
-    if (!p.hasNixModule && p.sandbox != null) {
+    if (p.isLogicOnly && p.sandbox != null) {
       final cap = p.sandbox!.bitcoinRpc;
       children.add(
         const Text(

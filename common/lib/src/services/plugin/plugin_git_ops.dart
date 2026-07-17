@@ -189,7 +189,27 @@ void requirePluginNix(String dir) {
 /// surface is sandboxed wasm actions — no nix module, no privileged
 /// unit, no streamer). Logic-only plugins legitimately ship no
 /// plugin.nix.
+///
+/// Defense-in-depth for the logic-only branch: a logic-only manifest
+/// whose tree ships a `plugin.nix` anyway is refused outright, not
+/// silently ignored. `PluginService._regen` already makes a smuggled
+/// plugin.nix inert (logic-only plugins are excluded from
+/// `plugins.list`, so nothing ever imports it) — this check exists so
+/// the shipped tree stays honest with what the manifest declares, and
+/// so a future change to the regen/consent logic doesn't quietly
+/// reopen the hole this closes today (the consent screen shows the
+/// sandbox card, not the root-grant warning, for a logic-only plugin —
+/// a stray plugin.nix would be root-capable code hiding behind that
+/// weaker prompt).
 void requireModuleOrLogicOnly(String dir, PluginManifest manifest) {
-  if (manifest.isLogicOnly) return;
+  if (manifest.isLogicOnly) {
+    if (File('$dir/plugin.nix').existsSync()) {
+      throw StateError(
+        'logic-only plugin must not ship a plugin.nix (its manifest '
+        'declares only sandboxed wasm actions)',
+      );
+    }
+    return;
+  }
   requirePluginNix(dir);
 }

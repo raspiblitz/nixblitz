@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'package:common/common.dart';
@@ -58,6 +59,25 @@ Future<String> _seedPluginRepo(
   await run(['commit', '-m', 'initial']);
 
   return path;
+}
+
+/// Write a placeholder wasm module at [relPath] inside an already-seeded
+/// plugin repo at [repoPath] and commit it. Real `.wasm` content doesn't
+/// matter for these tests — `validateWasmModulePaths` only checks the
+/// path resolves inside the plugin dir and the file exists.
+Future<void> _addWasmModule(String repoPath, String relPath) async {
+  final f = File('$repoPath/$relPath');
+  f.parent.createSync(recursive: true);
+  f.writeAsBytesSync([0x00, 0x61, 0x73, 0x6d]); // wasm magic bytes
+  for (final args in [
+    ['add', '-A'],
+    ['commit', '-m', 'add wasm module'],
+  ]) {
+    final r = await testGit(args, workingDirectory: repoPath);
+    if (r.exitCode != 0) {
+      throw StateError('git ${args.join(" ")} failed: ${r.stderr}');
+    }
+  }
 }
 
 Future<void> _seedBaseConfig(String baseDir) async {
@@ -398,6 +418,9 @@ void main() {
           },
         },
       );
+      // The declared wasm module must actually exist on disk — FIX 3
+      // (validateWasmModulePaths) rejects the install otherwise.
+      await _addWasmModule(logicOnly.path, 'actions/summary.wasm');
 
       final marker = await pluginService.install(
         'file://${logicOnly.path}',
@@ -408,9 +431,205 @@ void main() {
         File('${home.path}/plugins/logic-only/plugin.nix').existsSync(),
         isFalse,
       );
+      expect(
+        File(
+          '${home.path}/plugins/logic-only/actions/summary.wasm',
+        ).existsSync(),
+        isTrue,
+      );
+      // FIX 1: a logic-only plugin has no plugin.nix for the flake to
+      // import, so it must never land in plugins.list.
+      expect(
+        File('${home.path}/plugins.list').readAsStringSync().trim().split('\n'),
+        isNot(contains('logic-only')),
+      );
 
       logicOnly.deleteSync(recursive: true);
     });
+
+    test(
+      'plugins.list excludes a logic-only plugin but keeps a normal one',
+      () async {
+        // FIX 1 regression: PluginService._regen used to list every
+        // non-disabled marker id unconditionally. templates/flake.nix
+        // imports `<id>/plugin.nix` for every listed id, so a
+        // logic-only plugin (no plugin.nix by design) would break the
+        // next nixos-rebuild eval. Install one of each and assert the
+        // regenerated plugins.list contains only the module-backed one.
+        final logicOnly = Directory.systemTemp.createTempSync(
+          'nixblitz_plugin_logiconly2_',
+        );
+        try {
+          await _seedPluginRepo(
+            logicOnly.path,
+            id: 'logic-only-2',
+            name: 'logic-only-2',
+            includePluginNix: false,
+            manifestOverride: {
+              'manifest': {
+                'schema_version': 5,
+                'min_tui_version': 5,
+                'name': 'logic-only-2',
+              },
+              'id': 'logic-only-2',
+              'actions': {
+                'summary': {
+                  'label': 'Summary',
+                  'wasm': {'module': 'actions/summary.wasm'},
+                },
+              },
+            },
+          );
+          await _addWasmModule(logicOnly.path, 'actions/summary.wasm');
+
+          // `srcRepo` (installed as `tailscale`) is the module-backed
+          // "normal" plugin from setUp.
+          await pluginService.install(
+            'file://${srcRepo.path}',
+            allowInsecure: true,
+          );
+          await pluginService.install(
+            'file://${logicOnly.path}',
+            allowInsecure: true,
+          );
+
+          final listed = File('${home.path}/plugins.list')
+              .readAsStringSync()
+              .trim()
+              .split('\n')
+              .where((l) => l.isNotEmpty)
+              .toList();
+          expect(listed, contains('tailscale'));
+          expect(listed, isNot(contains('logic-only-2')));
+        } finally {
+          logicOnly.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test('requireModuleOrLogicOnly rejects a logic-only plugin shipping a '
+        'stray plugin.nix', () async {
+      // FIX 2b: a logic-only manifest gets the sandbox consent card
+      // instead of the root-grant warning. If its tree also ships a
+      // plugin.nix, that file is root-capable code hiding behind the
+      // weaker prompt — refuse the install outright rather than
+      // silently accepting (Fix 1 makes it inert on the nix side,
+      // but the tree itself must stay honest with the manifest).
+      final sneaky = Directory.systemTemp.createTempSync(
+        'nixblitz_plugin_sneaky_',
+      );
+      try {
+        await _seedPluginRepo(
+          sneaky.path,
+          id: 'sneaky',
+          name: 'sneaky',
+          includePluginNix: true, // stray plugin.nix
+          manifestOverride: {
+            'manifest': {
+              'schema_version': 5,
+              'min_tui_version': 5,
+              'name': 'sneaky',
+            },
+            'id': 'sneaky',
+            'actions': {
+              'summary': {
+                'label': 'Summary',
+                'wasm': {'module': 'actions/summary.wasm'},
+              },
+            },
+          },
+        );
+        await _addWasmModule(sneaky.path, 'actions/summary.wasm');
+
+        await expectLater(
+          () => pluginService.install(
+            'file://${sneaky.path}',
+            allowInsecure: true,
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              contains('must not ship a plugin.nix'),
+            ),
+          ),
+        );
+
+        // Nothing landed on disk.
+        expect(Directory('${home.path}/plugins/sneaky').existsSync(), isFalse);
+      } finally {
+        sneaky.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'install preview carries isLogicOnly for a logic-only plugin',
+      () async {
+        // FIX 2a: the consent gate must key off isLogicOnly, not the
+        // narrower hasNixModule. Assert the preview actually carries
+        // the field the UI/CLI condition switched to.
+        final logicOnly = Directory.systemTemp.createTempSync(
+          'nixblitz_plugin_preview_logiconly_',
+        );
+        try {
+          await _seedPluginRepo(
+            logicOnly.path,
+            id: 'logic-only-3',
+            name: 'logic-only-3',
+            includePluginNix: false,
+            manifestOverride: {
+              'manifest': {
+                'schema_version': 5,
+                'min_tui_version': 5,
+                'name': 'logic-only-3',
+              },
+              'id': 'logic-only-3',
+              'actions': {
+                'summary': {
+                  'label': 'Summary',
+                  'wasm': {'module': 'actions/summary.wasm'},
+                },
+              },
+            },
+          );
+          await _addWasmModule(logicOnly.path, 'actions/summary.wasm');
+
+          PluginInstallPreview? captured;
+          await pluginService.install(
+            'file://${logicOnly.path}',
+            allowInsecure: true,
+            confirm: (preview) async {
+              captured = preview;
+              return true;
+            },
+          );
+
+          expect(captured, isNotNull);
+          expect(captured!.isLogicOnly, isTrue);
+          expect(captured!.hasNixModule, isFalse);
+        } finally {
+          logicOnly.deleteSync(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'install preview carries isLogicOnly=false for a normal plugin',
+      () async {
+        PluginInstallPreview? captured;
+        await pluginService.install(
+          'file://${srcRepo.path}',
+          allowInsecure: true,
+          confirm: (preview) async {
+            captured = preview;
+            return true;
+          },
+        );
+
+        expect(captured, isNotNull);
+        expect(captured!.isLogicOnly, isFalse);
+      },
+    );
 
     test('insecure schemes refused without --insecure', () async {
       expect(
@@ -1635,6 +1854,119 @@ void main() {
             },
           }),
         ),
+        returnsNormally,
+      );
+    });
+  });
+
+  group('validateWasmModulePaths', () {
+    late Directory pluginDir;
+
+    setUp(() {
+      pluginDir = Directory.systemTemp.createTempSync('nixblitz_wasm_path_');
+    });
+
+    tearDown(() {
+      pluginDir.deleteSync(recursive: true);
+    });
+
+    PluginManifest mfWithModule(String module) => PluginManifest.fromJson({
+      'manifest': {'schema_version': 5, 'name': 'x'},
+      'actions': {
+        'a': {
+          'label': 'a',
+          'wasm': {'module': module},
+        },
+      },
+    });
+
+    test('accepts a normal module path that exists', () {
+      final f = File('${pluginDir.path}/actions/summary.wasm');
+      f.parent.createSync(recursive: true);
+      f.writeAsBytesSync([0]);
+
+      expect(
+        () => validateWasmModulePaths(
+          mfWithModule('actions/summary.wasm'),
+          pluginDir.path,
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('rejects a missing module', () {
+      expect(
+        () => validateWasmModulePaths(
+          mfWithModule('actions/missing.wasm'),
+          pluginDir.path,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects a `../` escape even when the target does not exist', () {
+      expect(
+        () => validateWasmModulePaths(
+          mfWithModule('../../../etc/x.wasm'),
+          pluginDir.path,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects a `../` escape when the target does happen to exist', () {
+      // Plant a real file just outside pluginDir so a naive
+      // "does it exist" check alone wouldn't catch the escape.
+      final outside = File(
+        '${pluginDir.parent.path}/nixblitz_wasm_sibling.wasm',
+      );
+      outside.writeAsBytesSync([0]);
+      addTearDown(() {
+        if (outside.existsSync()) outside.deleteSync();
+      });
+
+      expect(
+        () => validateWasmModulePaths(
+          mfWithModule('../${p.basename(outside.path)}'),
+          pluginDir.path,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects a symlink whose target escapes the plugin dir', () {
+      final outsideDir = Directory.systemTemp.createTempSync(
+        'nixblitz_wasm_path_outside_',
+      );
+      try {
+        final target = File('${outsideDir.path}/evil.wasm');
+        target.writeAsBytesSync([0]);
+
+        final linkPath = '${pluginDir.path}/actions/summary.wasm';
+        Directory('${pluginDir.path}/actions').createSync(recursive: true);
+        Link(linkPath).createSync(target.path);
+
+        expect(
+          () => validateWasmModulePaths(
+            mfWithModule('actions/summary.wasm'),
+            pluginDir.path,
+          ),
+          throwsFormatException,
+        );
+      } finally {
+        outsideDir.deleteSync(recursive: true);
+      }
+    });
+
+    test('ignores non-wasm actions', () {
+      final manifest = PluginManifest.fromJson({
+        'manifest': {'schema_version': 5, 'name': 'x'},
+        'actions': {
+          'a': {'label': 'a', 'command': 'echo hi'},
+        },
+      });
+      expect(
+        () => validateWasmModulePaths(manifest, pluginDir.path),
         returnsNormally,
       );
     });

@@ -16,17 +16,42 @@ const Set<String> spendCapableBitcoinMethods = {
 bool isSpendCapable(String method) =>
     spendCapableBitcoinMethods.contains(method);
 
+/// Total sats that could ever exist (21M BTC * 1e8). Any attributed spend
+/// above this is definitionally bogus — either a guest sending a
+/// non-finite/huge amount (e.g. `1e300` BTC) or a unit mismatch. Treating
+/// it as unattributable (null) keeps the result honest instead of
+/// silently clamping to `double.round()`'s int64-max behavior, which
+/// would otherwise smuggle a "valid-looking" but meaningless sats figure
+/// through the policy gate.
+const int _maxAttributableSats = 21000000 * 100000000;
+
 /// Intended sats a call moves, derived from its params — or null if the
 /// cost cannot be attributed from params alone (such methods are not
 /// allowlistable in v1; install validation rejects them). Read methods
 /// return 0.
+///
+/// Returns null (unattributable → denied by the caller) rather than
+/// throwing or silently clamping when the computed amount is non-finite
+/// or absurdly large (e.g. a guest-supplied `1e300` BTC amount). Guards
+/// both `NaN`/infinity (which `.round()` rejects with `UnsupportedError`)
+/// and merely-huge-but-finite doubles that `.round()` would otherwise
+/// happily clamp to `int64` max.
 int? attributedSpendSats(String method, List<dynamic> params) {
   if (!isSpendCapable(method)) return 0;
   switch (method) {
     case 'sendtoaddress':
       // params: [address, amount(BTC), ...]
       if (params.length >= 2 && params[1] is num) {
-        return ((params[1] as num) * 100000000).round();
+        final amount = params[1] as num;
+        // Bound the BTC amount BEFORE multiplying — a huge JSON integer
+        // literal would int-overflow (wrap) in `amount * 100000000` on the
+        // VM, possibly wrapping to a small positive value that slips the
+        // cap. Anything past MAX_MONEY is unattributable (bitcoind would
+        // reject it anyway).
+        if (!amount.isFinite || amount.abs() > 21000000) return null;
+        final sats = amount * 100000000;
+        if (!sats.isFinite || sats.abs() > _maxAttributableSats) return null;
+        return sats.round();
       }
       return null;
     default:
@@ -128,6 +153,20 @@ PolicyDecision checkCall({
     return PolicyDeny(
       'method_not_allowed',
       'method `$method` has an unattributable spend and is not permitted',
+    );
+  }
+  // A non-positive intended spend (guest passes a negative or zero
+  // amount) must never reach the reserve step below. `spentToday +
+  // intended > cap` is FALSE for a negative `intended`, so without this
+  // guard the call would be allowed and the ledger would reserve a
+  // NEGATIVE entry. If the process dies between reserve and cancel/settle
+  // (§3e), that negative reservation inflates the remaining daily
+  // budget on every subsequent read — a fail-OPEN hole in an otherwise
+  // fail-closed design.
+  if (intended <= 0) {
+    return const PolicyDeny(
+      'method_not_allowed',
+      'spend amount must be positive',
     );
   }
   if (spentToday + intended > cap.spendSatsPerDay) {
