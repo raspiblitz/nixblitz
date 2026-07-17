@@ -29,10 +29,24 @@ class WasmtimeLibrary {
     return WasmtimeLibrary._(path, dylib);
   }
 
-  /// Resolves via $WASMTIME_DART_LIB, falling back to the SONAME.
-  factory WasmtimeLibrary.discover() => WasmtimeLibrary.open(
-    Platform.environment['WASMTIME_DART_LIB'] ?? 'libwasmtime.so',
-  );
+  /// Compile-time default library path, baked in via
+  /// `dart compile … --define=WASMTIME_DART_LIB=/abs/path/libwasmtime.so`.
+  /// Empty unless the embedder sets it. This lets a packaged binary carry
+  /// its library location without any runtime env — important when the
+  /// process is launched outside a wrapper (systemd, re-exec, …).
+  static const _bakedLibPath = String.fromEnvironment('WASMTIME_DART_LIB');
+
+  /// Resolves the library path, in priority order:
+  ///   1. the `$WASMTIME_DART_LIB` runtime env var (explicit override),
+  ///   2. the compile-time baked path ([_bakedLibPath]),
+  ///   3. the bare SONAME `libwasmtime.so` (found via the loader path).
+  factory WasmtimeLibrary.discover() {
+    final env = Platform.environment['WASMTIME_DART_LIB'];
+    final path = (env != null && env.isNotEmpty)
+        ? env
+        : (_bakedLibPath.isNotEmpty ? _bakedLibPath : 'libwasmtime.so');
+    return WasmtimeLibrary.open(path);
+  }
 
   final String path;
   final ffi.DynamicLibrary dylib;

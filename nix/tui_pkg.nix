@@ -2,6 +2,17 @@
   lib,
   buildDartApplication,
   nixFilter,
+  # Pinned wasmtime c-api (nix/wasmtime.nix). Its libwasmtime.so path is
+  # baked into the compiled binary as a compile-time define, which
+  # WasmtimeLibrary.discover() reads as its default — so the WASM sandbox
+  # runtime is found with no WASMTIME_DART_LIB env var. This matters
+  # because the TUI's self-update re-execs the raw nixblitz-bin directly
+  # (bypassing any wrapper env), and a systemd/nix-run launch may never
+  # set the env either. (patchelf'ing an RPATH onto the binary does NOT
+  # work: `dart compile exe` appends the AOT snapshot past the ELF, and
+  # patchelf's rewrite corrupts it — the binary then just prints dartvm
+  # usage. The compile-time define never touches the built binary.)
+  wasmtimePinned,
   version,
   gitHash ? "local",
   # Version string used for the derivation's `pname-version`
@@ -25,6 +36,9 @@ buildDartApplication {
   dartCompileFlags = [
     "--define=BUILD_VERSION=${version}"
     "--define=BUILD_GIT_HASH=${gitHash}"
+    # Default path to the WASM sandbox runtime lib; read by
+    # WasmtimeLibrary.discover() when $WASMTIME_DART_LIB is unset.
+    "--define=WASMTIME_DART_LIB=${wasmtimePinned}/lib/libwasmtime.so"
   ];
 
   src = nixFilter {

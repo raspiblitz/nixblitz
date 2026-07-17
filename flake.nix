@@ -80,7 +80,7 @@
 
         nixblitzUnwrapped = pkgsUnstable.callPackage ./nix/tui_pkg.nix {
           nixFilter = nix-filter.lib;
-          inherit version gitHash derivationVersion;
+          inherit wasmtimePinned version gitHash derivationVersion;
         };
 
         # Wrap nixblitz with disko and git on PATH so `nix run` just works
