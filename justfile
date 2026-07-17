@@ -39,6 +39,20 @@ test trace="":
 check-plugin-consistency:
   bash tests/scripts/check-plugin-consistency.sh
 
+# Rebuilds node-summary's guest and byte-compares against the committed
+# actions/summary.wasm, mirroring the tile-manifest invariant. wasm
+# builds aren't guaranteed bit-reproducible; a mismatch means review the
+# diff, not tampering.
+#
+# Dev-local guard, not wired into `ci`: node-summary lives in the
+# nixblitz_official_plugins repo, checked out (optionally) at
+# examples_redesign/, which is gitignored here and absent on a clean
+# checkout / CI runner — that repo owns its own CI for this check.
+#
+# Fail if a plugin's committed .wasm is stale vs a fresh build
+check-wasm-plugins:
+  bash tests/scripts/check-wasm-plugins.sh
+
 # Eval tier — instantiates the toplevel, no system build. First run on
 # a cold store is heavy (realizes the build-input closure for both
 # channels); subsequent runs hit the warm store.

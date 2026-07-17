@@ -120,7 +120,7 @@ entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
 ```json
 {
   "manifest": {
-    "schema_version": 4,
+    "schema_version": 5,
     "min_tui_version": 1,
     "name": "Tailscale",
     "description": "Enable Tailscale on this NixBlitz node…"
@@ -130,16 +130,20 @@ entirely (e.g. via `sops-nix` or systemd `LoadCredential`); see
 
 | Field             | Required | Meaning                                                                                                                                                        |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema_version`  | yes      | Manifest schema your plugin targets. **v4 is current**; the TUI refuses anything below v2 (v1's `run_as_root` action path is gone).                            |
+| `schema_version`  | yes      | Manifest schema your plugin targets. **v5 is current**; the TUI refuses anything below v2 (v1's `run_as_root` action path is gone).                            |
 | `min_tui_version` | yes      | Lowest TUI version that can render this plugin safely.                                                                                                         |
 | `name`            | yes      | Human-readable display name shown in Configure → plugins. Keep it short and properly capitalized (`"Tailscale"`, `"LNBits"`) — _not_ an identifier-style slug. |
 | `description`     | no       | Long-form description shown at install time.                                                                                                                   |
 
 Schema history: **v2** replaced `run_as_root: true` actions with
 systemd `unit:` dispatch; **v3** added `tile_manifests`; **v4**
-added the `branches` block. Additive fields are ignored by older
-TUIs; a manifest with `min_tui_version` above what the TUI
-understands refuses to install with a clear error.
+added the `branches` block; **v5** added `wasm` actions, the
+top-level `sandbox` block, and the logic-only trust tier (optional
+`plugin.nix`) — see
+["Sandboxed WASM actions (schema v5)"](#sandboxed-wasm-actions-schema-v5)
+below. Additive fields are ignored by older TUIs; a manifest with
+`min_tui_version` above what the TUI understands refuses to install
+with a clear error.
 
 ### Top-level fields
 
@@ -214,8 +218,11 @@ exitNode = pluginCfg.exit_node or false;
 
 ### `actions` block (optional)
 
-User-triggerable verbs. Two flavors, discriminated by which key
-is set:
+User-triggerable verbs. Three flavors, discriminated by which key
+is set. `command`/`unit` are covered here; the third, `wasm`, runs
+inside the sandboxed WASM runtime and is significant enough to get
+its own section below —
+["Sandboxed WASM actions (schema v5)"](#sandboxed-wasm-actions-schema-v5).
 
 ```json
 "actions": {
@@ -245,8 +252,8 @@ is set:
 | `confirm`         | `true`  | Show y/N before launching.                                                                                  |
 | `timeout_seconds` | `300`   | Watchdog SIGTERM at this limit; SIGKILL after grace.                                                        |
 
-Exactly one of `command` / `unit` per action. The discrimination
-matters:
+Exactly one of `command` / `unit` / `wasm` per action. The
+discrimination matters:
 
 - **`command:`** runs as the admin user. No sudo. Use for
   read-only operations or anything that doesn't need root
@@ -379,6 +386,216 @@ here, otherwise the manifest is rejected.
 The other fields are forward-looking (Phase 6 will enforce
 filesystem / network / RPC scoping). Declare them honestly anyway
 — the consent prompt depends on them.
+
+## Sandboxed WASM actions (schema v5)
+
+v5 adds a third action flavor, `wasm`, alongside `command`/`unit`.
+A wasm action runs inside an actual sandbox: a fresh wasmtime guest
+instance per invocation, fuel-metered and wall-clock-limited, no
+filesystem, no network, and exactly one host import
+(`nixblitz.host_call`) gating a capability allowlist the manifest
+declares up front. It can never touch systemd, sudo, or the host
+filesystem — there's no escape hatch by construction, only the
+`host_call` door, and that door only opens onto what `sandbox`
+grants.
+
+[`node-summary`](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/node-summary)
+is the reference: a read-only bitcoind status report compiled from
+Rust to `wasm32-wasip1`. Read it end to end before writing your
+own — this section explains the shapes it uses.
+
+### The `wasm` action shape
+
+```json
+"actions": {
+  "summary": {
+    "label": "Node summary",
+    "description": "Read-only bitcoind status via the sandbox",
+    "confirm": false,
+    "wasm": { "module": "actions/summary.wasm", "export": "run" },
+    "timeout_seconds": 10
+  }
+}
+```
+
+| Field    | Default | Meaning                                                                                 |
+| -------- | ------- | --------------------------------------------------------------------------------------- |
+| `module` | —       | Plugin-dir-relative path to the compiled `.wasm` guest (required).                      |
+| `export` | `"run"` | Exported function the runner calls, no args/return — the guest writes output to stdout. |
+
+The usual action fields (`label`, `description`, `confirm`,
+`timeout_seconds`) apply unchanged. `wasm` actions are never
+privileged, so `confirm: false` is typical for read-only ones —
+there's no root grant to gate.
+
+### The `sandbox` block
+
+A top-level manifest field (sibling of `actions`), the plugin's
+**entire** requested authority. Deny-by-default: absent means the
+guest gets no `host_call` capability grants at all, and any request
+it makes is refused.
+
+```json
+"sandbox": {
+  "bitcoin_rpc": {
+    "methods": ["getblockchaininfo", "getnetworkinfo", "getmempoolinfo"],
+    "budgets": { "spend_sats_per_day": 0 }
+  },
+  "limits": { "fuel": 500000000, "timeout_seconds": 10 }
+}
+```
+
+| Field                                    | Default     | Meaning                                                                                                                                     |
+| ---------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bitcoin_rpc.methods`                    | (none)      | Allowlist of bitcoind RPC method names the guest may call via `host_call`. Anything not listed is refused with `method_not_allowed`.        |
+| `bitcoin_rpc.budgets.spend_sats_per_day` | `0`         | Daily cap, in sats, on spend-capable methods this plugin may move. `0` means the plugin may call no spend-capable method at all.            |
+| `limits.fuel`                            | `500000000` | wasmtime fuel budget for one action invocation — the guest traps with "exceeded its fuel budget" once exhausted. Host clamps to a max.      |
+| `limits.timeout_seconds`                 | `10`        | Wall-clock deadline (epoch-interruption ticker) for one invocation — traps with "exceeded its time budget" past this. Host clamps to a max. |
+
+Only a fixed set of methods are **spend-capable**
+(`sendtoaddress`, `sendmany`, `send`, `sendrawtransaction`,
+`fundrawtransaction`, `walletcreatefundedpsbt`); everything else is
+free for budget purposes. Install-time validation rejects a
+manifest that lists a spend-capable method with `spend_sats_per_day
+<= 0`, and — in this slice — rejects any spend-capable method other
+than `sendtoaddress`, because that's the only one whose sat cost can
+be attributed straight from its call params (`params[1]` in BTC).
+Methods whose cost can't be attributed from params alone aren't
+allowlistable yet; a future slice may add more as their param shapes
+get attribution support. Read-only methods (`getblockchaininfo`,
+etc.) need no budget and never touch the ledger.
+
+`limits.fuel`/`limits.timeout_seconds` are the guest's own request;
+the host always clamps them to a hard maximum before applying —
+declaring a huge number in your manifest does not buy you an
+unbounded sandbox.
+
+### The host ABI
+
+The guest and host speak a tiny, versioned protocol: a JSON request
+envelope in, a JSON response envelope out, both marshaled through
+wasm linear memory.
+
+**Host import** — the guest's module must declare exactly this
+import (Rust shown, the pattern generalizes to any language that
+compiles to `wasm32-wasip1`):
+
+```rust
+#[link(wasm_import_module = "nixblitz")]
+extern "C" {
+    // Returns (ptr << 32) | len of the response, packed into one i64.
+    fn host_call(req_ptr: i32, req_len: i32) -> i64;
+}
+```
+
+**Guest export** — the guest must export an `alloc` function the
+host calls to get a scratch pointer for writing the response bytes
+into guest memory before `host_call` returns:
+
+```rust
+#[no_mangle]
+pub extern "C" fn alloc(n: i32) -> i32 {
+    // return a pointer to >= n free bytes in guest memory
+}
+```
+
+`node-summary` backs this with a static bump arena (see its
+`src/lib.rs`) — safe because the host instantiates a **fresh**
+module per action invocation, so the arena starts zeroed every time
+and never needs resetting between calls.
+
+**Request envelope** (guest → host, JSON, versioned):
+
+```json
+{ "v": 1, "cap": "bitcoin_rpc", "method": "getblockchaininfo", "params": [] }
+```
+
+| Field    | Meaning                                                              |
+| -------- | -------------------------------------------------------------------- |
+| `v`      | Envelope version. `1` today.                                         |
+| `cap`    | Capability namespace. Only `"bitcoin_rpc"` exists today.             |
+| `method` | The RPC method name — checked against `sandbox.bitcoin_rpc.methods`. |
+| `params` | JSON array of positional RPC params (may be empty).                  |
+
+**Response envelope** (host → guest, JSON, versioned) — exactly one
+of `ok`/`err`:
+
+```json
+{ "v": 1, "ok": { "chain": "main", "blocks": 901234, "...": "..." } }
+{ "v": 1, "err": { "code": "method_not_allowed", "message": "method `sendtoaddress` is not in this plugin's allowlist" } }
+```
+
+Error `code`s the guest should expect and can match on:
+`bad_request` (malformed envelope), `unknown_capability` (`cap`
+not `bitcoin_rpc`, or the plugin was granted none), `method_not_allowed`
+(not in the allowlist, or an unattributable spend-capable method),
+`budget_exceeded` (would exceed today's spend cap), `rpc_failed`
+(bitcoind itself errored).
+
+**Call sequence** — one `host_call` per RPC round trip:
+
+1. Guest serializes the request JSON into its own memory, calls
+   `host_call(ptr, len)`.
+2. Host reads the request bytes out of guest memory, runs the
+   policy gate (allowlist check, then — for spend-capable methods
+   only — budget check + ledger reservation), executes the RPC,
+   settles or cancels the reservation, serializes the response.
+3. Host calls the guest's `alloc(n)` to get a write target, writes
+   the response bytes into guest memory at that pointer, and
+   returns `(ptr << 32) | len` packed into the `i64` result.
+4. Guest unpacks `ptr`/`len`, reads its own memory back out,
+   parses the JSON, and either returns `ok` or surfaces the `err`.
+
+The guest's exported action function (`run` by default) takes no
+arguments and returns nothing; it communicates its result to the
+operator by writing to WASI stdout, which the runner captures and
+displays. `node-summary`'s `run()` does three `host_call`s
+(`getblockchaininfo`, `getnetworkinfo`, `getmempoolinfo`) and prints
+a formatted summary.
+
+### The logic-only trust tier
+
+A plugin whose **entire** surface is sandboxed wasm actions — no
+NixOS module, no streamers, and every declared action is a `wasm`
+one — may omit `plugin.nix` entirely. This is the point of the
+sandbox: if the plugin can't touch the system outside the
+`host_call` capability grant, there's nothing for a NixOS module to
+declare or for the operator to review at the systemd-unit level.
+`node-summary` is exactly this shape; its whole tree is
+`plugin.json`, `actions/summary.wasm`, and source.
+
+The moment a plugin adds a `command:`/`unit:` action, a streamer, or
+a NixOS module of its own, it drops out of the logic-only tier and
+needs `plugin.nix` like any other plugin — those surfaces run
+unsandboxed and still need the module + consent-time review that
+`plugin.nix` provides.
+
+### The spend-cap boundary — what it actually governs
+
+`sandbox.bitcoin_rpc.budgets.spend_sats_per_day` is a hard cap on
+what **this plugin can initiate through the `bitcoin_rpc`
+capability**, tracked against a per-plugin ledger the host
+maintains. Be precise about what it does _not_ claim to be:
+
+- It is **not** a wallet-wide or node-wide spend limit. Other
+  plugins, the operator's own bitcoind-cli usage, or any other
+  channel to the node are entirely outside this ledger.
+- It is **not** enforced by bitcoind itself — it's a host-side gate
+  in front of the RPC call, evaluated before the call is made. A
+  compromised or buggy host process is the only thing that could
+  bypass it; a compromised wasm guest cannot, since it never gets
+  a raw RPC credential, only the `host_call` door.
+- "Per day" is a **trailing 24-hour window**, not a reset at
+  midnight in the operator's calendar — a spend right before the
+  24h mark still counts against the cap an hour later. Read
+  `BudgetLedger` in
+  `common/lib/src/services/wasm/budget_ledger.dart` if you need the
+  exact boundary semantics for a spend-sensitive plugin.
+
+Declare `spend_sats_per_day` honestly and as low as your plugin's
+actual use case needs — it's shown verbatim at install-consent time,
+and it's the only thing standing between "this plugin can move my
+funds" and "this plugin is read-only."
 
 ## Companion scripts pattern
 
@@ -601,10 +818,12 @@ matching plugin update. Existing operators of the old plugin
 hit a hard-fail on next `plugin refresh` until they upgrade.
 
 Breaking bumps are rare (so far: just v1 → v2, for sudo posture
-A). v3 (`tile_manifests`) and v4 (`branches`) were additive — old
-TUIs keep loading those manifests and ignore the new fields. When
-a breaking bump happens, plugins.md will document the migration
-shape; this doc gets updated alongside.
+A). v3 (`tile_manifests`), v4 (`branches`), and v5 (`wasm` actions +
+`sandbox`) were all additive — old TUIs keep loading those manifests
+and ignore the new fields (a `wasm` action just can't run on a pre-v5
+TUI, same as any other unrecognized action shape). When a breaking
+bump happens, plugins.md will document the migration shape; this doc
+gets updated alongside.
 
 ## Worked examples
 
