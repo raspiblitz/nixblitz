@@ -18,6 +18,35 @@ This doc is the practical "how do I build one" companion to
 captures the architectural rationale (D1-D19). Read this first if
 you just want to ship a plugin.
 
+## Two kinds of plugin
+
+Pick the tier before you start — it decides almost everything else. A
+**NixOS-module plugin** integrates a service into the node: it ships a
+`plugin.nix` that evaluates as a full NixOS module, so installing it is
+a root grant. A **sandboxed WASM plugin** ships only logic: a
+`wasm32-wasip1` guest that reaches the node through one narrow,
+allowlisted door, so what it can do is bounded by its manifest rather
+than by your trust in the author.
+
+|                       | NixOS-module plugin                                                                                          | Sandboxed WASM plugin                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| **Ships**             | `plugin.nix` + `plugin.json`                                                                                 | `plugin.json` + `actions/*.wasm`                                                     |
+| **Can do**            | anything a NixOS module can — enable services, wire into bitcoind/lnd/cln, systemd units, activation scripts | call an allowlisted set of bitcoind RPCs, compute, print to the operator             |
+| **Trust at install**  | a root grant; the only real defense is reading the source                                                    | bounded by the `sandbox` allowlist + spend cap, enforced host-side                   |
+| **Runs as**           | a peer NixOS module at rebuild time (root)                                                                   | a wasmtime guest — fuel- and time-limited, no filesystem / network / subprocess      |
+| **Takes effect**      | after Apply (`nixos-rebuild`)                                                                                | on demand, no rebuild                                                                |
+| **Written in**        | Nix (+ shell scripts)                                                                                        | any language targeting `wasm32-wasip1` (Rust is the reference)                       |
+| **Reach for it when** | integrating a service (Tailscale, LNbits, RTL)                                                               | read-only / compute logic you'd rather not trust with root (a status tile, a report) |
+| **Example**           | tailscale, lnbits                                                                                            | node-summary                                                                         |
+
+Everything from [What you're shipping](#what-youre-shipping) down is
+common to both tiers unless noted. The WASM-specific shapes — the
+`wasm` action, the `sandbox` block, the host ABI, the tile source, and
+the logic-only tier — are collected under
+[Sandboxed WASM actions (schema v5)](#sandboxed-wasm-actions-schema-v5);
+the trust-model rationale is D14/D19 in the
+[design log](decisions/plugins.md).
+
 ## What you're shipping
 
 A plugin is a directory tree with three (sometimes four) files:
