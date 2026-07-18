@@ -8,16 +8,20 @@ void main() {
   runApp(
     Document(
       title: 'NixBlitz — Bitcoin/Lightning node on NixOS',
-      // `<base href>` is a fallback for any relative URL in the
-      // page (e.g., the `styles.css` link below). Absolute paths
-      // (starting with `/`) ignore <base> — those go through href()
-      // and carry the prefix explicitly. Omit when kBasePath is
-      // empty so the canonical root build doesn't render a noisy
-      // `<base href="/">`.
+      // Every head link below uses an ABSOLUTE path via href() so it
+      // resolves identically at any route depth. A relative `styles.css`
+      // does NOT work here: on a nested docs route (`/docs/installation`)
+      // the browser resolves it against `/docs/`, and the `<base href="/">`
+      // that would fix it — injected by jaspr_content's docs layout — is
+      // appended to the END of <head>, after this link, so per the HTML
+      // spec it can't affect it. Absolute paths ignore <base> entirely.
+      // `<base href>` is kept only as a fallback for any relative URL
+      // elsewhere in the page; omitted when kBasePath is empty so the
+      // canonical root build doesn't render a noisy `<base href="/">`.
       base: kBasePath.isEmpty ? null : '$kBasePath/',
       head: [
         link(rel: 'icon', type: 'image/svg+xml', href: href('/favicon.svg')),
-        link(rel: 'stylesheet', href: 'styles.css'),
+        link(rel: 'stylesheet', href: href('/styles.css')),
         link(
           rel: 'stylesheet',
           href: href('/vendor/asciinema-player/asciinema-player.css'),
