@@ -15,7 +15,7 @@ plugins shipped under
 
 This doc is the practical "how do I build one" companion to
 [`docs/decisions/plugins.md`](decisions/plugins.md), which
-captures the architectural rationale (D1-D18). Read this first if
+captures the architectural rationale (D1-D19). Read this first if
 you just want to ship a plugin.
 
 ## What you're shipping
@@ -29,6 +29,10 @@ my-plugin/
 ├── README.md        # Operator-facing docs (recommended)
 └── LICENSE          # (recommended)
 ```
+
+(A **logic-only WASM plugin** omits `plugin.nix` entirely — its
+whole tree is `plugin.json`, the compiled `actions/*.wasm`, and
+source. See [the logic-only trust tier](#the-logic-only-trust-tier).)
 
 Plus, on the operator's installed system, after `nixblitz plugin
 add`:
@@ -299,19 +303,57 @@ A polled tile rendered alongside the core dashboard tiles.
 }
 ```
 
-| Field                   | Default   | Meaning                                        |
-| ----------------------- | --------- | ---------------------------------------------- |
-| `title`                 | —         | Tile heading.                                  |
-| `accent_color`          | `#888899` | Hex `#rrggbb` for the title + top rule.        |
-| `command`               | —         | Polled command. Runs as admin user.            |
-| `poll_interval_seconds` | `30`      | How often to poll. Floor: 5s.                  |
-| `timeout_seconds`       | `5`       | SIGTERM at this limit; tile shows "timed out". |
+| Field                   | Default   | Meaning                                                                                                                                         |
+| ----------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                 | —         | Tile heading.                                                                                                                                   |
+| `accent_color`          | `#888899` | Hex `#rrggbb` for the title + top rule.                                                                                                         |
+| `command`               | —         | Polled shell command; runs as admin user. _Mutually exclusive with `wasm`._                                                                     |
+| `wasm`                  | —         | `{ "module": …, "export": "tile" }` — poll a sandboxed wasm export instead of a shell command (schema v5). _Mutually exclusive with `command`._ |
+| `poll_interval_seconds` | `30`      | How often to poll. Floor: 5s.                                                                                                                   |
+| `timeout_seconds`       | `5`       | SIGTERM (command) / trap (wasm) at this limit; tile shows "timed out".                                                                          |
+
+A tile declares exactly one source — `command` or `wasm`.
 
 Tile commands always run as the admin user — no `run_as_root`,
 no sudo. Tile polls fire on a 30s timer; surfacing a sudo modal
 on a background poll would be a UX disaster. If your tile needs
 privileged data, expose it through a group-readable file or a
 setuid wrapper, never through sudo.
+
+#### WASM tile source (schema v5)
+
+A logic-only WASM plugin has no shell command to poll, so its tile
+names a sandboxed wasm export as the data source instead:
+
+```json
+"dashboard": {
+  "title": "Node Summary",
+  "accent_color": "#5bc0be",
+  "wasm": { "module": "actions/summary.wasm", "export": "tile" },
+  "poll_interval_seconds": 15
+}
+```
+
+| Field    | Default  | Meaning                                                            |
+| -------- | -------- | ------------------------------------------------------------------ |
+| `module` | —        | Plugin-dir-relative path to the compiled `.wasm` guest (required). |
+| `export` | `"tile"` | Exported function the poller calls (no args/return).               |
+
+The export runs through the **same** `WasmActionRunner` + `sandbox`
+allowlist as the plugin's wasm actions — one fresh, fuel-metered,
+wall-clock-limited instance per poll, reaching only the RPC methods
+`sandbox.bitcoin_rpc.methods` grants. It buys no extra authority: a
+tile can read exactly what an action could, nothing more. The
+tile's `timeout_seconds` further tightens — never loosens — the
+sandbox's own wall-clock limit.
+
+The export writes the same [tile-state JSON](#tile-state-output-protocol)
+a `command` tile does (one flat object to stdout, reserved keys and
+all), so the protocol section below applies unchanged. This is how a
+logic-only plugin drives a live tile without ever leaving the
+sandbox: `node-summary`'s `tile` export runs its three allowlisted
+reads and prints
+`{"Network":"regtest","Blocks":"5","Sync":"100.0%",…,"_footer":"sandboxed read-only","_footer_color":"ok"}`.
 
 #### Tile-state output protocol
 
@@ -553,6 +595,18 @@ displays. `node-summary`'s `run()` does three `host_call`s
 (`getblockchaininfo`, `getnetworkinfo`, `getmempoolinfo`) and prints
 a formatted summary.
 
+One module can export several entry points that share the one
+`sandbox`. `node-summary` adds two more alongside `run`: a `tile`
+export (the same three reads, formatted as
+[tile-state JSON](#wasm-tile-source-schema-v5) for its dashboard
+tile — see the `dashboard` block above) and a `check_sandbox` export
+that deliberately calls a non-allowlisted method (`getpeerinfo`) so
+the operator can watch the host refuse it with `method_not_allowed`.
+`check_sandbox` is the interactive twin of the allowlist: it exits 0
+having _demonstrated_ the refusal, the visible proof that the
+sandbox denies what the manifest never declared. Each export is
+reached by a `wasm` action or the `dashboard` block naming it.
+
 ### The logic-only trust tier
 
 A plugin whose **entire** surface is sandboxed wasm actions — no
@@ -596,6 +650,32 @@ Declare `spend_sats_per_day` honestly and as low as your plugin's
 actual use case needs — it's shown verbatim at install-consent time,
 and it's the only thing standing between "this plugin can move my
 funds" and "this plugin is read-only."
+
+### Building the guest
+
+The guest is any language that targets `wasm32-wasip1` and can
+declare the one `nixblitz.host_call` import plus the `alloc` export.
+`node-summary` is Rust; its
+[`flake.nix`](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/node-summary/flake.nix)
+is the reference build recipe, and worth reading before you set up
+your own — nixpkgs' `pkgsCross.wasi32` cargo wrapper hardcodes a
+`--config target.wasm32-wasip1.linker=<clang-wrapper>` that doesn't
+understand rustc's `-flavor wasm` linker invocation, so the flake
+bypasses `cargoBuildHook` and calls `cargo build` directly with
+`CARGO_TARGET_WASM32_WASIP1_LINKER` pointed at raw `wasm-ld` and
+`-C link-arg=--allow-undefined`, so the lone `host_call` import
+resolves as a wasm import rather than a link error. The compiled
+`.wasm` is committed to the plugin repo; `just check-wasm-plugins`
+byte-compares it against a fresh build so a stale artifact can't
+drift from its source.
+
+On the host side the runtime is a **pinned** wasmtime C-API
+(`nix/wasmtime.nix`, currently 46.0.1 — deliberately independent of
+nixpkgs, since the `wasmtime_dart` FFI bindings are transcribed from
+one wasmtime major's headers); the compiled TUI bakes the library
+path in as a compile-time define so self-update / systemd launches
+find it without an env var. Plugin authors don't touch any of this —
+it's the machinery your `.wasm` runs inside.
 
 ## Companion scripts pattern
 
@@ -827,7 +907,7 @@ gets updated alongside.
 
 ## Worked examples
 
-Two in-tree plugins exercise everything in this doc:
+Three in-tree plugins exercise everything in this doc:
 
 - [**tailscale**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/tailscale)
   — secret config field (`auth_key`), tile with state-machine
@@ -837,9 +917,15 @@ Two in-tree plugins exercise everything in this doc:
   — `select` config field (`backend`), credential-staging from
   LND's macaroon (the RTL pattern), one privileged `unit:`
   action (`reset_db`).
+- [**node-summary**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/node-summary)
+  — the logic-only WASM tier: no `plugin.nix`, a Rust guest compiled
+  to `wasm32-wasip1` with `run` / `tile` / `check_sandbox` exports, a
+  read-only `bitcoin_rpc` allowlist, a sandboxed dashboard tile, and
+  the forbidden-call demo. The reference for "Sandboxed WASM actions"
+  above.
 
-Read both. Between them they cover ~95% of the patterns you'll
-need; everything else is straightforward NixOS.
+Read all three. Between them they cover ~95% of the patterns
+you'll need; everything else is straightforward NixOS.
 
 ## Where to ask
 

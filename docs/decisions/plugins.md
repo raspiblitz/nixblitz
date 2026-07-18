@@ -43,9 +43,14 @@ process.
   one FFI escape away from owning the user's node. Also creates a
   support matrix explosion ("dashboard crashed because plugin X ran
   on Dart version Y").
-- **Embedded WASM** — real sandbox but toolchain overhead is high
+- ~~**Embedded WASM** — real sandbox but toolchain overhead is high
   and the ergonomics for "declare a tile with three stats" don't
-  justify the weight.
+  justify the weight.~~ **Revisited 2026-07 (see D19).** WASM shipped
+  as a _second_ tier for logic-heavy / untrusted plugins, not a
+  replacement for the declarative shape: the toolchain cost is real
+  but worth it precisely where a plugin runs code rather than
+  declaring a tile. D1's declarative-first call still holds for the
+  95% service-integration case.
 
 **Rationale**: 95% of anticipated plugins (service integrations) fit
 "config form + polled tile + few actions". A declarative shape covers
@@ -338,6 +343,17 @@ supply-chain concern or a wider audience.
 
 ## D14 — Trust model: install = root grant; consent surfaces metadata, not a sandbox
 
+### Scope (updated 2026-07-18)
+
+This entry describes **NixOS-module plugins** — the original and
+still-default kind, whose `plugin.nix` runs as a peer NixOS module.
+For those, everything below holds unchanged: install = root grant.
+It does **not** describe the sandboxed WASM tier added in schema v5,
+whose authority is bounded by the manifest and enforced host-side —
+see **D19**. A plugin is a D14 plugin the moment it ships a
+`plugin.nix`, a `command:`/`unit:` action, or a streamer, regardless
+of what else it declares.
+
 ### Updated framing (2026-04-27)
 
 Earlier drafts of this entry described `manifest.permissions` as
@@ -388,7 +404,7 @@ no ability to constrain `plugin.nix`'s execution.
 ### Consent prompt surfaces metadata, NOT permissions
 
 `nixblitz plugin add <url>` clones the source, parses
-`manifest.json`, and shows the operator:
+`plugin.json`, and shows the operator:
 
 - `name`, `description` (what the plugin claims to be)
 - `source` URL + `branch` + 40-char `pinnedRev` (where the code
@@ -463,6 +479,65 @@ without overstating what the system does.
 
 ---
 
+## D19 — Second trust tier: the sandboxed WASM plugin (schema v5)
+
+**Date**: 2026-07 (shipped on the `wasm-plugins` branch; parked
+pending Pi validation). Revisits D1's rejection of embedded WASM.
+
+**Decision**: add a _second_ plugin kind whose blast radius is
+bounded by its manifest and enforced host-side, **alongside** — not
+replacing — the D14 module plugin. The toolchain cost D1 balked at is
+real, but it's the right price for plugins that run logic rather than
+declare a tile.
+
+**The two tiers**:
+
+- **NixOS-module plugin (D14)** — ships a `plugin.nix` (and/or
+  `command:`/`unit:` actions, streamers). Runs as a peer NixOS
+  module / admin-or-root process. Installing it is a root grant; the
+  only real defense is reading the source. Unchanged.
+- **Sandboxed WASM plugin (this entry)** — logic-only: no
+  `plugin.nix`, every action a `wasm` one. Its guest runs in a
+  wasmtime instance (fuel-metered, wall-clock-limited, no filesystem,
+  no network, no subprocess) with exactly one host import,
+  `nixblitz.host_call`, gating a capability allowlist the manifest's
+  `sandbox` block declares up front. Deny-by-default: no `sandbox` =
+  no capability. What such a plugin can do is bounded by what its
+  manifest asks for and the host grants — not by the operator's
+  willingness to read Rust.
+
+**What the sandbox does and does not claim** (the honesty line — this
+is load-bearing; docs must not overstate it):
+
+- It bounds what the guest _can reach_: the RPC method allowlist, a
+  per-plugin trailing-24h spend cap (reserve-then-settle ledger),
+  fuel, and wall-clock. Enforced host-side in `HostCallHandler`, the
+  single boundary; a compromised guest cannot bypass it because it
+  never holds a raw RPC credential, only the `host_call` door.
+- It does **not** vouch for the guest's _honesty_. A guest can still
+  call allowed methods misleadingly, burn its fuel, or lie in what it
+  prints. The sandbox proves what the guest _couldn't_ do, not that
+  its output is truthful. There is no heuristic "plugin verification";
+  install surfaces the manifest's declared authority (the `sandbox`
+  block, verbatim) plus warnings, nothing more. This keeps faith with
+  D14's "no false sense of security" stance — for this tier the
+  metadata (`sandbox`) _is_ backed by enforcement, but only for the
+  reachability claims it makes, never for intent.
+
+**Why this doesn't reopen the Phase 6 hole**: D14's rejected Phase 6
+was runtime enforcement of _module_ plugins (per-user services,
+scoped tokens) — futile, because the module threat lives at
+eval/activation time. The WASM tier sidesteps that entirely by never
+handing the plugin a module or a process; the enforcement point is
+the `host_call` gate, which the guest cannot evade by construction.
+Two mechanisms for two plugin kinds.
+
+Manifest shapes, host ABI, and spend-cap semantics live in
+`docs/plugin-authoring.md` → "Sandboxed WASM actions (schema v5)".
+`node-summary` is the reference plugin.
+
+---
+
 ## Phasing (snapshot, may evolve)
 
 Smallest viable slice that proves the concept — each phase is
@@ -499,6 +574,16 @@ shippable on its own. Status as of 2026-04-26:
    running-service layer that `DynamicUser` would sandbox. The
    trust model stays "install = root grant"; consent surfaces
    metadata + a stark warning (see D14).
+7. ✅ **Sandboxed WASM tier** (done 2026-07, parked pending Pi
+   validation): a _second_ plugin kind — a wasmtime guest (fuel +
+   wall-clock + WASI; no fs / network / subprocess) reaching the node
+   only through one `host_call` import gated by a manifest `sandbox`
+   allowlist + spend-budget ledger. Ships `wasm` actions, a sandboxed
+   `dashboard` tile, and the logic-only trust tier (no `plugin.nix`);
+   `node-summary` is the reference. This is _not_ the struck-through
+   Phase 6 — that was futile runtime confinement of module plugins;
+   this is real enforcement for a new kind that never gets a module
+   or process in the first place (see D19).
 
 Open follow-ups + cross-cutting work track on the forgejo repo as
 issues, not in this document. See

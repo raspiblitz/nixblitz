@@ -259,15 +259,22 @@ detector catches it.
 
 ## Plugin model
 
-Plugins are NixOS modules + a JSON manifest, living at
-`~/nixblitz/plugins/<id>/`. The manifest declares what the user
-sees in Configure → plugins → `<id>`; the `plugin.nix` declares
-what NixOS does at rebuild time.
+Plugins live at `~/nixblitz/plugins/<id>/`, driven by a JSON
+manifest, and come in two kinds. A **NixOS-module plugin** pairs the
+manifest with a `plugin.nix` that runs as a peer NixOS module at
+rebuild time — installing one is a root grant. A **sandboxed WASM
+plugin** (schema v5) has no `plugin.nix`: its actions and dashboard
+tile run a `wasm32-wasip1` guest inside a wasmtime sandbox (fuel +
+wall-clock + WASI, no filesystem or network) that reaches the node
+only through one host call gated by a manifest allowlist, so its
+blast radius is bounded by what the manifest declares. In both cases
+the manifest declares what the operator sees in Configure → plugins →
+`<id>`.
 
 For everything plugin-related — manifest reference, the two-stage
-`plugin.nix` ABI, the companion-script pattern, tile state
-protocol, cross-service integration — see
-[the plugin authoring docs](/docs/plugins).
+`plugin.nix` ABI, the sandboxed WASM actions + tile, the
+companion-script pattern, tile state protocol, cross-service
+integration — see [the plugin authoring docs](/docs/plugins).
 
 ## Nix concepts cheat-sheet
 

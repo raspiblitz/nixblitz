@@ -75,6 +75,9 @@ nixblitz/
 │   ├── bin/nixblitz.dart    # Production entry point
 │   ├── bin/nixblitz_dev.dart# Dev entry (widget previews)
 │   └── lib/src/ui/          # Views + widgets
+├── wasmtime_dart/           # Pure-Dart FFI bindings to the wasmtime
+│                            # C API — the WASM plugin sandbox runtime
+├── website/                 # Jaspr docs + marketing site
 ├── templates/               # NixOS modules + host configs
 │   ├── flake.nix            # The flake the TUI installs onto disk
 │   ├── hosts/installer.nix  # Live-ISO host config
@@ -94,10 +97,14 @@ unit-testable (no nocterm / Riverpod entanglement).
 
 ## The Dart workspace
 
-`pubspec.yaml` at the repo root declares a workspace; `common/`
-and `tui/` are member packages. They share resolved versions but
-are imported separately. `tui` depends on `common`; `common`
-depends only on third-party packages (`riverpod`, `path`, `http`).
+`pubspec.yaml` at the repo root declares a workspace with four
+members: `common/`, `tui/`, `wasmtime_dart/`, and `website/`. They
+share resolved versions but are imported separately. `tui` depends on
+`common`; `common` depends on `wasmtime_dart` (the WASM sandbox
+bindings), third-party packages (`riverpod`, `path`, `http`,
+`pub_semver`, `crypto`), and `nocterm` — the last only for its
+`Color` value type, not its widget infrastructure, so the "no UI in
+common" rule still holds.
 
 Running tests:
 
@@ -307,13 +314,24 @@ the timer wraps: `nixblitz check` (no subcommand).
 
 ## Plugin model
 
-Plugins are NixOS modules + a JSON manifest, living at
-`~/nixblitz/plugins/<id>/`. The manifest declares what the user
-sees in Configure → plugins → `<id>`; the `plugin.nix` declares
-what NixOS does at rebuild time.
+Plugins live at `~/nixblitz/plugins/<id>/` and come in two kinds,
+both driven by a JSON manifest (`plugin.json`):
 
-The two-stage `plugin.nix` ABI is the part that catches every new
-plugin author:
+- **NixOS-module plugins** — a manifest paired with a `plugin.nix`
+  that runs as a peer NixOS module at rebuild time. This is the
+  original kind (tailscale, lnbits); installing one is a root grant
+  (see `docs/decisions/plugins.md` D14).
+- **Sandboxed WASM plugins** (schema v5) — logic-only: no
+  `plugin.nix`. Their actions and dashboard tile run a `wasm32-wasip1`
+  guest inside a wasmtime sandbox (fuel + wall-clock + WASI, no fs /
+  network) reaching the node only through one `host_call` import
+  gated by a manifest `sandbox` allowlist. The blast radius is
+  bounded by the manifest and enforced host-side (D19). `node-summary`
+  is the reference; the runtime lives in `wasmtime_dart/` +
+  `common/lib/src/services/wasm/`.
+
+For NixOS-module plugins the two-stage `plugin.nix` ABI is the part
+that catches every new plugin author:
 
 ```nix
 { pluginCfg ? {} }: { config, lib, pkgs, ... }: {

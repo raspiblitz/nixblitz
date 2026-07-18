@@ -118,15 +118,18 @@ identity.
 
 Concrete hook points (from a code-trace pass):
 
-- `common/lib/src/services/plugin_service.dart` —
-  between `_gitRevParseHead()` (the call after `_gitClone()` in
-  install at ~line 76 and refresh at ~line 310) and
-  `_readManifest()`. The tmpdir is alive across this window.
+- `common/lib/src/services/plugin/plugin_git_ops.dart` — between
+  `gitRevParseHead()` (the call after `gitClonePlugin()` on the
+  install and refresh paths) and the manifest read
+  (`PluginService.readManifest`). The tmpdir is alive across this
+  window. (These were `PluginService._gitClone()`/`_gitRevParseHead()`
+  before the service split; they're now free functions in
+  `plugin_git_ops.dart`.)
 
   ```dart
   // Pseudo:
-  await _gitClone(...);
-  final pinnedRev = await _gitRevParseHead(tmpDir.path);
+  await gitClonePlugin(...);
+  final pinnedRev = await gitRevParseHead(tmpDir.path);
   final sig = await _verifyCommitSignature(tmpDir.path);
   // sig is GitSignature?: null = unsigned, populated = fingerprint+identity
   ```
