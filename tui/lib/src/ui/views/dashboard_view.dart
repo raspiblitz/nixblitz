@@ -39,6 +39,7 @@ class _DashboardViewState extends State<DashboardView> {
   List<SizedTile> _pluginTiles(BuildContext context) {
     final manifests = context.watch(installedPluginsProvider);
     final config = context.watch(configProvider).value;
+    final markers = context.watch(installedPluginMarkersProvider);
     final snapshots = context
         .watch(pluginTileSnapshotsProvider)
         .maybeWhen(data: (m) => m, orElse: () => null);
@@ -46,10 +47,21 @@ class _DashboardViewState extends State<DashboardView> {
     for (final m in manifests) {
       final spec = m.dashboard;
       if (spec == null) continue;
-      // Hide a disabled plugin's tile entirely (not just stop its poller).
-      // Gate here, NOT in installedPluginsProvider — Configure still needs the
-      // plugin listed so it can be re-enabled.
-      if (config == null || !config.isAppEnabled(m.id)) continue;
+      // Hide a halted plugin's tile entirely (not just stop its poller).
+      // A plugin with a config_schema is gated on its enable toggle; a
+      // logic-only plugin (no config_schema, e.g. a sandboxed wasm plugin)
+      // has no toggle and no service — show its tile whenever it's installed
+      // and not disabled. Mirrors the actions gate in configure_view and the
+      // poll gate (tilePollEnabled). Gate here, NOT in installedPluginsProvider
+      // — Configure still needs the plugin listed so it can be re-enabled.
+      final bool enabled;
+      if (m.configSchema != null) {
+        enabled = config?.isAppEnabled(m.id) ?? false;
+      } else {
+        final marker = markers.where((mk) => mk.id == m.id).firstOrNull;
+        enabled = marker != null && !marker.disabled;
+      }
+      if (!enabled) continue;
       entries.add((id: m.id, title: spec.title, accent: spec.accentColorHex));
     }
     entries.sort(
