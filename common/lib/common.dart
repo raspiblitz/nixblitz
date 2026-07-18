@@ -33,6 +33,7 @@ export 'src/services/wasm/bitcoin_rpc_executor.dart';
 export 'src/services/wasm/budget_ledger.dart';
 export 'src/services/wasm/host_call.dart';
 export 'src/services/wasm/module_cache.dart';
+export 'src/services/wasm/plugin_wasm_run.dart';
 export 'src/services/wasm/sandbox_policy.dart';
 export 'src/services/wasm/wasm_action_runner.dart';
 export 'src/providers/config_provider.dart';

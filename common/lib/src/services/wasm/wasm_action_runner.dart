@@ -27,6 +27,7 @@ class WasmActionRunner {
     required String export,
     required SandboxSpec sandbox,
     required HostCallHandler hostCall,
+    bool quiet = false,
   }) async {
     final controller = StreamController<String>();
     final fuel = sandbox.limits.fuel.clamp(1, maxFuel);
@@ -94,7 +95,7 @@ class WasmActionRunner {
 
         final instance = linker.instantiate(ctx, module);
         final fn = instance.getFunc(ctx, export);
-        controller.add('> wasm action: $export\n');
+        if (!quiet) controller.add('> wasm action: $export\n');
         fn.call(ctx);
 
         final out = stdoutFile.existsSync()

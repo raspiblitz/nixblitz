@@ -180,22 +180,16 @@ class _PluginActionViewState extends State<PluginActionView> {
       final pluginDir =
           '${context.read(pluginServiceProvider).pluginsDir}/'
           '${component.pluginId}';
-      final sandbox = manifest.sandbox ?? const SandboxSpec();
-      final home = Platform.environment['HOME'] ?? '.';
-      final handler = HostCallHandler(
-        sandbox: sandbox,
-        ledger: BudgetLedger(
-          '$home/nixblitz/state/sandbox/budgets/${component.pluginId}.json',
-        ),
-        executor: BitcoinCliExecutor(),
-        clock: DateTime.now,
-      );
       final wasmRunner = context.read(wasmActionRunnerProvider);
-      final run = await wasmRunner.run(
-        wasmPath: '$pluginDir/${action.wasm!.module}',
+      final home = Platform.environment['HOME'] ?? '.';
+      final run = await runPluginWasm(
+        runner: wasmRunner,
+        manifest: manifest,
+        pluginDir: pluginDir,
+        moduleRelPath: action.wasm!.module,
         export: action.wasm!.export,
-        sandbox: sandbox,
-        hostCall: handler,
+        stateDir: '$home/nixblitz/state/sandbox',
+        quiet: false,
       );
       if (!mounted) return;
       _outputSub = run.output.listen(
