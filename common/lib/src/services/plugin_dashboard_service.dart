@@ -232,6 +232,7 @@ class _PluginPoller {
           export: spec.wasm!.export,
           stateDir: stateDir!,
           quiet: true,
+          timeout: spec.timeout,
         );
         final out = await run.output.join();
         final ec = await run.exitCode;

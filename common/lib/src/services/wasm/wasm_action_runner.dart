@@ -28,10 +28,14 @@ class WasmActionRunner {
     required SandboxSpec sandbox,
     required HostCallHandler hostCall,
     bool quiet = false,
+    int? maxWallClockSeconds,
   }) async {
     final controller = StreamController<String>();
     final fuel = sandbox.limits.fuel.clamp(1, maxFuel);
-    final timeout = sandbox.limits.timeoutSeconds.clamp(1, maxTimeoutSeconds);
+    final limit = sandbox.limits.timeoutSeconds.clamp(1, maxTimeoutSeconds);
+    final timeout = maxWallClockSeconds == null
+        ? limit
+        : maxWallClockSeconds.clamp(1, limit);
 
     final exitFuture = () async {
       final engine = Engine(

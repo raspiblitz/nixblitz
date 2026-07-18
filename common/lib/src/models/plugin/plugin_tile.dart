@@ -37,6 +37,16 @@ class WasmTileSource {
     'module': module,
     if (export != 'tile') 'export': export,
   };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WasmTileSource &&
+          other.module == module &&
+          other.export == export;
+
+  @override
+  int get hashCode => Object.hash(module, export);
 }
 
 /// Static plugin-tile declaration from plugin.json.
@@ -68,7 +78,10 @@ class PluginTileSpec {
     this.wasm,
     this.pollInterval = const Duration(seconds: 30),
     this.timeout = const Duration(seconds: 5),
-  });
+  }) : assert(
+         (command == null) != (wasm == null),
+         'PluginTileSpec needs exactly one of command/wasm',
+       );
 
   /// True when this tile is polled via a sandboxed wasm module.
   bool get isWasm => wasm != null;
@@ -146,6 +159,21 @@ class PluginTileSpec {
 
   static final _hexRe = RegExp(r'^#[0-9a-fA-F]{6}$');
   static bool _isValidHexColor(String s) => _hexRe.hasMatch(s);
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PluginTileSpec &&
+          other.title == title &&
+          other.accentColorHex == accentColorHex &&
+          other.command == command &&
+          other.wasm == wasm &&
+          other.pollInterval == pollInterval &&
+          other.timeout == timeout;
+
+  @override
+  int get hashCode =>
+      Object.hash(title, accentColorHex, command, wasm, pollInterval, timeout);
 }
 
 /// One key/value pair rendered as a row inside a plugin tile. Plain

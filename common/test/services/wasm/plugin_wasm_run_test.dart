@@ -25,6 +25,17 @@ const tileWat = r'''
     (drop (call $fdw (i32.const 1) (i32.const 300) (i32.const 1) (i32.const 320)))))
 ''';
 
+// A tile export that never returns — used to prove that
+// runPluginWasm's `timeout` param tightens the wall-clock cap
+// independent of the (larger) default sandbox limit.
+const spinTileWat = r'''
+(module
+  (import "nixblitz" "host_call" (func $hc (param i32 i32) (result i64)))
+  (memory (export "memory") 1)
+  (func (export "alloc") (param i32) (result i32) (i32.const 0))
+  (func (export "tile") (loop $l br $l)))
+''';
+
 class FakeExecutor implements BitcoinRpcExecutor {
   final List<String> calls = [];
   @override
@@ -88,4 +99,62 @@ void main() {
     // No "> wasm action" header; stdout is the flat JSON the guest emitted.
     expect(out.trim(), '{"Network":"regtest"}');
   });
+
+  // A manifest with the max fuel budget and a generous 10s sandbox
+  // wall-clock limit — the spinning guest must not run out of fuel
+  // before the (tighter) `timeout:` param's epoch interrupt fires, or
+  // the test would prove nothing about the wall-clock cap.
+  PluginManifest mfHighFuel() => PluginManifest.fromJson({
+    'manifest': {'schema_version': 5, 'name': 'T'},
+    'id': 'tplugin',
+    'actions': {
+      'a': {
+        'label': 'a',
+        'wasm': {'module': 't.wasm'},
+      },
+    },
+    'sandbox': {
+      'bitcoin_rpc': {
+        'methods': ['getblockchaininfo'],
+      },
+      'limits': {'fuel': maxFuel, 'timeout_seconds': 10},
+    },
+  });
+
+  test(
+    'timeout param tightens the wall clock below the sandbox default',
+    () async {
+      // Compile the spinning WAT to a .wasm on disk.
+      final engine = Engine(WasmtimeLibrary.discover());
+      final bytes = watToWasm(engine, spinTileWat);
+      engine.dispose();
+      File('${tmp.path}/spin.wasm').writeAsBytesSync(bytes);
+
+      // The manifest's sandbox.limits.timeout_seconds is 10s — a 1s
+      // `timeout` here proves the tile poller's dashboard.timeout_seconds
+      // is enforced well before the sandbox's own (much larger) limit
+      // would trip.
+      final run = await runPluginWasm(
+        runner: runner,
+        manifest: mfHighFuel(),
+        pluginDir: tmp.path,
+        moduleRelPath: 'spin.wasm',
+        export: 'tile',
+        stateDir: '${tmp.path}/state',
+        executor: executor,
+        quiet: true,
+        timeout: const Duration(seconds: 1),
+      );
+      final out = <String>[];
+      run.output.listen(out.add);
+      final sw = Stopwatch()..start();
+      final code = await run.exitCode;
+      sw.stop();
+      expect(code, isNot(0));
+      expect(out.join(), contains('time budget'));
+      // Comfortably under the 10s sandbox default — proves the 1s
+      // `timeout` cap fired, not the sandbox limit.
+      expect(sw.elapsed, lessThan(const Duration(seconds: 5)));
+    },
+  );
 }
