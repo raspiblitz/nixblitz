@@ -10,6 +10,35 @@
 /// into actual `Color` instances at render time.
 library;
 
+/// A `wasm` tile data source — the tile is polled by running a plugin
+/// wasm module's export, whose stdout is a flat tile-state JSON object.
+class WasmTileSource {
+  const WasmTileSource({required this.module, this.export = 'tile'});
+
+  /// Plugin-dir-relative path to the compiled `.wasm`.
+  final String module;
+
+  /// Exported guest function to invoke (no params, no results).
+  final String export;
+
+  factory WasmTileSource.fromJson(Map<String, dynamic> json) {
+    final module = json['module'];
+    if (module is! String || module.isEmpty) {
+      throw const FormatException('dashboard.wasm.module is required');
+    }
+    final export = json['export'] as String? ?? 'tile';
+    if (export.isEmpty) {
+      throw const FormatException('dashboard.wasm.export must be non-empty');
+    }
+    return WasmTileSource(module: module, export: export);
+  }
+
+  Map<String, dynamic> toJson() => {
+    'module': module,
+    if (export != 'tile') 'export': export,
+  };
+}
+
 /// Static plugin-tile declaration from plugin.json.
 class PluginTileSpec {
   /// Tile heading.
@@ -19,9 +48,12 @@ class PluginTileSpec {
   /// to a neutral grey when absent.
   final String accentColorHex;
 
-  /// Shell command polled at [pollInterval]. Output is parsed as
-  /// JSON per the tile-state protocol (see plugins.md Phase 3 plan).
-  final String command;
+  /// Shell command polled at [pollInterval]. Mutually exclusive with
+  /// [wasm]. Output is parsed as flat tile-state JSON.
+  final String? command;
+
+  /// Sandboxed wasm data source. Mutually exclusive with [command].
+  final WasmTileSource? wasm;
 
   final Duration pollInterval;
   final Duration timeout;
@@ -32,10 +64,14 @@ class PluginTileSpec {
   const PluginTileSpec({
     required this.title,
     this.accentColorHex = _defaultAccent,
-    required this.command,
+    this.command,
+    this.wasm,
     this.pollInterval = const Duration(seconds: 30),
     this.timeout = const Duration(seconds: 5),
   });
+
+  /// True when this tile is polled via a sandboxed wasm module.
+  bool get isWasm => wasm != null;
 
   factory PluginTileSpec.fromJson(Map<String, dynamic> json) {
     final title = json['title'] as String?;
@@ -43,8 +79,23 @@ class PluginTileSpec {
       throw const FormatException('dashboard.title is required');
     }
     final command = json['command'] as String?;
-    if (command == null || command.isEmpty) {
-      throw const FormatException('dashboard.command is required');
+    final wasmRaw = json['wasm'];
+    final wasm = wasmRaw is Map<String, dynamic>
+        ? WasmTileSource.fromJson(wasmRaw)
+        : null;
+    final sources = [command, wasm].where((v) => v != null).length;
+    if (sources == 0) {
+      throw const FormatException(
+        'dashboard must declare either `command` or `wasm`',
+      );
+    }
+    if (sources > 1) {
+      throw const FormatException(
+        'dashboard declares both `command` and `wasm`; pick one',
+      );
+    }
+    if (command != null && command.isEmpty) {
+      throw const FormatException('dashboard.command must be non-empty');
     }
     final pollSec = json['poll_interval_seconds'] as int? ?? 30;
     if (pollSec < _minPollInterval.inSeconds) {
@@ -77,6 +128,7 @@ class PluginTileSpec {
       title: title,
       accentColorHex: accent,
       command: command,
+      wasm: wasm,
       pollInterval: Duration(seconds: pollSec),
       timeout: Duration(seconds: timeoutSec),
     );
@@ -85,7 +137,8 @@ class PluginTileSpec {
   Map<String, dynamic> toJson() => {
     'title': title,
     if (accentColorHex != _defaultAccent) 'accent_color': accentColorHex,
-    'command': command,
+    if (command != null) 'command': command,
+    if (wasm != null) 'wasm': wasm!.toJson(),
     if (pollInterval.inSeconds != 30)
       'poll_interval_seconds': pollInterval.inSeconds,
     if (timeout.inSeconds != 5) 'timeout_seconds': timeout.inSeconds,

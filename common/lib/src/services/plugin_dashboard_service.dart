@@ -179,8 +179,23 @@ class _PluginPoller {
   Future<void> _poll() async {
     if (_disposed) return;
     try {
+      if (spec.isWasm) {
+        // Wasm tile polling lands in a later task once the sandboxed
+        // runtime is wired up here; until then, surface a pending
+        // tile instead of silently doing nothing.
+        _latest = PluginTileSnapshot(
+          title: spec.title,
+          accentColorHex: spec.accentColorHex,
+          statusLabel: 'pending',
+          statusColor: PluginTileStatus.warn,
+          footer: 'wasm dashboard tiles are not yet supported',
+          footerColor: PluginTileStatus.warn,
+        );
+        onSnapshot(_latest);
+        return;
+      }
       final result = await runner.runOneShot(
-        command: spec.command,
+        command: spec.command!,
         timeout: spec.timeout,
       );
       if (_disposed) return;
