@@ -75,7 +75,16 @@ class _AppContentState extends State<_AppContent>
         // docs pages) agree on the prefix.
         dataLoaders: [
           MemoryDataLoader({
-            'site': {'base': kBasePath.isEmpty ? '/' : '$kBasePath/'},
+            // Root build (no base path): pass `false` so jaspr_content
+            // emits NO <base> tag (its buildLayout maps bool→`base ? '/' :
+            // null`, and Document(base: null) omits it) — matching the
+            // root-served pages in main.server.dart. A `<base href="/">`
+            // here hijacks every relative + fragment link on a nested
+            // /docs/<slug> page (e.g. `#anchor` → `/#anchor`); all our
+            // real resource/nav URLs are absolute via href(), so the base
+            // buys nothing and only breaks in-page anchors. Under a subpath
+            // deploy, keep the prefix string so href()-free relatives resolve.
+            'site': {'base': kBasePath.isEmpty ? false : '$kBasePath/'},
           }),
         ],
         layouts: [
