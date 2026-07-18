@@ -21,6 +21,7 @@ void _seedPluginWithTileCommand(
   required String tileCommand,
   Duration pollInterval = const Duration(seconds: 5),
   bool disabled = false,
+  bool withConfigSchema = false,
 }) {
   final dir = Directory('${home.path}/plugins/$id');
   dir.createSync(recursive: true);
@@ -29,6 +30,20 @@ void _seedPluginWithTileCommand(
     jsonEncode({
       'manifest': {'schema_version': 2, 'min_tui_version': 2, 'name': id},
       'id': id,
+      if (withConfigSchema) 'module': '$id.nix',
+      if (withConfigSchema)
+        'config_schema': {
+          'id': id,
+          'label': id,
+          'fields': [
+            {
+              'name': 'enable',
+              'label': 'Enable',
+              'type': 'bool',
+              'default': false,
+            },
+          ],
+        },
       'dashboard': {
         'title': id,
         'command': tileCommand,
@@ -256,14 +271,17 @@ void main() {
     });
 
     test('does not poll a plugin whose config enabled is false', () async {
-      // Arrange: plugin has a dashboard block and a valid marker, but the
-      // operator config marks it as disabled (enabled=false). The service
-      // must not spin up a poller for it.
+      // Arrange: plugin has a dashboard block, a `config_schema` (so it
+      // has an enable toggle), and a valid marker, but the operator
+      // config marks it as disabled (enabled=false). The service must
+      // not spin up a poller for it. (A config-less/logic-only plugin
+      // has no toggle and polls regardless — see tilePollEnabled.)
       _writePluginConfig(home, 'demo', enabled: false);
       _seedPluginWithTileCommand(
         home,
         'demo',
         tileCommand: r'''echo '{"_status_label":"online"}' ''',
+        withConfigSchema: true,
       );
 
       final container = _makeContainer(home);

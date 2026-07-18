@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:riverpod/riverpod.dart';
 
+import 'package:common/src/models/plugin/plugin_manifest.dart';
 import 'package:common/src/models/plugin/plugin_tile.dart';
 import 'package:common/src/providers/config_provider.dart';
 import 'package:common/src/providers/installed_plugins_provider.dart';
@@ -12,6 +14,21 @@ import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
 import 'package:common/src/services/plugin_action_runner.dart';
 import 'package:common/src/services/plugin_service.dart';
+import 'package:common/src/services/wasm/plugin_wasm_run.dart';
+import 'package:common/src/services/wasm/wasm_action_runner.dart';
+
+/// Whether a plugin's dashboard tile should poll. A plugin with a
+/// `config_schema` has an enable toggle — poll only when enabled (its
+/// daemon is off otherwise, so polling would churn errors). A config-less
+/// (logic-only) plugin has no toggle and no daemon; poll it whenever it's
+/// installed (the caller already excluded disabled markers).
+bool tilePollEnabled({
+  required PluginManifest manifest,
+  required bool Function(String id) isAppEnabled,
+}) {
+  if (manifest.configSchema == null) return true;
+  return isAppEnabled(manifest.id);
+}
 
 /// Polls each installed plugin's `dashboard` command at its declared
 /// interval, parses the JSON output into a [PluginTileSnapshot],
@@ -92,23 +109,23 @@ class PluginDashboardService {
     final markers = discoverInstalledMarkers(_pluginsDir);
     final config = _ref.read(configProvider).value;
 
-    final desired = <String, PluginTileSpec>{};
+    final desired = <String, _DesiredTile>{};
     for (final m in markers) {
       if (m.disabled) continue;
-      // Operator's per-plugin enabled toggle — a disabled plugin's daemon
-      // is off, so polling it would just churn errors. Mirrors the gate in
-      // dashboard_provider. Config not loaded yet → skip (re-reconciles on
-      // load via the configProvider listener added in the constructor).
-      if (config == null || !config.isAppEnabled(m.id)) continue;
       try {
         final manifest = _pluginService.readManifest(m.id);
         final spec = manifest.dashboard;
         if (spec == null) continue;
-        desired[m.id] = spec;
+        final cfg = config;
+        final enabled = tilePollEnabled(
+          manifest: manifest,
+          isAppEnabled: (id) => cfg?.isAppEnabled(id) ?? false,
+        );
+        if (!enabled) continue;
+        desired[m.id] = _DesiredTile(spec: spec, manifest: manifest);
       } catch (e, st) {
         LogService.warn(
-          'PluginDashboardService: failed to read manifest for '
-          '${m.id}: $e',
+          'PluginDashboardService: failed to read manifest for ${m.id}: $e',
         );
         LogService.error('manifest read', e, st);
       }
@@ -126,7 +143,8 @@ class PluginDashboardService {
     // user edited config that changes interval — rare but covered).
     for (final entry in desired.entries) {
       final id = entry.key;
-      final spec = entry.value;
+      final tile = entry.value;
+      final spec = tile.spec;
       final existing = _pollers[id];
       if (existing != null && existing.spec == spec) continue;
       existing?.dispose();
@@ -134,6 +152,12 @@ class PluginDashboardService {
         pluginId: id,
         spec: spec,
         runner: _runner,
+        wasmRunner: spec.isWasm ? _ref.read(wasmActionRunnerProvider) : null,
+        manifest: spec.isWasm ? tile.manifest : null,
+        pluginDir: spec.isWasm ? '$_pluginsDir/$id' : null,
+        stateDir: spec.isWasm
+            ? '${Platform.environment['HOME'] ?? '.'}/nixblitz/state/sandbox'
+            : null,
         onSnapshot: (_) => _emit(),
       )..start();
     }
@@ -142,12 +166,27 @@ class PluginDashboardService {
   }
 }
 
+/// Bundles a tile's poll spec with the manifest it came from — the
+/// manifest carries the `sandbox:` block a wasm tile poll needs.
+class _DesiredTile {
+  const _DesiredTile({required this.spec, required this.manifest});
+  final PluginTileSpec spec;
+  final PluginManifest manifest;
+}
+
 /// Per-plugin poll loop + latest snapshot.
 class _PluginPoller {
   final String pluginId;
   final PluginTileSpec spec;
   final PluginActionRunner runner;
   final void Function(PluginTileSnapshot?) onSnapshot;
+
+  /// Set only when [spec] is a wasm tile — threaded through to
+  /// [runPluginWasm] on each poll.
+  final WasmActionRunner? wasmRunner;
+  final PluginManifest? manifest;
+  final String? pluginDir;
+  final String? stateDir;
 
   Timer? _timer;
   PluginTileSnapshot? _latest;
@@ -158,6 +197,10 @@ class _PluginPoller {
     required this.spec,
     required this.runner,
     required this.onSnapshot,
+    this.wasmRunner,
+    this.manifest,
+    this.pluginDir,
+    this.stateDir,
   });
 
   PluginTileSnapshot? get latest => _latest;
@@ -179,25 +222,30 @@ class _PluginPoller {
   Future<void> _poll() async {
     if (_disposed) return;
     try {
+      final ({int exitCode, String stdout, String stderr}) result;
       if (spec.isWasm) {
-        // Wasm tile polling lands in a later task once the sandboxed
-        // runtime is wired up here; until then, surface a pending
-        // tile instead of silently doing nothing.
-        _latest = PluginTileSnapshot(
-          title: spec.title,
-          accentColorHex: spec.accentColorHex,
-          statusLabel: 'pending',
-          statusColor: PluginTileStatus.warn,
-          footer: 'wasm dashboard tiles are not yet supported',
-          footerColor: PluginTileStatus.warn,
+        final run = await runPluginWasm(
+          runner: wasmRunner!,
+          manifest: manifest!,
+          pluginDir: pluginDir!,
+          moduleRelPath: spec.wasm!.module,
+          export: spec.wasm!.export,
+          stateDir: stateDir!,
+          quiet: true,
         );
-        onSnapshot(_latest);
-        return;
+        final out = await run.output.join();
+        final ec = await run.exitCode;
+        result = (
+          exitCode: ec,
+          stdout: ec == 0 ? out : '',
+          stderr: ec == 0 ? '' : out,
+        );
+      } else {
+        result = await runner.runOneShot(
+          command: spec.command!,
+          timeout: spec.timeout,
+        );
       }
-      final result = await runner.runOneShot(
-        command: spec.command!,
-        timeout: spec.timeout,
-      );
       if (_disposed) return;
       _latest = _interpret(result);
     } catch (e, st) {
