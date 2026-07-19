@@ -44,13 +44,16 @@ Grab the **NixOS 25.11 minimal ISO** from
 The graphical ISO works too if you prefer a graphical console;
 neither is "more correct."
 
-NixBlitz is **not** a custom ISO on x86. You boot stock NixOS and
-bootstrap the TUI from the network on first run; the same flake on
-disk then handles runtime + updates. (Pi 5 is different — see the
-Pi 5 section below: NixOS upstream doesn't ship Pi 5 firmware /
-vendor kernel / matched bootloader, so we currently ride on the
-third-party `nvmd/nixos-raspberrypi` live image. A NixBlitz-branded
-Pi 5 image is on the roadmap.)
+On x86 you have two routes: boot stock NixOS and bootstrap the TUI
+from the network on first run (best on ≥ 8 GB machines), or flash the
+prebuilt, offline **NixBlitz ISO** (TUI + install closure baked in;
+best for VMs / low-RAM). Either way the same flake on disk then
+handles runtime + updates. (Pi 5 is different — see the Pi 5 section
+below: NixOS upstream doesn't ship Pi 5 firmware / vendor kernel /
+matched bootloader, so the network route rides the third-party
+`nvmd/nixos-raspberrypi` live image, or use the prebuilt NixBlitz
+Pi 5 image.) Building & releasing both media is documented in
+`docs/releasing-installer-images.md`.
 
 ## Create the VM
 
@@ -454,10 +457,10 @@ boots from USB (default boot order priority).
 >    - public key as flags so you don't have to configure it
 >      separately.
 >
-> Replacing the live image with a NixBlitz-branded one that uses
-> a known `admin` / "nixblitz" initial-password setup (matching
-> x86) — and bakes the closure in so none of the above matters —
-> is on the roadmap; not today.
+> To skip all of this, use the prebuilt **NixBlitz Pi 5 image** —
+> known `nixos` / `nixblitz` login, closure baked in, no network
+> bootstrap. This upstream route is for building from source or the
+> `nix run` path. See `docs/releasing-installer-images.md`.
 
 To set a known root password on the local console (recommended):
 

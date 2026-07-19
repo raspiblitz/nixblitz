@@ -288,6 +288,43 @@ iso-build:
   let iso = (ls result/iso/*.iso | get name | first)
   print $"ISO built: ($iso)"
 
+# Build the aarch64 Raspberry Pi 5 installer image (carries the nixblitz TUI)
+pi5-image:
+  #!/usr/bin/env nu
+  # The artifact and its novel leaves (TUI, toplevel, sd-image) are aarch64 and
+  # NOT in any cache, so a pure-x86 host with no aarch64 capability CANNOT build
+  # this. Enable ONE of: `boot.binfmt.emulatedSystems = ["aarch64-linux"];` on
+  # the builder (qemu emulation), a reachable aarch64 remote builder, or run
+  # this on a Pi 5. Also needs the nixos-raspberrypi.cachix.org +
+  # attic.f44.fyi/nixblitz substituters (16K-page binaries; SIGBUS / multi-hour
+  # kernel rebuild otherwise). See docs/releasing-installer-images.md.
+  # NB: the attribute path already selects aarch64 — do NOT pass `--system
+  # aarch64-linux`, which forces a broken local build ("Exec format error").
+  nix build '.#packages.aarch64-linux.pi5-installer-image'
+  let img = (ls result/sd-image/*.img.zst | get name | first)
+  print $"Pi 5 image built: ($img)"
+
+# Build both installer artifacts + SHA256SUMS, staged under release/<version>/
+release version="dev":
+  #!/usr/bin/env nu
+  # Signing + upload stay manual (see docs/releasing-installer-images.md). The
+  # Pi 5 leg needs aarch64 build capability (see `just pi5-image`).
+  let out = $"release/{{version}}"
+  mkdir $out
+  print "Building x86 installer ISO..."
+  nix build .#installer-iso -o result-iso
+  cp (ls result-iso/iso/*.iso | get name | first) $out
+  print "Building Pi 5 installer image (needs aarch64 build capability)..."
+  nix build '.#packages.aarch64-linux.pi5-installer-image' -o result-pi5
+  cp (ls result-pi5/sd-image/*.img.zst | get name | first) $out
+  cd $out
+  ^sh -c 'sha256sum *.iso *.img.zst > SHA256SUMS'
+  print $"Staged in ($out):"; ls
+  print ""
+  print "Next (manual): sign + publish, e.g."
+  print $"  minisign -Sm {{justfile_directory()}}/($out)/SHA256SUMS"
+  print $"  fj release create {{version}} {{justfile_directory()}}/($out)/*"
+
 # Boot the nixblitz installer ISO in QEMU for testing the installer
 vm-boot:
   #!/usr/bin/env nu

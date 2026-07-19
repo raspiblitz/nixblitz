@@ -27,6 +27,16 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Raspberry Pi 5 vendor kernel + firmware + 16K-page nixpkgs, for the
+    # aarch64 installer image (nix/pi5-image.nix). Deliberately NO follows in
+    # either direction: nixos-raspberrypi pins its own nixpkgs (the rev its
+    # cachix cache is built against) and the Pi 5 image must build against
+    # THAT — making it follow our nixpkgs would diverge the derivation hash,
+    # force a multi-hour local kernel rebuild, and risk 16K-page SIGBUS. Same
+    # rule as templates/flake.nix; see CLAUDE.md → Flake input rules.
+    # Tag-pinned: bump deliberately, never via a blind `nix flake update`.
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
   };
 
   outputs = {
@@ -37,6 +47,7 @@
     flake-utils,
     nix-filter,
     disko,
+    nixos-raspberrypi,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (
@@ -132,6 +143,25 @@
               .system
               .build
               .isoImage;
+          }
+          # NixBlitz Raspberry Pi 5 installer image — a dev/release artifact
+          # (see nix/pi5-image.nix). Gated to aarch64-linux: it's an aarch64
+          # live medium built via nixos-raspberrypi. Build needs an aarch64
+          # builder (or binfmt) + the nixos-raspberrypi.cachix.org and
+          # attic.f44.fyi/nixblitz substituters (see docs/releasing-installer-images.md).
+          // lib.optionalAttrs (system == "aarch64-linux") {
+            pi5-installer-image =
+              (import ./nix/pi5-image.nix {
+                inherit nixos-raspberrypi;
+                nixblitzPackage = nixblitzWrapped;
+                installerClosure = import ./nix/pi5-installer-system.nix {
+                  inherit self nixos-raspberrypi disko;
+                };
+              })
+              .config
+              .system
+              .build
+              .sdImage;
           };
 
         apps.default = {

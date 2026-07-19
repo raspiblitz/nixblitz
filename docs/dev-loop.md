@@ -79,12 +79,12 @@ The truth-test for anything that hits NixOS:
 just vm-boot
 ```
 
-`vm-boot` boots the NixOS ISO from
-`~/Downloads/nixos-minimal-25.11.*.iso` (edit the path in the
-justfile if yours differs) inside qemu, with port 22 forwarded to
-host port 10022. Walk the install wizard inside the VM exactly
-like a real Proxmox install (see
-[getting-started.md](getting-started.md)).
+`vm-boot` builds the TUI-carrying `.#installer-iso` if it isn't
+already present (`just iso-build`) and boots it inside qemu, with
+port 22 forwarded to host port 10022. Walk the install wizard inside
+the VM exactly like a real Proxmox install (see
+[getting-started.md](getting-started.md)). Building & releasing the
+installer media: [releasing-installer-images.md](releasing-installer-images.md).
 
 After install completes, the VM reboots. Subsequent boots use the
 same disk image:

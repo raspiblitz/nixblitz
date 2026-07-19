@@ -25,10 +25,10 @@ differs.
 NixBlitz currently supports two platforms. Pick whichever matches
 the hardware you have.
 
-| Platform | When to use                                                                                  | Live-image source                                                                                                                                                                  |
-| -------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **x86**  | Evaluating in a VM (Proxmox / qemu / libvirt) or running on a NUC, server, or repurposed PC. | Stock NixOS 25.11 minimal ISO from [nixos.org/download](https://nixos.org/download/). NixBlitz isn't baked in — the TUI bootstraps over the network on first run.                  |
-| **Pi 5** | Production node on dedicated hardware. Pi 5 8 GB recommended, NVMe via the official M.2 HAT. | Third-party `nvmd/nixos-raspberrypi` live image (NixOS upstream doesn't ship Pi 5 firmware / vendor kernel / matched bootloader). A NixBlitz-branded Pi 5 image is on the roadmap. |
+| Platform | When to use                                                                                  | Live-image source                                                                                                                                                                                                                                                                                              |
+| -------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **x86**  | Evaluating in a VM (Proxmox / qemu / libvirt) or running on a NUC, server, or repurposed PC. | **Prebuilt NixBlitz ISO** (offline, TUI baked in) from the [releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases) — best for VMs and lower-RAM boxes; or the stock NixOS 25.11 minimal ISO from [nixos.org/download](https://nixos.org/download/) + a network bootstrap on machines with ≥ 8 GB RAM.  |
+| **Pi 5** | Production node on dedicated hardware. Pi 5 8 GB recommended, NVMe via the official M.2 HAT. | **Prebuilt NixBlitz Pi 5 image** (offline, download-and-flash) from the [releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases); or build & flash the third-party `nvmd/nixos-raspberrypi` image + network bootstrap (NixOS upstream doesn't ship Pi 5 firmware / vendor kernel / matched bootloader). |
 
 Once installed, the same flake on disk handles runtime + updates
 on both platforms. The asymmetry today is purely about how you get
@@ -74,12 +74,38 @@ hardware instead of a hypervisor.
 
 ## 1. Get the live image
 
-### x86: stock NixOS ISO
+Two routes, pick by RAM and use-case. The **prebuilt NixBlitz
+images** ([releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases))
+bake the whole install closure, so a VM, a low-RAM box, or an
+offline install never does a memory-heavy on-device build — flash
+and go. A machine with **≥ 8 GB RAM and a network** can instead take
+the lighter **official image + network bootstrap** (the TUI pulls
+itself over the network on first run). Both end at the same install
+wizard.
 
-Grab the **NixOS 25.11 minimal ISO** from
+### x86: prebuilt NixBlitz ISO (VMs / low-RAM)
+
+Download `nixblitz-installer.iso` from the
+[releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases). It
+carries the TUI and an offline install closure, so nothing is
+fetched during install. Attach it to the VM, or flash it to a USB
+stick for bare metal:
+
+```bash
+sudo dd if=nixblitz-installer.iso of=/dev/sdX bs=4M conv=fsync status=progress
+```
+
+(Building it yourself, or cutting a release, is documented in
+`docs/releasing-installer-images.md`.)
+
+### x86: stock NixOS ISO (≥ 8 GB RAM, network bootstrap)
+
+Alternatively, grab the **NixOS 25.11 minimal ISO** from
 [nixos.org/download](https://nixos.org/download/) (about 1 GB).
 The graphical ISO works too if you prefer a graphical console;
-neither is "more correct."
+neither is "more correct." The TUI bootstraps over the network on
+first run (§3), so this path wants a machine that can build the
+config locally — hence the ≥ 8 GB guidance.
 
 You don't need Nix on your host. Everything happens inside the VM
 (or on bare metal).
@@ -87,25 +113,34 @@ You don't need Nix on your host. Everything happens inside the VM
 ### Pi 5: live image
 
 NixOS upstream doesn't ship Pi 5 firmware / vendor kernel /
-matched bootloader, so the live image source is currently
-third-party. The end-to-end flow mirrors x86 — same bootstrap
-command, same install wizard — only the live image differs.
+matched bootloader, so there's no vanilla NixOS Pi 5 medium — and
+no "official" image to just download. Two routes:
 
-**Future — NixBlitz-built image (planned):**
+**Prebuilt NixBlitz Pi 5 image (offline, download-and-flash):**
 
-> A pre-built `.img.zst` will be hosted here. URL will go here
-> once the first NixBlitz Pi 5 image lands.
->
-> _Placeholder: `https://<TBD>/nixblitz-pi5-installer.img.zst`._
+Download `nixblitz-pi5-installer.img.zst` from the
+[releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases). Like
+the x86 ISO it bakes the TUI + the offline install closure and uses
+a known `nixos` / `nixblitz` login, so none of the upstream rough
+edges below apply. Flash it (the `.img.zst` is zstd-compressed):
 
-**Today — build the upstream image yourself:**
+```bash
+zstd -dc nixblitz-pi5-installer.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+```
 
-NixBlitz layers on the third-party
+Raspberry Pi Imager flashes `.img.zst` natively too. Then skip to
+§2 — no network bootstrap needed.
+
+**Build & flash the upstream image yourself (≥ 8 GB, network bootstrap):**
+
+The end-to-end flow mirrors x86 — same bootstrap command, same
+install wizard — only the live image differs. NixBlitz layers on the
+third-party
 [`nvmd/nixos-raspberrypi`](https://github.com/nvmd/nixos-raspberrypi)
-flake (pinned to a specific tag).
+flake (pinned to a specific tag), which doesn't publish pre-built
+`.img` files, so you build it:
 
-Upstream doesn't publish pre-built `.img` files, but they do
-maintain a Cachix binary cache for the heavy bits (vendor
+Upstream maintains a Cachix binary cache for the heavy bits (vendor
 kernel, firmware, installer closure). **Enable it before
 building** — otherwise `nix build` will try to compile the
 kernel locally, which on x86 means cross-compilation or qemu
@@ -164,10 +199,11 @@ run` against a `git+https://…` URL); drop into
 >    public key as flags so you don't have to configure it
 >    separately.
 >
-> Replacing the live image with a NixBlitz-branded one — that
-> uses a known `admin` / `nixblitz` initial-password setup
-> (matching x86), bakes the closure in, and ships pre-built — is
-> on the roadmap. Until that lands, the above is the path.
+> To skip all of this, use the **prebuilt NixBlitz Pi 5 image**
+> above — it bakes the closure in, ships with a known `nixos` /
+> `nixblitz` login, and needs no network bootstrap. This upstream
+> route is for building from source or when you specifically want
+> the `nix run` path.
 
 ## 2. Boot the live environment
 
