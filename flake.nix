@@ -36,7 +36,7 @@
     # force a multi-hour local kernel rebuild, and risk 16K-page SIGBUS. Same
     # rule as templates/flake.nix; see CLAUDE.md → Flake input rules.
     # Tag-pinned: bump deliberately, never via a blind `nix flake update`.
-    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/v1.20260707.1";
   };
 
   outputs = {

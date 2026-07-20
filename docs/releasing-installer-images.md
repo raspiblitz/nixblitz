@@ -70,7 +70,7 @@ just pi5-image          # → result/sd-image/nixblitz-pi5-installer.img.zst
   substitutes → SIGBUS. `attic.f44.fyi/nixblitz` carries the nixblitz-specific
   Pi 5 leaves (issue #24 jemalloc) for a fast offline-closure resolve.
 
-The `nixos-raspberrypi` input is **tag-pinned** (`v1.20260411.0`) with no
+The `nixos-raspberrypi` input is **tag-pinned** (`v1.20260707.1`) with no
 `follows` — the Pi 5 image must build against nvmd's own nixpkgs (the rev their
 cachix is built against). Never bump it via a blind `nix flake update`; see
 CLAUDE.md → Flake input rules.
@@ -83,7 +83,7 @@ vanilla nixos-raspberrypi image (documented in
 
 ```bash
 nix run nixpkgs#cachix -- use nixos-raspberrypi        # one-time, on the build machine
-nix build github:nvmd/nixos-raspberrypi/v1.20260411.0#installerImages.rpi5
+nix build github:nvmd/nixos-raspberrypi/v1.20260707.1#installerImages.rpi5
 zstd -dc result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 

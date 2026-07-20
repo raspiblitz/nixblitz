@@ -52,7 +52,7 @@ const String _flake = r'''
     # dev target where the lag doesn't hurt; Pi 5 is the production
     # target where cache alignment is load-bearing.
     nixos-raspberrypi = {
-      url = "github:nvmd/nixos-raspberrypi/v1.20260411.0";
+      url = "github:nvmd/nixos-raspberrypi/v1.20260707.1";
     };
     nixpkgs.follows = "nixos-raspberrypi/nixpkgs";
     disko = {

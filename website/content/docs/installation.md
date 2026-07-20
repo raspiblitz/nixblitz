@@ -158,7 +158,7 @@ Cachix):
 
 ```bash
 nix --experimental-features "nix-command flakes" build \
-  github:nvmd/nixos-raspberrypi/v1.20260411.0#installerImages.rpi5
+  github:nvmd/nixos-raspberrypi/v1.20260707.1#installerImages.rpi5
 ```
 
 First run downloads ~500 MB. The result is a
