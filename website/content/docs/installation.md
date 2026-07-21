@@ -25,10 +25,10 @@ differs.
 NixBlitz currently supports two platforms. Pick whichever matches
 the hardware you have.
 
-| Platform | When to use                                                                                  | Live-image source                                                                                                                                                                                                                                                                                              |
-| -------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **x86**  | Evaluating in a VM (Proxmox / qemu / libvirt) or running on a NUC, server, or repurposed PC. | **Prebuilt NixBlitz ISO** (offline, TUI baked in) from the [releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases) — best for VMs and lower-RAM boxes; or the stock NixOS 25.11 minimal ISO from [nixos.org/download](https://nixos.org/download/) + a network bootstrap on machines with ≥ 8 GB RAM.  |
-| **Pi 5** | Production node on dedicated hardware. Pi 5 8 GB recommended, NVMe via the official M.2 HAT. | **Prebuilt NixBlitz Pi 5 image** (offline, download-and-flash) from the [releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases); or build & flash the third-party `nvmd/nixos-raspberrypi` image + network bootstrap (NixOS upstream doesn't ship Pi 5 firmware / vendor kernel / matched bootloader). |
+| Platform | When to use                                                                                  | Live-image source                                                                                                                                                                                                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **x86**  | Evaluating in a VM (Proxmox / qemu / libvirt) or running on a NUC, server, or repurposed PC. | [**Prebuilt NixBlitz ISO**](https://zipline.f44.fyi/u/nixblitz-x86-installer-1.iso) (offline, TUI baked in) — best for VMs and lower-RAM boxes; or the stock NixOS 25.11 minimal ISO from [nixos.org/download](https://nixos.org/download/) + a network bootstrap on machines with ≥ 8 GB RAM.      |
+| **Pi 5** | Production node on dedicated hardware. Pi 5 8 GB recommended, NVMe via the official M.2 HAT. | [**Prebuilt NixBlitz Pi 5 image**](https://zipline.f44.fyi/u/nixblitz-pi5-installer-1.img.zst) (offline, download-and-flash); or build & flash the third-party `nvmd/nixos-raspberrypi` image + network bootstrap (NixOS upstream doesn't ship Pi 5 firmware / vendor kernel / matched bootloader). |
 
 Once installed, the same flake on disk handles runtime + updates
 on both platforms. The asymmetry today is purely about how you get
@@ -75,7 +75,7 @@ hardware instead of a hypervisor.
 ## 1. Get the live image
 
 Two routes, pick by RAM and use-case. The **prebuilt NixBlitz
-images** ([releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases))
+images** (direct download links per platform below)
 bake the whole install closure, so a VM, a low-RAM box, or an
 offline install never does a memory-heavy on-device build — flash
 and go. A machine with **≥ 8 GB RAM and a network** can instead take
@@ -85,8 +85,7 @@ wizard.
 
 ### x86: prebuilt NixBlitz ISO (VMs / low-RAM)
 
-Download `nixblitz-installer.iso` from the
-[releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases). It
+Download [`nixblitz-installer.iso`](https://zipline.f44.fyi/u/nixblitz-x86-installer-1.iso). It
 carries the TUI and an offline install closure, so nothing is
 fetched during install. Attach it to the VM, or flash it to a USB
 stick for bare metal:
@@ -118,8 +117,7 @@ no "official" image to just download. Two routes:
 
 **Prebuilt NixBlitz Pi 5 image (offline, download-and-flash):**
 
-Download `nixblitz-pi5-installer.img.zst` from the
-[releases page](https://forge.f44.fyi/f44/nixblitz_ng/releases). Like
+Download [`nixblitz-pi5-installer.img.zst`](https://zipline.f44.fyi/u/nixblitz-pi5-installer-1.img.zst). Like
 the x86 ISO it bakes the TUI + the offline install closure and uses
 a known `nixos` / `nixblitz` login, so none of the upstream rough
 edges below apply. Flash it (the `.img.zst` is zstd-compressed):

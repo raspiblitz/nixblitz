@@ -46,13 +46,15 @@ neither is "more correct."
 
 On x86 you have two routes: boot stock NixOS and bootstrap the TUI
 from the network on first run (best on ≥ 8 GB machines), or flash the
-prebuilt, offline **NixBlitz ISO** (TUI + install closure baked in;
-best for VMs / low-RAM). Either way the same flake on disk then
-handles runtime + updates. (Pi 5 is different — see the Pi 5 section
-below: NixOS upstream doesn't ship Pi 5 firmware / vendor kernel /
-matched bootloader, so the network route rides the third-party
-`nvmd/nixos-raspberrypi` live image, or use the prebuilt NixBlitz
-Pi 5 image.) Building & releasing both media is documented in
+prebuilt, offline [**NixBlitz ISO**](https://zipline.f44.fyi/u/nixblitz-x86-installer-1.iso)
+(TUI + install closure baked in; best for VMs / low-RAM). Either way
+the same flake on disk then handles runtime + updates. (Pi 5 is
+different — see the Pi 5 section below: NixOS upstream doesn't ship
+Pi 5 firmware / vendor kernel / matched bootloader, so the network
+route rides the third-party `nvmd/nixos-raspberrypi` live image, or
+use the prebuilt
+[**NixBlitz Pi 5 image**](https://zipline.f44.fyi/u/nixblitz-pi5-installer-1.img.zst).)
+Building & releasing both media is documented in
 `docs/releasing-installer-images.md`.
 
 ## Create the VM
