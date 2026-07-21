@@ -1,6 +1,8 @@
 import 'package:nocterm/nocterm.dart';
 import 'package:common/common.dart';
 
+import 'popup_chrome.dart';
+
 /// An inline popup that shows a list of options for the user to pick from.
 /// j/k navigates, Enter confirms, Esc cancels.
 class SelectPopup extends StatelessComponent {
@@ -54,12 +56,7 @@ class SelectPopup extends StatelessComponent {
           return true;
         }
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 0),
-        decoration: BoxDecoration(
-          border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),
-          color: const Color.fromRGB(36, 36, 54),
-        ),
+      child: PopupChrome(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -67,7 +64,7 @@ class SelectPopup extends StatelessComponent {
             Text(
               title,
               style: const TextStyle(
-                color: Color.fromRGB(247, 147, 26),
+                color: kPopupAccent,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -76,14 +73,12 @@ class SelectPopup extends StatelessComponent {
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 1),
                 decoration: BoxDecoration(
-                  color: isSelected ? const Color.fromRGB(247, 147, 26) : null,
+                  color: isSelected ? kPopupAccent : null,
                 ),
                 child: Text(
                   options[i],
                   style: TextStyle(
-                    color: isSelected
-                        ? const Color.fromRGB(0, 0, 0)
-                        : const Color.fromRGB(200, 200, 200),
+                    color: isSelected ? kPopupSelectedFg : kPopupBody,
                     fontWeight: isSelected
                         ? FontWeight.bold
                         : FontWeight.normal,
@@ -91,9 +86,9 @@ class SelectPopup extends StatelessComponent {
                 ),
               );
             }),
-            Text(
+            const Text(
               '↑/↓ select  Enter confirm  Esc cancel',
-              style: const TextStyle(color: Color.fromRGB(120, 120, 140)),
+              style: TextStyle(color: kPopupDim),
             ),
           ],
         ),

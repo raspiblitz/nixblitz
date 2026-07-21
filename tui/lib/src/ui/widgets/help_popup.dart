@@ -4,6 +4,7 @@ import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
 import '../../providers/viewport_provider.dart';
+import 'popup_chrome.dart';
 
 class HelpPopup extends StatelessComponent {
   final VoidCallback onClose;
@@ -29,13 +30,9 @@ class HelpPopup extends StatelessComponent {
         return false;
       },
       child: Center(
-        child: Container(
+        child: PopupChrome(
           width: width.toDouble(),
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-          decoration: BoxDecoration(
-            border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),
-            color: const Color.fromRGB(24, 24, 36),
-          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +42,7 @@ class HelpPopup extends StatelessComponent {
                   'NixBlitz Help',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: Color.fromRGB(247, 147, 26),
+                    color: kPopupAccent,
                   ),
                 ),
               ),
@@ -104,10 +101,7 @@ class _Section extends StatelessComponent {
     return Center(
       child: Text(
         title,
-        style: const TextStyle(
-          fontWeight: FontWeight.bold,
-          color: Color.fromRGB(200, 200, 200),
-        ),
+        style: const TextStyle(fontWeight: FontWeight.bold, color: kPopupBody),
       ),
     );
   }
@@ -135,10 +129,7 @@ class _HelpItem extends StatelessComponent {
           ),
         ),
         Expanded(
-          child: Text(
-            ': $desc',
-            style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
-          ),
+          child: Text(': $desc', style: const TextStyle(color: kPopupBody)),
         ),
       ],
     );

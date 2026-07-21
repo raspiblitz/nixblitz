@@ -8,6 +8,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
 import '../../providers/viewport_provider.dart';
 import 'password_input.dart';
+import 'popup_chrome.dart';
 
 /// Watches [pendingSudoPromptProvider] and renders a centered,
 /// bordered password modal whenever a [SudoSession.ensureFresh]
@@ -30,13 +31,9 @@ class PasswordOverlay extends StatelessComponent {
     final width = math.min(64, math.max(20, viewportWidth - 4));
 
     return Center(
-      child: Container(
+      child: PopupChrome(
         width: width.toDouble(),
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-        decoration: BoxDecoration(
-          border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),
-          color: const Color.fromRGB(24, 24, 36),
-        ),
         child: PasswordInput(
           title: pending.reason,
           subtitle:

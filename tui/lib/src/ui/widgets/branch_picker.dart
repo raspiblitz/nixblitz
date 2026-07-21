@@ -1,6 +1,8 @@
 import 'package:common/common.dart';
 import 'package:nocterm/nocterm.dart';
 
+import 'popup_chrome.dart';
+
 /// Outcome returned by [branchPickerChoice] — either the operator
 /// picked one of the declared branch rows (and the result carries
 /// the row's key, not its ref) or the trailing "Custom branch…"
@@ -254,18 +256,14 @@ class _BranchPickerState extends State<BranchPicker> {
     return false;
   }
 
-  // Popup style constants — matched to widgets/select_popup.dart so
-  // every overlay picker in the TUI shares the same chrome.
-  static const _accent = Color.fromRGB(247, 147, 26);
-  static const _popupBg = Color.fromRGB(36, 36, 54);
-  static const _bodyColor = Color.fromRGB(200, 200, 200);
-  static const _dimColor = Color.fromRGB(120, 120, 140);
+  // Popup styles pull from the shared palette (widgets/popup_chrome.dart)
+  // so every overlay picker shares one chrome + color set.
   static const _heading = TextStyle(
-    color: _accent,
+    color: kPopupAccent,
     fontWeight: FontWeight.bold,
   );
-  static const _body = TextStyle(color: _bodyColor);
-  static const _dim = TextStyle(color: _dimColor);
+  static const _body = TextStyle(color: kPopupBody);
+  static const _dim = TextStyle(color: kPopupDim);
 
   @override
   Component build(BuildContext context) {
@@ -284,15 +282,10 @@ class _BranchPickerState extends State<BranchPicker> {
           return true;
         }
       },
-      // Bordered popup chrome matching widgets/select_popup.dart —
-      // solid dark background, accent border, MainAxisSize.min sizes
-      // to content so the overlay doesn't fill the screen.
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 0),
-        decoration: BoxDecoration(
-          border: BoxBorder.all(color: _accent),
-          color: _popupBg,
-        ),
+      // The list phases size to content (MainAxisSize.min) so the
+      // overlay doesn't fill the screen; PopupChrome owns the border +
+      // surface.
+      child: PopupChrome(
         child: switch (_phase) {
           _Phase.list => _buildList(),
           _Phase.customInput => _buildCustomInput(),
@@ -313,11 +306,11 @@ class _BranchPickerState extends State<BranchPicker> {
       children.add(
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(color: isSelected ? _accent : null),
+          decoration: BoxDecoration(color: isSelected ? kPopupAccent : null),
           child: Text(
             rows[i],
             style: TextStyle(
-              color: isSelected ? const Color.fromRGB(0, 0, 0) : _bodyColor,
+              color: isSelected ? kPopupSelectedFg : kPopupBody,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
             ),
           ),

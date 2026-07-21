@@ -5,6 +5,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:common/common.dart';
 
 import '../../providers/viewport_provider.dart';
+import 'popup_chrome.dart';
 
 /// Confirm-style popup nudging the operator to apply pending changes.
 /// Surfaced after an action that produces pending changes (plugin
@@ -51,13 +52,9 @@ class ApplyNowPopup extends StatelessComponent {
         }
       },
       child: Center(
-        child: Container(
+        child: PopupChrome(
           width: width.toDouble(),
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
-          decoration: BoxDecoration(
-            border: BoxBorder.all(color: const Color.fromRGB(247, 147, 26)),
-            color: const Color.fromRGB(24, 24, 36),
-          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -65,18 +62,15 @@ class ApplyNowPopup extends StatelessComponent {
               const Text(
                 'Apply now?',
                 style: TextStyle(
-                  color: Color.fromRGB(247, 147, 26),
+                  color: kPopupAccent,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               if (headline != null)
-                Text(
-                  headline!,
-                  style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
-                ),
+                Text(headline!, style: const TextStyle(color: kPopupBody)),
               Text(
                 applyNowPendingSummary(pendingCount),
-                style: const TextStyle(color: Color.fromRGB(200, 200, 200)),
+                style: const TextStyle(color: kPopupBody),
               ),
               const SizedBox(height: 1),
               const Text(
@@ -86,7 +80,7 @@ class ApplyNowPopup extends StatelessComponent {
               const SizedBox(height: 1),
               const Text(
                 '[y] Apply now   [n] Keep working',
-                style: TextStyle(color: Color.fromRGB(120, 120, 140)),
+                style: TextStyle(color: kPopupDim),
               ),
             ],
           ),
