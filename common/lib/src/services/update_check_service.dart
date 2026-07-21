@@ -11,6 +11,7 @@ import 'package:common/src/models/update_status.dart';
 import 'package:common/src/services/update/update_check_types.dart';
 import 'package:common/src/services/update/flake_lock_parse.dart';
 import 'package:common/src/services/update/upstream_prober.dart';
+import 'package:common/src/services/update/bounded_process.dart';
 
 // Re-export so existing importers of update_check_service.dart keep
 // seeing these types (UpstreamProbeResult / NixBuildPlan / parseDryRunStderr
@@ -67,6 +68,16 @@ class UpdateCheckService {
   /// disk. Production default reads `<flakePath>/plugins/` via
   /// [discoverInstalledMarkers].
   final List<PluginMarker> Function() _markersReader;
+
+  // Wall-clock bounds for the shell-outs to nix. Offline, these calls
+  // block forever on a git/https fetch to the forge, leaving the
+  // dashboard's update-check spinner stuck with nothing surfaced
+  // (issue #36). A working check finishes well inside these; they only
+  // bite when the network path is actually gone, converting a silent
+  // hang into a surfaced TimeoutException.
+  static const _flakeUpdateTimeout = Duration(seconds: 60);
+  static const _dryRunTimeout = Duration(minutes: 3);
+  static const _buildTimeout = Duration(minutes: 10);
 
   static List<PluginMarker> _defaultMarkersReader(String flakePath) {
     try {
@@ -235,11 +246,13 @@ class UpdateCheckService {
       // cache and only the operator's truly out-of-cache packages
       // compile.
       stdout.writeln('• nix flake update');
-      final upd = await Process.run('nix', [
-        '--accept-flake-config',
-        'flake',
-        'update',
-      ], workingDirectory: tmpFlake);
+      final upd = await runBounded(
+        'nix',
+        ['--accept-flake-config', 'flake', 'update'],
+        workingDirectory: tmpFlake,
+        timeout: _flakeUpdateTimeout,
+        label: 'nix flake update',
+      );
       if (upd.exitCode != 0) {
         return _persist(
           now,
@@ -278,13 +291,13 @@ class UpdateCheckService {
         'UpdateCheckService.runCheck: platform=$platform attr=$attrName',
       );
       stdout.writeln('• nix build --dry-run (probing cache)');
-      final dry = await Process.run('nix', [
-        '--accept-flake-config',
-        'build',
-        '--dry-run',
-        '--no-link',
-        attr,
-      ], workingDirectory: tmpFlake);
+      final dry = await runBounded(
+        'nix',
+        ['--accept-flake-config', 'build', '--dry-run', '--no-link', attr],
+        workingDirectory: tmpFlake,
+        timeout: _dryRunTimeout,
+        label: 'nix build --dry-run',
+      );
       if (dry.exitCode != 0) {
         return _persist(
           now,
@@ -320,13 +333,19 @@ class UpdateCheckService {
         '• ${plan.wouldFetch.length} path(s) will be fetched from cache',
       );
       stdout.writeln('• nix build (substitute-only)');
-      final eval = await Process.run('nix', [
-        '--accept-flake-config',
-        'build',
-        '--no-link',
-        '--print-out-paths',
-        attr,
-      ], workingDirectory: tmpFlake);
+      final eval = await runBounded(
+        'nix',
+        [
+          '--accept-flake-config',
+          'build',
+          '--no-link',
+          '--print-out-paths',
+          attr,
+        ],
+        workingDirectory: tmpFlake,
+        timeout: _buildTimeout,
+        label: 'nix build (substitute)',
+      );
       if (eval.exitCode != 0) {
         return _persist(
           now,
