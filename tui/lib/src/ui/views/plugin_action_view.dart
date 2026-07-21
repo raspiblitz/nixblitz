@@ -119,6 +119,53 @@ class _PluginActionViewState extends State<PluginActionView> {
       unawaited(_startWasmAction());
       return;
     }
+    // `unit:` actions dispatch through SudoSession, which prepends `-n`
+    // and fails fast on a missing/expired sudo timestamp. Prime sudo
+    // first — driving the password modal via [sudoSessionProvider] when
+    // the timestamp lapsed — the same "authenticate once per session"
+    // step apply/update/install already do (issue #40). The view is in
+    // [_Phase.running] here, whose [ScrollableLog] yields to the sudo
+    // modal, so the prompt renders on top and receives keys. `command:`
+    // actions never touch sudo, so they run directly.
+    if (component.action.unit != null) {
+      unawaited(_authenticateThenRun());
+      return;
+    }
+    _runViaRunner();
+  }
+
+  /// Prime the sudo timestamp, then dispatch a privileged (`unit:`)
+  /// action. Cancelling the password modal aborts with exit 1 instead
+  /// of the runner hitting `sudo: a password is required`.
+  Future<void> _authenticateThenRun() async {
+    try {
+      final ok = await context.read(sudoSessionProvider).ensureFresh();
+      if (!mounted) return;
+      if (!ok) {
+        setState(() {
+          _exitCode = 1;
+          _output.add('plugin-action: authentication cancelled');
+          _phase = _Phase.done;
+        });
+        return;
+      }
+      _runViaRunner();
+    } catch (e, st) {
+      LogService.error('Plugin action sudo auth failed', e, st);
+      if (!mounted) return;
+      setState(() {
+        _exitCode = 1;
+        _output.add('plugin-action: launch failed: $e');
+        _phase = _Phase.done;
+      });
+    }
+  }
+
+  /// Dispatch a `command:`/`unit:` action through [PluginActionRunner]
+  /// and wire its streaming output + exit code into the view. `unit:`
+  /// actions reach here only after [_authenticateThenRun] has primed
+  /// the sudo timestamp.
+  void _runViaRunner() {
     try {
       final run = component.runner.run(component.action, inputs: _collected);
       _outputSub = run.output.listen(
@@ -149,6 +196,7 @@ class _PluginActionViewState extends State<PluginActionView> {
           });
     } catch (e, st) {
       LogService.error('Plugin action launch failed', e, st);
+      if (!mounted) return;
       setState(() {
         _exitCode = 1;
         _output.add('plugin-action: launch failed: $e');
