@@ -135,14 +135,29 @@
                 nixblitzPackage = nixblitzWrapped;
                 # Minimal installer-system closure, baked into the ISO store
                 # so disko-install runs offline (see nix/installer-system.nix).
-                installerClosure = import ./nix/installer-system.nix {
-                  inherit self nixpkgs disko system;
-                };
+                # `.toplevel` for now — nix/installer-system.nix also returns
+                # `diskoScript`, wired up fully once nix/iso.nix is reworked.
+                installerClosure =
+                  (import ./nix/installer-system.nix {
+                    inherit self disko nixos-raspberrypi system;
+                  })
+                  .toplevel;
               })
               .config
               .system
               .build
               .isoImage;
+
+            # Debug/test output for evaluating the installer system THROUGH
+            # templates/flake.nix's own outputs function (see
+            # nix/installer-system.nix) — the "closure A == closure B" check.
+            # `nix eval .#packages.x86_64-linux.installer-toplevel.drvPath`
+            # must succeed without a full build.
+            installer-toplevel =
+              (import ./nix/installer-system.nix {
+                inherit self disko nixos-raspberrypi system;
+              })
+              .toplevel;
 
             # Debug/test output for the offline path-locked flake.lock
             # generator (see nix/offline-flake-lock.nix, nix/offline-inputs.nix).
