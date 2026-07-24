@@ -67,4 +67,6 @@ export 'src/services/staging_service.dart';
 export 'src/services/sudo_session.dart';
 export 'src/services/update_check_service.dart';
 export 'src/services/install_service.dart';
+export 'src/services/install/install_phase.dart';
+export 'src/services/install/install_progress.dart';
 export 'src/services/log_service.dart';
