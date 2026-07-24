@@ -96,6 +96,12 @@ class _InstallViewState extends State<InstallView> {
 
   Future<void> _startInstall() async {
     try {
+      // Dispose any tracker from a previous attempt before replacing it —
+      // otherwise an Esc-retry after a failed install leaves the old
+      // tracker's poll timer running alongside the new one, both writing
+      // installProgressProvider.
+      _tracker?.dispose();
+
       final baseDirPath = context.read(baseDirProvider);
       final disk = context.read(selectedDiskProvider);
       if (disk == null) {
@@ -123,6 +129,11 @@ class _InstallViewState extends State<InstallView> {
       // subsequent line through `_appendInstallLog` so it lands in
       // both the TUI buffer and `~/nixblitz.log`.
       context.read(installLogProvider.notifier).state = const [];
+      // Reset the progress panel too — otherwise a retry after a failed
+      // install starts the new attempt still showing the old tracker's
+      // last phase/fraction until the first matching line comes in.
+      context.read(installProgressProvider.notifier).state =
+          const InstallProgress(phase: InstallPhase.preparing);
 
       // Pre-install memory check: live NixOS ISOs size root tmpfs
       // at roughly half RAM, and the NixBlitz eval can spill over
@@ -209,6 +220,7 @@ class _InstallViewState extends State<InstallView> {
       exitCode
           .then((code) async {
             _stopElapsedTimer();
+            _tracker?.dispose();
             LogService.info('disko-install exited with code $code');
             if (code == 0) {
               context.read(installCurrentStepLabelProvider.notifier).state =
@@ -237,6 +249,7 @@ class _InstallViewState extends State<InstallView> {
             }
           })
           .catchError((e, st) {
+            _tracker?.dispose();
             LogService.error('Unexpected error during install', e, st);
             context.read(installStepProvider.notifier).state =
                 InstallStep.failed;
@@ -577,6 +590,11 @@ class _InstallViewState extends State<InstallView> {
   Component _buildInstalling() {
     final progress = context.watch(installProgressProvider);
     final logLines = context.watch(installLogProvider);
+    // Not displayed directly — subscribing here just gives us a rebuild on
+    // every `_elapsedTimer` tick (it re-stamps this provider once a
+    // second), which is what keeps `_totalSeconds` in the header/panel
+    // ticking even when neither progress nor the log changes.
+    context.watch(installCurrentStepLabelProvider);
 
     // Panel is the default view; [l] reveals the full scrollable log
     // (with its own header, since BuildProgressPanel's compact tail

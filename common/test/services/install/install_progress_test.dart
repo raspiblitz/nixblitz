@@ -136,5 +136,38 @@ void main() {
         expect(onChangeCalls, callsBeforeDispose);
       },
     );
+
+    test('a later-phase copying line during the install tail does not flap '
+        'the phase backward', () async {
+      final emissions = <InstallProgress>[];
+      final tracker = InstallProgressTracker(
+        readTotalBytes: () async => 100,
+        readUsedBytes: () async => 50,
+        pollInterval: const Duration(milliseconds: 10),
+        onChange: emissions.add,
+      );
+
+      tracker.addLine('Copying store paths'); // -> copying
+      expect(tracker.value.phase, InstallPhase.copying);
+
+      tracker.addLine('Loading nix database'); // -> loadingDb, frac 1.0
+      expect(tracker.value.phase, InstallPhase.loadingDb);
+
+      tracker.addLine('installing the boot loader'); // -> installing
+      expect(tracker.value.phase, InstallPhase.installing);
+      final copyFractionAtInstalling = tracker.value.copyFraction;
+      final emissionsBeforeStaleLine = emissions.length;
+
+      // nixos-install's own output tail includes nix store-copy lines
+      // like this even after disko-install's phase has moved past
+      // copying. installPhaseForLine still classifies it as `copying`,
+      // but the monotonic guard must ignore it.
+      tracker.addLine("copying path '/nix/store/x-abc'");
+      expect(tracker.value.phase, InstallPhase.installing);
+      expect(tracker.value.copyFraction, copyFractionAtInstalling);
+      expect(emissions.length, emissionsBeforeStaleLine);
+
+      tracker.dispose();
+    });
   });
 }

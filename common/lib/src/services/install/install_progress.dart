@@ -89,6 +89,13 @@ class InstallProgressTracker {
     if (_disposed) return;
     final next = installPhaseForLine(line);
     if (next == null || next == _value.phase) return;
+    // Phases are monotonic for a real install run (preparing -> ... ->
+    // done). nix's "copying path '...'" lines keep showing up during the
+    // nixos-install tail even after we've moved past copying (e.g. while
+    // installing the boot loader), which would otherwise flap the panel
+    // back to an earlier phase and restart the copy poll. A retry always
+    // gets a fresh tracker, so backward transitions are never legitimate.
+    if (next.index <= _value.phase.index) return;
     switch (next) {
       case InstallPhase.copying:
         _emit(InstallProgress(phase: next, copyFraction: null));
