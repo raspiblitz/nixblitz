@@ -1,78 +1,99 @@
-# The minimal Pi 5 installer-system toplevel closure, baked into the Pi 5
-# installer image (nix/pi5-image.nix `sdImage.storePaths`) so disko-install runs
-# offline — every leaf package it needs is already in the image's /nix/store.
-# The aarch64 analogue of nix/installer-system.nix.
+# The minimal Pi 5 installer-system closure, baked into the Pi 5 installer
+# image (nix/pi5-image.nix `sdImage.storePaths`) so disko-install runs
+# offline — every leaf package it needs is already in the image's
+# /nix/store. The aarch64 analogue of nix/installer-system.nix.
 #
-# `nixblitz-pi5-installer` reads `../config.json` and imports
-# `../hardware-configuration.nix`, both generated per-machine at install and
-# absent from source. We reuse the committed test fixtures + the same store-
-# `profile` trick nix/installer-system.nix uses so those sibling reads resolve,
-# but force `initialized = false` (bootstrap gate: all services off — the state
-# disko-install actually builds, which keeps the bake small) AND
-# `system.platform = "pi5"` (selects the disko-pi5 layout + the Pi 5 host path).
-# Built via nixos-raspberrypi.lib.nixosSystem so the vendor kernel / 16K
-# overlays match the image.
+# Unlike the old parallel eval this file used to do (its own
+# `nixos-raspberrypi.lib.nixosSystem` call + a duplicated `findModules` + a
+# hand-assembled `hosts/*.nix`-only profile dir), this now evaluates
+# THROUGH `templates/flake.nix`'s own `outputs` function — the exact same
+# function `disko-install --flake ~/nixblitz#nixblitz-pi5-installer`
+# evaluates on the live image. That parallel eval produced a closure
+# ("closure A") that could silently diverge from the real install-time
+# closure ("closure B"): a module added to templates/flake.nix's
+# `nixosModules.default` wiring, or a change to how
+# `nixosConfigurations.nixblitz-pi5-installer` is assembled, would show up
+# in B but never in A, defeating the whole point of baking a closure
+# offline. Evaluating through the real outputs function makes A == B by
+# construction. See nix/installer-system.nix for the full rationale (this
+# file mirrors it exactly, modulo the pi5-specific fixture + attr select).
 #
-# `findModules` is duplicated (not imported from templates' flake) for the same
-# reason nix/installer-system.nix / tests/config duplicate it: keep the root
-# flake's lock free of templates' closure.
+# This is IFD (import-from-derivation) — the `fixtureDir` runCommand must
+# build before `templatesFlake.outputs` can be evaluated, AND that build is
+# an aarch64-linux derivation (fixtureDir's `pkgs` comes from the
+# aarch64-linux slice of `offlineInputs.templatesInputs.nixpkgs`), so on an
+# x86_64 host with no aarch64 builder/binfmt this eval progresses only as
+# far as the fixtureDir derivation before hitting the platform mismatch —
+# the same limitation the Pi 5 image build has always had. That's
+# acceptable here: it's forced only when producing image outputs
+# (installer-iso, pi5-installer-image), not on every eval of the root flake.
+#
+# `nixblitz-pi5-installer` (inside templates/flake.nix) reads `./config.json`
+# and (transitively, via hosts/installed-pi5.nix) imports
+# `./hardware-configuration.nix`, both generated per-machine at install and
+# absent from source. We assemble a fixture flake directory — a full copy
+# of `templates/` plus the committed test fixture config.json (forced
+# `initialized = false`, same as before, AND `system.platform = "pi5"` so
+# templates/flake.nix's platform-detection reads the Pi 5 branch) and an
+# empty hardware-configuration.nix fixture — so those sibling reads
+# resolve. `initialized = false` is the bootstrap-gate state disko-install
+# actually builds (all services off), which is exactly the closure the
+# install needs and keeps the bake small.
+#
+# Representative, not byte-exact: the real install uses the operator's
+# hardware config, so the final per-machine system derivation builds
+# locally at install time — offline, because its leaves are baked. A
+# forced leaf rebuild (e.g. a kernel rebuild) is an accepted offline-miss.
 {
   self,
   nixos-raspberrypi,
   disko,
 }: let
-  lib = nixos-raspberrypi.inputs.nixpkgs.lib;
-  # rpi-overlaid aarch64 pkgs, only used to assemble the eval-time sibling files
-  # via runCommand/writeText below.
-  pkgs = nixos-raspberrypi.legacyPackages.aarch64-linux;
+  offlineInputs = import ./offline-inputs.nix {inherit self nixos-raspberrypi disko;};
+  inherit (offlineInputs.templatesInputs) nixpkgs;
 
-  base = lib.importJSON ../tests/config/fixtures/base/config.json;
+  system = "aarch64-linux";
+  pkgs = nixpkgs.legacyPackages.${system};
+  lib = nixpkgs.lib;
+
+  baseConfig = lib.importJSON ../tests/config/fixtures/base/config.json;
   installerConfig =
-    base
+    baseConfig
     // {
       initialized = false;
-      system = base.system // {platform = "pi5";};
+      system = baseConfig.system // {platform = "pi5";};
     };
 
-  excludedFiles = ["package.nix" "flake.nix"];
-  findModules = dir: let
-    entries = builtins.readDir dir;
-    processEntry = name: type: let
-      path = dir + "/${name}";
-    in
-      if type == "directory"
-      then findModules path
-      else if
-        type
-        == "regular"
-        && lib.hasSuffix ".nix" name
-        && !builtins.elem name excludedFiles
-      then [path]
-      else [];
-  in
-    lib.concatLists (lib.mapAttrsToList processEntry entries);
-
-  # Assemble the sibling files installer-pi5 → installed-pi5 → installed read at
-  # eval time.
-  profile = pkgs.runCommand "nixblitz-pi5-installer-profile" {} ''
-    mkdir -p $out/hosts
-    cp ${../templates/hosts/installed.nix} $out/hosts/installed.nix
-    cp ${../templates/hosts/installed-pi5.nix} $out/hosts/installed-pi5.nix
-    cp ${../templates/hosts/installer-pi5.nix} $out/hosts/installer-pi5.nix
+  # Full copy of templates/ plus the fixture config.json +
+  # hardware-configuration.nix, so templates/flake.nix's own `./config.json`
+  # read and hosts/installed-pi5.nix's `../hardware-configuration.nix`
+  # import both resolve inside the fixture dir, exactly like they resolve
+  # against the operator's real ~/nixblitz at install time.
+  fixtureDir = pkgs.runCommand "nixblitz-pi5-installer-fixture" {} ''
+    mkdir -p $out
+    cp -r ${../templates}/. $out/
     cp ${pkgs.writeText "config.json" (builtins.toJSON installerConfig)} $out/config.json
     cp ${../tests/config/fixtures/base/hardware-configuration.nix} $out/hardware-configuration.nix
   '';
 
-  # nixosSystemRPi auto-injects specialArgs.nixos-raspberrypi (consumed by
-  # installed-pi5.nix); we thread nixblitz = self for templates/modules.
-  installerSystem = nixos-raspberrypi.lib.nixosSystem {
-    specialArgs = {nixblitz = self;};
-    modules =
-      (findModules ../templates/modules)
-      ++ [
-        (profile + "/hosts/installer-pi5.nix")
-        disko.nixosModules.default
-      ];
-  };
-in
-  installerSystem.config.system.build.toplevel
+  templatesFlake = import (fixtureDir + "/flake.nix");
+
+  # Fix-point: templates/flake.nix's `outputs` takes `self` as an argument
+  # (used for `self.nixosModules.default` and, transitively, `self.inputs`
+  # is NOT used — `nixblitz` is passed as its own input below). We tie the
+  # knot the same way `nix flake` itself does: `self` is the eventual
+  # result of calling `outputs`, with `outPath` pointed at the fixture dir
+  # so any `./relative` reads inside the templates flake resolve there.
+  outputs = let
+    result = templatesFlake.outputs (offlineInputs.templatesInputs
+      // {
+        self = result // {outPath = fixtureDir;};
+      });
+  in
+    result;
+
+  installerSystem = outputs.nixosConfigurations.nixblitz-pi5-installer;
+in {
+  toplevel = installerSystem.config.system.build.toplevel;
+  diskoScript = installerSystem.config.system.build.diskoScript;
+}

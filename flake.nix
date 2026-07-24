@@ -180,20 +180,40 @@
           # live medium built via nixos-raspberrypi. Build needs an aarch64
           # builder (or binfmt) + the nixos-raspberrypi.cachix.org and
           # attic.f44.fyi/nixblitz substituters (see docs/releasing-installer-images.md).
-          // lib.optionalAttrs (system == "aarch64-linux") {
+          // lib.optionalAttrs (system == "aarch64-linux") (let
+            # Single eval shared by pi5-installer-image below (same pattern
+            # as the x86_64-linux block above — closes the "double-IFD"
+            # review Minor for this side too).
+            offlineInputs = import ./nix/offline-inputs.nix {
+              inherit self nixos-raspberrypi disko;
+            };
+            offlineLock = import ./nix/offline-flake-lock.nix {
+              inherit pkgs offlineInputs;
+            };
+            installerSystem = import ./nix/pi5-installer-system.nix {
+              inherit self nixos-raspberrypi disko;
+            };
+          in {
             pi5-installer-image =
               (import ./nix/pi5-image.nix {
                 inherit nixos-raspberrypi;
                 nixblitzPackage = nixblitzWrapped;
-                installerClosure = import ./nix/pi5-installer-system.nix {
-                  inherit self nixos-raspberrypi disko;
-                };
+                # Minimal installer-system closure, baked into the image
+                # store so disko-install runs offline (see
+                # nix/pi5-installer-system.nix).
+                installerClosure = installerSystem.toplevel;
+                installerDiskoScript = installerSystem.diskoScript;
+                # Path-locked templates/flake.lock + the input source paths
+                # it resolves against (see nix/offline-flake-lock.nix,
+                # nix/offline-inputs.nix) — makes the image fully offline.
+                inherit offlineLock;
+                offlineSourcePaths = offlineInputs.sourcePaths;
               })
               .config
               .system
               .build
               .sdImage;
-          };
+          });
 
         apps.default = {
           type = "app";
