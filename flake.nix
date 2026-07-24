@@ -143,6 +143,18 @@
               .system
               .build
               .isoImage;
+
+            # Debug/test output for the offline path-locked flake.lock
+            # generator (see nix/offline-flake-lock.nix, nix/offline-inputs.nix).
+            # `nix build .#offline-flake-lock` must succeed with zero network
+            # access — that's the proof every templates/flake.lock input is
+            # covered by a path override.
+            offline-flake-lock = import ./nix/offline-flake-lock.nix {
+              inherit pkgs;
+              offlineInputs = import ./nix/offline-inputs.nix {
+                inherit self nixos-raspberrypi disko;
+              };
+            };
           }
           # NixBlitz Raspberry Pi 5 installer image — a dev/release artifact
           # (see nix/pi5-image.nix). Gated to aarch64-linux: it's an aarch64
