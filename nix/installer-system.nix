@@ -72,11 +72,10 @@
   # result of calling `outputs`, with `outPath` pointed at the fixture dir
   # so any `./relative` reads inside the templates flake resolve there.
   outputs = let
-    result =
-      templatesFlake.outputs (offlineInputs.templatesInputs
-        // {
-          self = result // {outPath = fixtureDir;};
-        });
+    result = templatesFlake.outputs (offlineInputs.templatesInputs
+      // {
+        self = result // {outPath = fixtureDir;};
+      });
   in
     result;
 

@@ -20,15 +20,17 @@
   disko,
 }: let
   # Minimal, dependency-free `unique` — avoids pulling in nixpkgs.lib just
-  # for this one list dedup.
-  unique = list:
-    builtins.attrValues (
-      builtins.listToAttrs (map (p: {
-          name = toString p;
-          value = p;
-        })
-        list)
-    );
+  # for this one list dedup. NOTE: must not round-trip elements through
+  # `listToAttrs`/`toString` as an attribute *name* — attribute names can't
+  # carry Nix string context, and these elements are store-path strings
+  # whose context is exactly what downstream consumers (isoImage.storeContents)
+  # need; Nix refuses a name string that looks like a store path but lost its
+  # context. `elem`-based membership checks preserve context on every
+  # retained element instead.
+  unique = builtins.foldl' (acc: x:
+    if builtins.elem x acc
+    then acc
+    else acc ++ [x]) [];
 in rec {
   # The exact input set templates/flake.nix's `outputs` function receives,
   # mirroring templates/flake.nix's own `inputs` block (nixpkgs follows

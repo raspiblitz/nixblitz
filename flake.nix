@@ -128,20 +128,33 @@
           # x86 installer ISO — a dev/release artifact (see nix/iso.nix).
           # Gated to x86_64-linux: it's an x86 live medium and references
           # the x86 wrapped TUI.
-          // lib.optionalAttrs (system == "x86_64-linux") {
+          // lib.optionalAttrs (system == "x86_64-linux") (let
+            # Single eval shared by installer-iso, installer-toplevel, and
+            # offline-flake-lock below (closes the "double-IFD" review Minor
+            # — installer-system.nix's fixture build used to run twice).
+            offlineInputs = import ./nix/offline-inputs.nix {
+              inherit self nixos-raspberrypi disko;
+            };
+            offlineLock = import ./nix/offline-flake-lock.nix {
+              inherit pkgs offlineInputs;
+            };
+            installerSystem = import ./nix/installer-system.nix {
+              inherit self disko nixos-raspberrypi system;
+            };
+          in {
             installer-iso =
               (import ./nix/iso.nix {
                 inherit nixpkgs;
                 nixblitzPackage = nixblitzWrapped;
                 # Minimal installer-system closure, baked into the ISO store
                 # so disko-install runs offline (see nix/installer-system.nix).
-                # `.toplevel` for now — nix/installer-system.nix also returns
-                # `diskoScript`, wired up fully once nix/iso.nix is reworked.
-                installerClosure =
-                  (import ./nix/installer-system.nix {
-                    inherit self disko nixos-raspberrypi system;
-                  })
-                  .toplevel;
+                installerClosure = installerSystem.toplevel;
+                installerDiskoScript = installerSystem.diskoScript;
+                # Path-locked templates/flake.lock + the input source paths
+                # it resolves against (see nix/offline-flake-lock.nix,
+                # nix/offline-inputs.nix) — makes the ISO fully offline.
+                inherit offlineLock;
+                offlineSourcePaths = offlineInputs.sourcePaths;
               })
               .config
               .system
@@ -153,24 +166,15 @@
             # nix/installer-system.nix) — the "closure A == closure B" check.
             # `nix eval .#packages.x86_64-linux.installer-toplevel.drvPath`
             # must succeed without a full build.
-            installer-toplevel =
-              (import ./nix/installer-system.nix {
-                inherit self disko nixos-raspberrypi system;
-              })
-              .toplevel;
+            installer-toplevel = installerSystem.toplevel;
 
             # Debug/test output for the offline path-locked flake.lock
             # generator (see nix/offline-flake-lock.nix, nix/offline-inputs.nix).
             # `nix build .#offline-flake-lock` must succeed with zero network
             # access — that's the proof every templates/flake.lock input is
             # covered by a path override.
-            offline-flake-lock = import ./nix/offline-flake-lock.nix {
-              inherit pkgs;
-              offlineInputs = import ./nix/offline-inputs.nix {
-                inherit self nixos-raspberrypi disko;
-              };
-            };
-          }
+            offline-flake-lock = offlineLock;
+          })
           # NixBlitz Raspberry Pi 5 installer image — a dev/release artifact
           # (see nix/pi5-image.nix). Gated to aarch64-linux: it's an aarch64
           # live medium built via nixos-raspberrypi. Build needs an aarch64

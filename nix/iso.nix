@@ -12,6 +12,19 @@
   nixpkgs,
   nixblitzPackage,
   installerClosure,
+  # Path-locked templates/flake.lock (nix/offline-flake-lock.nix), delivered
+  # onto the live medium so `disko-install --flake ~/nixblitz#...` can copy
+  # it over the scaffolded ~/nixblitz's own lock instead of re-resolving
+  # inputs from the network.
+  offlineLock,
+  # Every input source store path the above lock resolves against
+  # (nix/offline-inputs.nix `sourcePaths`) — baked into the ISO store
+  # alongside offlineLock so the path references it contains actually
+  # exist on the live medium.
+  offlineSourcePaths,
+  # `disko-install` reads this directly; baking it means the install step
+  # doesn't need to re-derive it from the (network-dependent) flake eval.
+  installerDiskoScript,
 }:
 nixpkgs.lib.nixosSystem {
   system = "x86_64-linux";
@@ -73,13 +86,35 @@ nixpkgs.lib.nixosSystem {
         # name flows through cleanly. Result: nixblitz-installer.iso.
         isoImage.isoBaseName = lib.mkForce "nixblitz-installer";
 
+        # Deliver the path-locked templates/flake.lock onto the live medium.
+        # The install wizard's scaffolded ~/nixblitz gets its flake.lock
+        # replaced with this one (instead of the source-tree lock, which
+        # points at network-fetchable inputs) so `disko-install --flake`
+        # resolves every input from the baked store paths below.
+        environment.etc."nixblitz/offline-flake.lock".source = offlineLock;
+
         # Bake the minimal installer-system closure into the live store so
         # disko-install runs fully offline — every leaf package it needs is
         # already present, no substituter required. squashfs dedups these
         # against the live system's own closure, so the ISO grows only by the
         # non-overlapping installed paths. The closure is built by
         # nix/installer-system.nix and threaded in from flake.nix.
-        isoImage.storeContents = [installerClosure];
+        # installerDiskoScript and offlineSourcePaths are baked alongside it:
+        # the disko script is what disko-install actually runs, and the
+        # source paths are what offlineLock's path-locked nodes resolve
+        # against — without them present in the store, the lock's
+        # references would dangle.
+        isoImage.storeContents = [installerClosure installerDiskoScript] ++ offlineSourcePaths;
+
+        # Harden against accidental network use now that the ISO is
+        # self-contained: no flake registry lookups, and a short connect
+        # timeout so any attempt fails fast instead of hanging. Substituters
+        # are deliberately NOT cleared — network stays a fallback if the
+        # baked store is ever incomplete, rather than a hard failure.
+        nix.settings = {
+          flake-registry = "";
+          connect-timeout = 3;
+        };
       }
     )
   ];
