@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:common/src/models/install_state.dart';
 import 'package:common/src/services/log_service.dart';
+import 'install/install_phase.dart';
 
 class InstallService {
   Future<List<DiskInfo>> listDisks() async {
@@ -688,14 +689,8 @@ class InstallService {
   }
 
   static String? parseDiskoStep(String line) {
-    if (line.contains('sgdisk')) return 'Partitioning disk...';
-    if (line.contains('mkfs') || line.contains('formatting')) {
-      return 'Formatting partitions...';
-    }
-    if (line.contains('mount ')) return 'Mounting filesystems...';
-    if (line.contains('copying')) return 'Copying NixOS store paths...';
-    if (line.contains('boot loader')) return 'Installing bootloader...';
-    return null;
+    final phase = installPhaseForLine(line);
+    return phase == null ? null : phaseLabel(phase);
   }
 }
 
