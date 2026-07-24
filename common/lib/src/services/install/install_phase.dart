@@ -24,8 +24,12 @@ InstallPhase? installPhaseForLine(String line) {
   if (l.contains('boot loader') || l.contains('nixos-install')) {
     return InstallPhase.installing;
   }
-  // "Copying store paths" (disko-install echo) OR nix's "copying path '...'".
-  if (l.contains('copying store paths') || l.contains('copying')) {
+  // ONLY disko-install's own "Copying store paths" echo marks the real
+  // store-to-disk copy (the xargs cp). Nix's lowercase "copying path
+  // '…' from cache…" lines fire during build/eval — matching those
+  // flipped the bar to copying prematurely and parked it at a few %
+  // against the still-empty target disk (seen on a VM install).
+  if (l.contains('copying store paths')) {
     return InstallPhase.copying;
   }
   if (l.contains('mkfs') || l.contains('formatting')) {

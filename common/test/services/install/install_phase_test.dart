@@ -38,10 +38,16 @@ void main() {
       );
       expect(installPhaseForLine('disko-install succeeded'), InstallPhase.done);
     });
-    test('lowercase nix "copying path" still maps to copying', () {
+    test('nix\'s "copying path … from cache" lines do NOT flip to copying', () {
+      // These fire during build/eval (fetching inputs into the LOCAL
+      // store), not the store-to-disk copy — matching them parked the
+      // bar at a few % against the empty target. Only disko's own
+      // "Copying store paths" echo counts as the copy phase.
       expect(
-        installPhaseForLine("copying path '/nix/store/x' ..."),
-        InstallPhase.copying,
+        installPhaseForLine(
+          "copying path '/nix/store/x' from 'https://cache.nixos.org'...",
+        ),
+        isNull,
       );
     });
     test('non-marker lines produce no transition', () {
