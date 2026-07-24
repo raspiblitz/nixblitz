@@ -189,7 +189,14 @@ const String _flake = r'''
       canonical = {
         nixblitz = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          specialArgs = {inherit nixblitz;};
+          specialArgs = {
+            inherit nixblitz;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installed.nix
             self.nixosModules.default
@@ -201,7 +208,14 @@ const String _flake = r'''
         # sudo. See docs/decisions/plugins.md (sudo posture).
         nixblitz-installer = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          specialArgs = {inherit nixblitz;};
+          specialArgs = {
+            inherit nixblitz;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installer.nix
             self.nixosModules.default
@@ -216,7 +230,14 @@ const String _flake = r'''
         # node-friendly variant; `nixosSystemFull` would pull in the
         # media stack, which is wasted on a headless node.
         nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
-          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          specialArgs = {
+            inherit nixblitz nixos-raspberrypi;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installed-pi5.nix
             self.nixosModules.default
@@ -231,7 +252,14 @@ const String _flake = r'''
         # `installer-pi5.nix`'s passwordless sudo override; same
         # bootloader / kernel / firmware / disko layout.
         nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
-          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          specialArgs = {
+            inherit nixblitz nixos-raspberrypi;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installer-pi5.nix
             self.nixosModules.default
@@ -953,6 +981,24 @@ const String _modulesSystemNixblitzOptions = r'''
 }
 ''';
 
+const String _modulesSystemPinFlakeSources = r'''
+# Pin the flake input SOURCE trees into the system closure so the
+# path-locked flake.lock written by the offline installer keeps
+# resolving forever: disko-install copies these to the target, each
+# generation pins the sources it was built from, GC frees old ones
+# with old generations. ~250-300 MB. See the offline-installer spec §4.3.
+{
+  lib,
+  flakeInputs ? null,
+  ...
+}: {
+  config = lib.mkIf (flakeInputs != null) {
+    environment.etc."nixblitz/flake-inputs".text =
+      lib.concatMapStrings (p: "${p}\n") (lib.attrValues flakeInputs);
+  };
+}
+''';
+
 const String _modulesSystemTestLnd = r'''
 {
   config,
@@ -1256,6 +1302,7 @@ Map<String, String> _getAllTemplates() {
     'modules/system/disko-pi5.nix': _modulesSystemDiskoPi5,
     'modules/system/disko-x86.nix': _modulesSystemDiskoX86,
     'modules/system/nixblitz-options.nix': _modulesSystemNixblitzOptions,
+    'modules/system/pin-flake-sources.nix': _modulesSystemPinFlakeSources,
     'modules/system/test-lnd.nix': _modulesSystemTestLnd,
     'modules/system/update-check.nix': _modulesSystemUpdateCheck,
   };

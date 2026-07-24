@@ -173,7 +173,14 @@
       canonical = {
         nixblitz = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          specialArgs = {inherit nixblitz;};
+          specialArgs = {
+            inherit nixblitz;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installed.nix
             self.nixosModules.default
@@ -185,7 +192,14 @@
         # sudo. See docs/decisions/plugins.md (sudo posture).
         nixblitz-installer = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          specialArgs = {inherit nixblitz;};
+          specialArgs = {
+            inherit nixblitz;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installer.nix
             self.nixosModules.default
@@ -200,7 +214,14 @@
         # node-friendly variant; `nixosSystemFull` would pull in the
         # media stack, which is wasted on a headless node.
         nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
-          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          specialArgs = {
+            inherit nixblitz nixos-raspberrypi;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installed-pi5.nix
             self.nixosModules.default
@@ -215,7 +236,14 @@
         # `installer-pi5.nix`'s passwordless sudo override; same
         # bootloader / kernel / firmware / disko layout.
         nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
-          specialArgs = {inherit nixblitz nixos-raspberrypi;};
+          specialArgs = {
+            inherit nixblitz nixos-raspberrypi;
+            flakeInputs = {
+              inherit nixpkgs disko nixos-raspberrypi nixblitz;
+              # forced transitively by base.nix's nixblitz.packages access:
+              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
+            };
+          };
           modules = [
             ./hosts/installer-pi5.nix
             self.nixosModules.default
