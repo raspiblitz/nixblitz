@@ -9,6 +9,32 @@ class ScaffoldService {
 
   ScaffoldService({required this.targetDir});
 
+  /// Default on-disk location of the installer ISO's offline flake.lock.
+  static const kOfflineLockPath = '/etc/nixblitz/offline-flake.lock';
+
+  /// After scaffolding, copy the offline lock (present only on installer
+  /// media) so the first eval resolves path-locked inputs offline.
+  /// [offlineLockPath] is injectable for tests. Missing file → no-op.
+  void copyOfflineLockIfPresent(
+    String baseDir, {
+    String offlineLockPath = kOfflineLockPath,
+  }) {
+    try {
+      final src = File(offlineLockPath);
+      if (!src.existsSync()) return;
+      src.copySync('$baseDir/flake.lock');
+      LogService.info(
+        'scaffold: offline flake.lock copied from $offlineLockPath',
+      );
+    } catch (e, st) {
+      LogService.error(
+        'scaffold: offline lock copy failed (continuing)',
+        e,
+        st,
+      );
+    }
+  }
+
   bool needsScaffold() => !Directory(targetDir).existsSync();
 
   /// Write all embedded templates to the target directory.
@@ -53,9 +79,13 @@ class ScaffoldService {
   /// Accepts the same optional [manifest] + [nixblitzBranchField] pair as
   /// [scaffold]; supplying them keeps the operator's nixblitz-branch pin
   /// on disk through template refreshes.
+  ///
+  /// [offlineLockPath] overrides [kOfflineLockPath] for the post-write
+  /// offline-lock copy; injectable for tests.
   int refreshTemplatesSync({
     BranchManifest? manifest,
     String? nixblitzBranchField,
+    String offlineLockPath = kOfflineLockPath,
   }) {
     final templates = _resolveTemplates(
       manifest: manifest,
@@ -69,6 +99,7 @@ class ScaffoldService {
     LogService.info(
       'refreshTemplates: wrote ${templates.length} files to $targetDir',
     );
+    copyOfflineLockIfPresent(targetDir, offlineLockPath: offlineLockPath);
     return templates.length;
   }
 

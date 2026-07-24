@@ -155,25 +155,7 @@ class _InstallViewState extends State<InstallView> {
       }
       _appendInstallLog(['']);
 
-      _appendInstallLog(['> nix flake update nixblitz (refresh remote cache)']);
-
-      // Nix caches git+https inputs aggressively. Force-refresh the nixblitz
-      // input so disko-install pins the *current* remote tip in flake.lock,
-      // not a stale cached revision.
-      final updateResult = runCheckedSync('nix', [
-        'flake',
-        'update',
-        'nixblitz',
-      ], workingDirectory: baseDirPath);
-      final updateOutput = [
-        ...updateResult.stderr.trim().split('\n'),
-        ...updateResult.stdout.trim().split('\n'),
-      ].where((l) => l.isNotEmpty).toList();
       _appendInstallLog([
-        ...updateOutput,
-        if (updateResult.exitCode != 0)
-          'nix flake update exit=${updateResult.exitCode} (continuing anyway)',
-        '',
         '> sudo disko-install --flake $baseDirPath#$installerAttr '
             '--disk main ${disk.path}',
         '',

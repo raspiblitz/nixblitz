@@ -159,6 +159,76 @@ nixblitz = {
     });
   });
 
+  group('copyOfflineLockIfPresent', () {
+    late Directory tempDir;
+    late ScaffoldService service;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('nixblitz_scaffold_test_');
+      final targetDir = '${tempDir.path}/nixblitz';
+      Directory(targetDir).createSync(recursive: true);
+      service = ScaffoldService(targetDir: targetDir);
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('copies the offline lock into baseDir when the source exists', () {
+      final baseDir = '${tempDir.path}/nixblitz';
+      final offlineLock = File('${tempDir.path}/offline-flake.lock');
+      offlineLock.writeAsStringSync('{"nodes": {"root": {}}}');
+
+      service.copyOfflineLockIfPresent(
+        baseDir,
+        offlineLockPath: offlineLock.path,
+      );
+
+      final copied = File('$baseDir/flake.lock');
+      expect(copied.existsSync(), true);
+      expect(copied.readAsStringSync(), offlineLock.readAsStringSync());
+    });
+
+    test('is a no-op when the offline lock source is absent', () {
+      final baseDir = '${tempDir.path}/nixblitz';
+      final missingPath = '${tempDir.path}/does-not-exist.lock';
+
+      expect(
+        () => service.copyOfflineLockIfPresent(
+          baseDir,
+          offlineLockPath: missingPath,
+        ),
+        returnsNormally,
+      );
+      expect(File('$baseDir/flake.lock').existsSync(), false);
+    });
+
+    test('refreshTemplatesSync copies the offline lock when present, via the '
+        'injectable path (exercises the same call site install_view uses)', () {
+      final baseDir = '${tempDir.path}/nixblitz';
+      final offlineLock = File('${tempDir.path}/offline-flake.lock');
+      offlineLock.writeAsStringSync('{"nodes": {"root": {}}}');
+
+      service.refreshTemplatesSync(offlineLockPath: offlineLock.path);
+
+      expect(File('$baseDir/flake.lock').existsSync(), true);
+      expect(
+        File('$baseDir/flake.lock').readAsStringSync(),
+        offlineLock.readAsStringSync(),
+      );
+    });
+
+    test('refreshTemplatesSync does not create flake.lock when the offline '
+        'lock is absent', () {
+      final baseDir = '${tempDir.path}/nixblitz';
+      final missingPath = '${tempDir.path}/does-not-exist.lock';
+
+      service.refreshTemplatesSync(offlineLockPath: missingPath);
+
+      expect(File('$baseDir/flake.lock').existsSync(), false);
+    });
+  });
+
   group('stripHardwareConfigMounts', () {
     test('removes fileSystems and swapDevices blocks, keeps the rest', () {
       const hw = '''
