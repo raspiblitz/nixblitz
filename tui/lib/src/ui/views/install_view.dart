@@ -6,6 +6,7 @@ import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/ascii_banner.dart';
+import '../widgets/build_progress_panel.dart';
 import '../widgets/confirm_prompt.dart';
 import '../widgets/experimental_warning.dart';
 import '../widgets/scrollable_log.dart';
@@ -34,6 +35,12 @@ class _InstallViewState extends State<InstallView> {
   StreamSubscription<String>? _outputSub;
   bool _saving = false;
   Timer? _elapsedTimer;
+  InstallProgressTracker? _tracker;
+
+  /// Whether the full `ScrollableLog` is shown instead of the
+  /// `BuildProgressPanel` during `InstallStep.installing`.
+  /// Toggled by `[l]`.
+  bool _logOpen = false;
 
   /// Seconds since the install kicked off — drives the
   /// "Installing NixOS (Xs)" header. Never reset between steps.
@@ -47,6 +54,7 @@ class _InstallViewState extends State<InstallView> {
   void dispose() {
     _outputSub?.cancel();
     _elapsedTimer?.cancel();
+    _tracker?.dispose();
     super.dispose();
   }
 
@@ -162,6 +170,16 @@ class _InstallViewState extends State<InstallView> {
 
       _startElapsedTimer();
 
+      _tracker = InstallProgressTracker(
+        readTotalBytes: () => duSourceBytes(),
+        readUsedBytes: () => dfUsedBytes('/mnt/disko-install-root'),
+        onChange: (p) {
+          // Stream-listener context (not a key handler) — provider write is
+          // safe here.
+          context.read(installProgressProvider.notifier).state = p;
+        },
+      );
+
       final (:output, :exitCode) = installService.diskoInstall(
         flakePath: baseDirPath,
         diskPath: disk.path,
@@ -181,6 +199,7 @@ class _InstallViewState extends State<InstallView> {
             context.read(installCurrentStepLabelProvider.notifier).state =
                 stepLabel;
           }
+          _tracker?.addLine(line);
         },
         onError: (e, st) {
           LogService.error('disko output stream error', e, st);
@@ -556,32 +575,61 @@ class _InstallViewState extends State<InstallView> {
   }
 
   Component _buildInstalling() {
+    final progress = context.watch(installProgressProvider);
     final logLines = context.watch(installLogProvider);
-    final stepLabel = context.watch(installCurrentStepLabelProvider);
 
-    return Container(
-      padding: const EdgeInsets.all(2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Spinner(label: 'Installing NixOS...'),
-              Text(
-                ' (${_formatElapsed(_totalSeconds)})',
-                style: const TextStyle(color: Color.fromRGB(150, 150, 180)),
+    // Panel is the default view; [l] reveals the full scrollable log
+    // (with its own header, since BuildProgressPanel's compact tail
+    // isn't meant to replace it). Retry/failure routing lives in
+    // `exitCode.then(...)` inside `_startInstall` and is untouched here.
+    return Focusable(
+      focused: true,
+      onKeyEvent: (event) {
+        try {
+          if (event.logicalKey == LogicalKey.keyL) {
+            setState(() => _logOpen = !_logOpen);
+            return true;
+          }
+          return false; // let ScrollableLog handle scroll keys when open
+        } catch (e, st) {
+          LogService.error('install progress key handler failed', e, st);
+          return true;
+        }
+      },
+      child: _logOpen
+          ? Container(
+              padding: const EdgeInsets.all(2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Spinner(label: 'Installing NixOS...'),
+                      Text(
+                        ' (${_formatElapsed(_totalSeconds)})',
+                        style: const TextStyle(
+                          color: Color.fromRGB(150, 150, 180),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 1),
+                  Expanded(
+                    child: ScrollableLog(lines: logLines, focused: true),
+                  ),
+                  const SizedBox(height: 1),
+                  const Text(
+                    '[l] back to progress',
+                    style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+                  ),
+                ],
               ),
-            ],
-          ),
-          if (stepLabel.isNotEmpty)
-            Text(
-              stepLabel,
-              style: const TextStyle(color: Color.fromRGB(110, 220, 110)),
+            )
+          : BuildProgressPanel(
+              progress: progress,
+              elapsedSeconds: _totalSeconds,
+              recentLines: logLines,
             ),
-          const SizedBox(height: 1),
-          Expanded(child: ScrollableLog(lines: logLines, focused: true)),
-        ],
-      ),
     );
   }
 

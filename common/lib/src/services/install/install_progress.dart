@@ -86,6 +86,7 @@ class InstallProgressTracker {
   bool _disposed = false;
 
   void addLine(String line) {
+    if (_disposed) return;
     final next = installPhaseForLine(line);
     if (next == null || next == _value.phase) return;
     switch (next) {

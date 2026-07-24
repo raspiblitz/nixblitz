@@ -2,6 +2,8 @@ import 'package:riverpod/riverpod.dart';
 import 'package:riverpod/legacy.dart';
 import 'package:common/src/models/install_state.dart';
 import 'package:common/src/services/install_service.dart';
+import 'package:common/src/services/install/install_phase.dart';
+import 'package:common/src/services/install/install_progress.dart';
 
 final installServiceProvider = Provider<InstallService>((ref) {
   return InstallService();
@@ -21,3 +23,7 @@ final selectedDiskProvider = StateProvider<DiskInfo?>((ref) => null);
 final installLogProvider = StateProvider<List<String>>((ref) => []);
 
 final installCurrentStepLabelProvider = StateProvider<String>((ref) => '');
+
+final installProgressProvider = StateProvider<InstallProgress>(
+  (ref) => const InstallProgress(phase: InstallPhase.preparing),
+);
