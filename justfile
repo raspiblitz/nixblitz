@@ -359,6 +359,43 @@ vm-boot:
     -device virtio-blk-pci,drive=virtio0
     -cdrom $iso)
 
+# Boots the installer ISO with NO network device at all (`-nic none`), the
+# offline acceptance gate for #46: the baked closure + path-locked
+# offline-flake.lock must let disko-install complete with zero connectivity.
+# Same ISO auto-build + disk-image creation as `vm-boot`; only the qemu
+# networking is dropped (so no SSH/HTTP port-forwards either — reach the
+# console via the QEMU window, not ssh).
+#
+# Boot the installer ISO for the offline acceptance test (no network device)
+vm-boot-offline:
+  #!/usr/bin/env nu
+  # Build the nixblitz installer ISO if it isn't present, then boot it.
+  # (Cheap when the store is warm.) Was previously a hand-downloaded
+  # stock nixos-minimal ISO; now we boot our own TUI-carrying image.
+  if not ('result/iso' | path exists) {
+    print "Building installer ISO (just iso-build)..."
+    nix build .#installer-iso
+  }
+  let iso = (ls result/iso/*.iso | get name | first)
+
+  if not ($iso | path exists) {
+    print $"ISO not found at ($iso) — run 'just iso-build'"
+    exit 1
+  }
+
+  if not ('nixblitz-disk.qcow2' | path exists) {
+    print "Creating 150G disk image 'nixblitz-disk.qcow2'..."
+    qemu-img create -f qcow2 nixblitz-disk.qcow2 150G
+  }
+
+  print "Booting NixOS installer VM (OFFLINE acceptance boot — no network device)..."
+  print "  Disk:   nixblitz-disk.qcow2 (virtio)"
+  (qemu-system-x86_64 -enable-kvm -m 8192 -smp 4
+    -nic none
+    -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
+    -device virtio-blk-pci,drive=virtio0
+    -cdrom $iso)
+
 # Boot the installed system from the qcow2 disk (no ISO)
 vm-run:
   #!/usr/bin/env nu

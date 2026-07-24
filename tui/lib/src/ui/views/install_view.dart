@@ -507,6 +507,11 @@ class _InstallViewState extends State<InstallView> {
       scaffold.clearTargetSync();
 
       LogService.info('Save config: scaffolding templates to $baseDirPath');
+      // No manifest/branch field here on purpose: rewriting flake.nix's
+      // nixblitz URL would diverge it from the `original` recorded in the
+      // ISO's offline flake.lock (generated against the pristine
+      // template), making nix re-lock over the network mid-install and
+      // silently defeating the offline installer.
       final written = scaffold.refreshTemplatesSync();
       LogService.info('Save config: scaffold complete ($written files)');
 

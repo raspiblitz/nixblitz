@@ -122,6 +122,50 @@ manually:
    fj release create <version> release/<version>/*
    ```
 
+## Offline behavior
+
+Both artifacts bake a fully offline install closure — no substituter, no flake
+fetch, no forge lookup during `disko-install`. What's baked into the image
+store:
+
+- The installer's own system closure (TUI, toplevel, dependencies).
+- The `diskoScript` derivation for the target layout.
+- **All flake input sources** referenced by the installed config (nixpkgs,
+  templates, and every plugin/service input the base config can reach) — the
+  raw source trees, not just the eval result.
+- A **path-locked** `flake.lock` at `/etc/nixblitz/offline-flake.lock`: every
+  input resolves to a `path:` entry pointing at the baked store source instead
+  of a `github:`/`git+https:` URL, so evaluating the installed config never
+  needs the network.
+
+### Acceptance test
+
+```bash
+just vm-clean && just vm-boot-offline
+```
+
+Run the installer wizard and complete a full install on a blank disk with
+**zero network** (`vm-boot-offline` passes `-nic none`, so there's no path out
+even if something tried). The install must complete end to end. Check the
+install log for the absence of both:
+
+- `copying path … from https://…` (a substituter fetch)
+- `Added input '…' to the lock file` (a flake input re-fetch)
+
+Either line means something escaped the offline closure and the acceptance
+gate fails.
+
+### ISO size
+
+Baking the input sources adds roughly **+400-500 MB** to the ISO compared to
+an installer that only carries the eval result. This is the cost of §4.2's
+closure guarantee (closure baked == closure evaluated) — accepted so the
+installer never needs connectivity.
+
+Installed nodes keep their own pinned input sources on disk too (roughly
+**+250-300 MB**), so config rebuilds and rollbacks evaluate offline; only an
+explicit update re-locks from the forge and re-fetches.
+
 ## Verify
 
 - **x86:** `just iso-build` → `just vm-boot` boots the ISO, the TUI auto-launches
