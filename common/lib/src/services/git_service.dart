@@ -231,6 +231,13 @@ class GitService {
   /// "in sync" instead of crashing or surfacing a misleading
   /// "everything is pending".
   Future<String?> readCommittedFile(String path) async {
+    // Live-installer case: the TUI launches before the wizard
+    // scaffolds the config dir, so `repoDir` may simply not exist
+    // yet. Process.run with a nonexistent workingDirectory throws
+    // ProcessException — which used to escape to the provider's
+    // catch and spam an ERROR + full stack trace on every launch.
+    // Same contract as the other null cases: no repo → no baseline.
+    if (!Directory(repoDir).existsSync()) return null;
     final result = await Process.run(
       'git',
       _g(['show', 'HEAD:$path']),

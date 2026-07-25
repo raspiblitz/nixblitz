@@ -427,6 +427,18 @@ void main() {
         final res = await service.readCommittedFile('config.json');
         expect(res, isNull);
       });
+
+      test('returns null when the repo dir does not exist', () async {
+        // Live-installer case: the TUI starts before the wizard
+        // scaffolds ~/nixblitz, so the repo dir is absent.
+        // Process.run with a nonexistent workingDirectory throws
+        // ProcessException — which used to escape as an ERROR log
+        // with a full stack trace on every launch. Same "no
+        // baseline" null contract as the empty-repo case.
+        final ghost = hermeticGitService('${tempDir.path}/does-not-exist');
+        final res = await ghost.readCommittedFile('config.json');
+        expect(res, isNull);
+      });
     });
   });
 }
