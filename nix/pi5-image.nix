@@ -25,6 +25,13 @@
   # `disko-install` reads this directly; baking it means the install step
   # doesn't need to re-derive it from the (network-dependent) flake eval.
   installerDiskoScript,
+  # Build-time closure (stdenv + perl-env + makeInitrd tooling) needed to
+  # REBUILD the per-machine delta derivations offline — see
+  # nix/builder-closure.nix. Direct analogue of nix/iso.nix's
+  # installerBuilderPaths: the baked installerClosure carries only the runtime
+  # closure, so without these a real Pi's hardware-configuration.nix + disk
+  # would trigger a bootstrap-stdenv rebuild that dies offline.
+  installerBuilderPaths,
 }:
 # nixosInstaller composes nixos-raspberrypi's full config + the sd-image module
 # (→ config.system.build.sdImage) + the installer profile (installation-device:
@@ -103,7 +110,8 @@ nixos-raspberrypi.lib.nixosInstaller {
         # time — offline, because its leaves are baked.
         sdImage.storePaths =
           [config.system.build.toplevel installerClosure installerDiskoScript]
-          ++ offlineSourcePaths;
+          ++ offlineSourcePaths
+          ++ installerBuilderPaths;
 
         # Harden against accidental network use now that the image is
         # self-contained: no flake registry lookups, and a short connect

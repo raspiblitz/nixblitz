@@ -80,7 +80,24 @@
     result;
 
   installerSystem = outputs.nixosConfigurations.nixblitz-installer;
+
+  sysBuild = installerSystem.config.system.build;
+
+  # Per-machine delta-rebuild BUILDER closure (see nix/builder-closure.nix).
+  # The baked `toplevel` OUTPUT carries only the installed system's RUNTIME
+  # closure. A real machine's own hardware-configuration.nix + disk device
+  # forces a batch of derivations (fstab, grub, initrd, closure-info,
+  # system-units, stage-1/2, boot.json, os-release-ish text, the toplevel
+  # itself) to re-evaluate and REBUILD at install — and rebuilding even a 1 KB
+  # text drv needs its BUILDER's outputs (the stdenv setup + bash + coreutils,
+  # the perl buildEnv used by setup-etc / closure-info / update-users-groups,
+  # the makeInitrd tooling: extra-utils / make-initrd / modules-closure /
+  # busybox / kmod), which are build-time-only and in NO runtime closure. Bake
+  # them so that rebuild runs fully offline instead of dropping into a
+  # bootstrap-stdenv cascade.
+  builderPaths = import ./builder-closure.nix {inherit pkgs sysBuild;};
 in {
   toplevel = installerSystem.config.system.build.toplevel;
   diskoScript = installerSystem.config.system.build.diskoScript;
+  inherit builderPaths;
 }

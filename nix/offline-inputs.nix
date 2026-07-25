@@ -72,11 +72,36 @@
   # The runCommand name MUST be "source" so the store-path shape matches what
   # a path-input re-fetch of it produces (the name component participates in
   # store-path identity if nix ever re-adds it; keep it consistent).
-  stampedSelf = pkgs.runCommand "source" {} ''
+  stampedSelfBuilt = pkgs.runCommand "source" {} ''
     cp -a ${self} $out
     chmod -R u+w $out
     printf '%s' ${lib.escapeShellArg versionStamp} > $out/.nixblitz-version-stamp
   '';
+
+  # Content-address the stamped copy under the canonical `source` store path.
+  # WHY this indirection instead of using the runCommand output directly:
+  # the runCommand's OUTPUT path is DERIVATION-addressed — it's a hash of the
+  # build recipe, whose inputs include `self`. On a dirty/jj working tree
+  # `self` is a MOVING store path (each eval snapshots a fresh copy), so the
+  # runCommand's output path drifts between the bake that generates the
+  # offline flake.lock and the bake that builds the installer closure —
+  # producing two byte-identical-but-differently-named `…-source` paths.
+  #
+  # The LIVE medium never sees the runCommand: it path-fetches the
+  # nixblitz input from the baked flake.lock, and nix's path fetcher
+  # CONTENT-addresses it (name = "source", keyed on narHash). That fetched
+  # path is exactly what `builtins.path { name = "source"; … }` computes
+  # here. Routing every bake-side consumer (nixblitzFlake.outPath, the lock
+  # override, sourcePaths) through this content-addressed path makes the
+  # baked closure reference the SAME store path the live fetch resolves to —
+  # so the install-time toplevel drv is byte-identical to the baked one, and
+  # the pinned source that /etc/nixblitz/flake-inputs records is present.
+  # Without it the flake-inputs text drv (hence etc → toplevel) diverges on
+  # the source path string alone, re-opening the offline-rebuild hole.
+  stampedSelf = builtins.path {
+    name = "source";
+    path = stampedSelfBuilt;
+  };
 
   # A FLAKE OBJECT evaluated from the stamped copy with install-time metadata
   # shape — this is what templates/flake.nix receives as its `nixblitz` input
@@ -135,6 +160,47 @@
   in
     assert lib.assertMsg (lib.hasInfix versionStamp checkDrv.name)
     "nixblitz offline bake would diverge from install-time eval: TUI derivation '${checkDrv.name}' does not contain version stamp '${versionStamp}'"; pathSelf;
+
+  # Epoch-aligned nixpkgs flake object — the Part-1 keystone. On the live
+  # medium the `nixpkgs` input is path-locked (offline flake.lock), so it
+  # carries NO flake metadata: nix hands its `self` a lastModified derived
+  # from the path node (≈epoch) and no rev. nixpkgs's own
+  # `lib/flake-version-info.nix` then computes
+  #   versionSuffix = ".${substring 0 8 (self.lastModifiedDate or "19700101")}.${self.shortRev or "dirty"}"
+  # → ".19700101.dirty". The bake, using the raw `nixos-raspberrypi.inputs.nixpkgs`
+  # flake object, sees REAL metadata (lastModifiedDate 20260630…, shortRev
+  # b6018f8) → ".20260630.b6018f8". That single suffix difference propagates
+  # into os-release / the nixos-system-* derivation NAME, so the bake's
+  # toplevel drv diverged from the install's even though every package input
+  # is identical — the L4a text-drv split.
+  #
+  # We reproduce the path-locked shape by re-tying nixpkgs's own outputs
+  # fix-point (its `outputs` takes only `{ self }`) with epoch metadata and
+  # NO rev attrs — the exact same trick nixblitzFlake uses above. The
+  # resulting `.lib` (carrying the epoch versionSuffix) and `.legacyPackages`
+  # are what templates/flake.nix's `nixpkgs.lib.nixosSystem` consumes, so the
+  # bake computes the identical "19700101.dirty" suffix the install computes.
+  #
+  # `overrides`/`sourcePaths` below deliberately keep the RAW nixpkgs object:
+  # path-locking only needs the store path, and the epoch wrapper shares the
+  # same `outPath`, so the baked source set is unchanged.
+  nixpkgsRaw = nixos-raspberrypi.inputs.nixpkgs;
+  nixpkgsEpoch = let
+    nixpkgsPath = nixpkgsRaw.outPath;
+    npFlake = import (nixpkgsPath + "/flake.nix");
+    pathSelf =
+      result
+      // {
+        outPath = nixpkgsPath;
+        lastModified = 0;
+        lastModifiedDate = "19700101000000";
+        # deliberately NO rev/shortRev/dirtyRev/dirtyShortRev — mirrors the
+        # path-locked nixpkgs input on the live medium, so flake-version-info's
+        # `self.shortRev or "dirty"` resolves to "dirty".
+      };
+    result = npFlake.outputs {self = pathSelf;};
+  in
+    pathSelf;
 in rec {
   # The exact input set templates/flake.nix's `outputs` function receives,
   # mirroring templates/flake.nix's own `inputs` block (nixpkgs follows
@@ -142,7 +208,10 @@ in rec {
   # this very repo, published at forge.f44.fyi/f44/nixblitz_ng and pulled
   # back in by templates/flake.nix as a git+https input).
   templatesInputs = {
-    nixpkgs = nixos-raspberrypi.inputs.nixpkgs;
+    # Epoch-aligned (see nixpkgsEpoch above): the bake's version suffix must
+    # match the path-locked install's "19700101.dirty", or the toplevel text
+    # drvs diverge.
+    nixpkgs = nixpkgsEpoch;
     inherit disko nixos-raspberrypi;
     # The content-stamped flake object (NOT the raw root `self`): its version
     # block reads the baked stamp, so the TUI drv it yields is identical to

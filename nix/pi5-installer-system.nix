@@ -93,7 +93,17 @@
     result;
 
   installerSystem = outputs.nixosConfigurations.nixblitz-pi5-installer;
+
+  sysBuild = installerSystem.config.system.build;
+
+  # Per-machine delta-rebuild builder closure — the aarch64 analogue of
+  # nix/installer-system.nix's `builderPaths`. See nix/builder-closure.nix for
+  # the full rationale (a real Pi's hardware-configuration.nix + disk device
+  # forces the same fstab/grub/initrd/closure-info/toplevel rebuilds, whose
+  # build-time-only builders live in no runtime closure).
+  builderPaths = import ./builder-closure.nix {inherit pkgs sysBuild;};
 in {
   toplevel = installerSystem.config.system.build.toplevel;
   diskoScript = installerSystem.config.system.build.diskoScript;
+  inherit builderPaths;
 }

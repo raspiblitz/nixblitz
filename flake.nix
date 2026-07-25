@@ -182,6 +182,10 @@
                 # so disko-install runs offline (see nix/installer-system.nix).
                 installerClosure = installerSystem.toplevel;
                 installerDiskoScript = installerSystem.diskoScript;
+                # Build-time builder closure for the per-machine delta rebuilds
+                # (nix/builder-closure.nix) — baked so the operator's own
+                # hardware-configuration.nix + disk rebuild offline.
+                installerBuilderPaths = installerSystem.builderPaths;
                 # Path-locked templates/flake.lock + the input source paths
                 # it resolves against (see nix/offline-flake-lock.nix,
                 # nix/offline-inputs.nix) — makes the ISO fully offline.
@@ -238,6 +242,10 @@
                 # nix/pi5-installer-system.nix).
                 installerClosure = installerSystem.toplevel;
                 installerDiskoScript = installerSystem.diskoScript;
+                # Build-time builder closure for the per-machine delta rebuilds
+                # (nix/builder-closure.nix) — baked so a real Pi's own
+                # hardware-configuration.nix + disk rebuild offline.
+                installerBuilderPaths = installerSystem.builderPaths;
                 # Path-locked templates/flake.lock + the input source paths
                 # it resolves against (see nix/offline-flake-lock.nix,
                 # nix/offline-inputs.nix) — makes the image fully offline.

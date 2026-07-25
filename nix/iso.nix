@@ -25,6 +25,13 @@
   # `disko-install` reads this directly; baking it means the install step
   # doesn't need to re-derive it from the (network-dependent) flake eval.
   installerDiskoScript,
+  # Build-time closure (stdenv + perl-env + makeInitrd tooling) needed to
+  # REBUILD the per-machine delta derivations offline — see
+  # nix/builder-closure.nix. The baked `installerClosure` only carries the
+  # runtime closure; without these the operator's own
+  # hardware-configuration.nix + disk would drop into a bootstrap-stdenv
+  # rebuild that dies offline.
+  installerBuilderPaths,
 }:
 nixpkgs.lib.nixosSystem {
   system = "x86_64-linux";
@@ -109,7 +116,10 @@ nixpkgs.lib.nixosSystem {
         # source paths are what offlineLock's path-locked nodes resolve
         # against — without them present in the store, the lock's
         # references would dangle.
-        isoImage.storeContents = [installerClosure installerDiskoScript] ++ offlineSourcePaths;
+        isoImage.storeContents =
+          [installerClosure installerDiskoScript]
+          ++ offlineSourcePaths
+          ++ installerBuilderPaths;
 
         # Harden against accidental network use now that the ISO is
         # self-contained: no flake registry lookups, and a short connect
