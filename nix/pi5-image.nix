@@ -22,9 +22,13 @@
   # alongside offlineLock so the path references it contains actually
   # exist on the live medium.
   offlineSourcePaths,
-  # `disko-install` reads this directly; baking it means the install step
-  # doesn't need to re-derive it from the (network-dependent) flake eval.
-  installerDiskoScript,
+  # disko-install's ACTUAL eval products — the diskoScript / formatScript /
+  # mountScript / installToplevel / closureInfo it realizes on the live medium
+  # (nix/install-cli-products.nix). Baking these OUTPUTS means a fixture-path
+  # install builds zero drvs; their `.inputDerivation`s ride in
+  # installerBuilderPaths for the real-machine delta. A list so all five are
+  # threaded through one arg.
+  installerCliProducts,
   # Build-time closure (stdenv + perl-env + makeInitrd tooling) needed to
   # REBUILD the per-machine delta derivations offline — see
   # nix/builder-closure.nix. Direct analogue of nix/iso.nix's
@@ -99,7 +103,8 @@ nixos-raspberrypi.lib.nixosInstaller {
         # disko-install runs fully offline — the direct analogue of
         # isoImage.storeContents. Default sdImage.storePaths is
         # [config.system.build.toplevel]; append the nixblitz-pi5-installer
-        # toplevel + its disko script (both built by
+        # toplevel + disko-install's cli products (its diskoScript +
+        # installToplevel + closureInfo + format/mountScript, all built by
         # nix/pi5-installer-system.nix, threaded from flake.nix) and every
         # input source path offlineLock's path-locked nodes resolve
         # against (nix/offline-inputs.nix) — without them present in the
@@ -109,7 +114,8 @@ nixos-raspberrypi.lib.nixosInstaller {
         # config, so the final per-machine system builds locally at install
         # time — offline, because its leaves are baked.
         sdImage.storePaths =
-          [config.system.build.toplevel installerClosure installerDiskoScript]
+          [config.system.build.toplevel installerClosure]
+          ++ installerCliProducts
           ++ offlineSourcePaths
           ++ installerBuilderPaths;
 

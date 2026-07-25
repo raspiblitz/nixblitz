@@ -52,6 +52,20 @@
   pkgs,
   # `config.system.build` of the installer nixosSystem.
   sysBuild,
+  # disko-install's ACTUAL eval products (nix/install-cli-products.nix): the
+  # diskoScript / installToplevel / closureInfo it realizes on the live medium.
+  # A real machine's delta variant of each rebuilds at install time, so their
+  # BUILDERS must be baked too — the diskoScript in particular pulls
+  # make-binary-wrapper-hook + gcc-wrapper + shellcheck (makeBinaryWrapper
+  # compiles a C shim, writeCheckedBash runs shellcheck), none of which live in
+  # any runtime closure. Their `.inputDerivation`s land exactly that toolchain.
+  installCliProducts ? [],
+  # Compiled build-only tooling the install-cli products need but that no
+  # `.inputDerivation` reaches — currently make-binary-wrapper-hook (+ its
+  # bundled cc/binutils/glibc) for the per-device diskoScript content rebuild.
+  # See nix/install-cli-products.nix `diskoScriptToolchain`. Baked whole (their
+  # runtime closures), same as jq.dev / lndir below.
+  installCliToolchain ? [],
 }: let
   # Products a per-machine install always rebuilds and that expose a clean
   # accessor. `x or null` keeps this robust across the x86 and Pi 5 systems
@@ -76,6 +90,16 @@
     ];
 in
   (map (p: p.inputDerivation) rebuildProducts)
+  # The install-cli products' build-input closures (see the arg doc above).
+  # diskoScript.inputDerivation is the load-bearing one: it carries the
+  # make-binary-wrapper-hook + gcc-wrapper + shellcheck the previous bake
+  # missed. installToplevel / closureInfo are usually the same drvs as the
+  # plain toplevel on the fixture, but diverge on a real machine's delta —
+  # baking their builders keeps that rebuild offline too.
+  ++ (map (p: p.inputDerivation) installCliProducts)
+  # The diskoScript content-rebuild toolchain (make-binary-wrapper-hook + its
+  # bundled cc), baked whole — see the arg doc above.
+  ++ installCliToolchain
   # Measured stragglers not reachable through any product's `.inputDerivation`:
   #   - jq `dev`: build input of the boot.json builder.
   #   - lndir: link-units (the system-units builder) shells out to it.

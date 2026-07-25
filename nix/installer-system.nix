@@ -83,6 +83,16 @@
 
   sysBuild = installerSystem.config.system.build;
 
+  # disko-install's ACTUAL eval products (nix/install-cli-products.nix). The
+  # wizard runs `disko-install --flake ~/nixblitz#nixblitz-installer --disk
+  # main <device>`, which does NOT build the plain diskoScript/toplevel above
+  # but install-cli's extendModules variants. Fixture mapping: `main` →
+  # `/dev/vda`, the disko-x86 default device and the wizard's x86-VM default.
+  cliProducts = import ./install-cli-products.nix {
+    originalSystem = installerSystem;
+    diskMappings = {main = "/dev/vda";};
+  };
+
   # Per-machine delta-rebuild BUILDER closure (see nix/builder-closure.nix).
   # The baked `toplevel` OUTPUT carries only the installed system's RUNTIME
   # closure. A real machine's own hardware-configuration.nix + disk device
@@ -95,9 +105,16 @@
   # busybox / kmod), which are build-time-only and in NO runtime closure. Bake
   # them so that rebuild runs fully offline instead of dropping into a
   # bootstrap-stdenv cascade.
-  builderPaths = import ./builder-closure.nix {inherit pkgs sysBuild;};
+  builderPaths = import ./builder-closure.nix {
+    inherit pkgs sysBuild;
+    installCliProducts = [cliProducts.diskoScript cliProducts.installToplevel cliProducts.closureInfo];
+    installCliToolchain = cliProducts.diskoScriptToolchain;
+  };
 in {
   toplevel = installerSystem.config.system.build.toplevel;
-  diskoScript = installerSystem.config.system.build.diskoScript;
-  inherit builderPaths;
+  # The install-cli eval products baked as OUTPUTS so a fixture-path install
+  # builds zero drvs; their `.inputDerivation`s are folded into builderPaths
+  # above so a real-machine delta rebuilds offline. See
+  # nix/install-cli-products.nix and nix/builder-closure.nix.
+  inherit cliProducts builderPaths;
 }

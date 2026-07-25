@@ -181,10 +181,20 @@
                 # Minimal installer-system closure, baked into the ISO store
                 # so disko-install runs offline (see nix/installer-system.nix).
                 installerClosure = installerSystem.toplevel;
-                installerDiskoScript = installerSystem.diskoScript;
+                # disko-install's actual eval products (nix/install-cli-products.nix),
+                # baked as outputs so a fixture-path install builds zero drvs.
+                installerCliProducts = with installerSystem.cliProducts; [
+                  diskoScript
+                  formatScript
+                  mountScript
+                  installToplevel
+                  closureInfo
+                ];
                 # Build-time builder closure for the per-machine delta rebuilds
                 # (nix/builder-closure.nix) — baked so the operator's own
-                # hardware-configuration.nix + disk rebuild offline.
+                # hardware-configuration.nix + disk rebuild offline. Now also
+                # carries the cli products' `.inputDerivation`s (gcc-wrapper,
+                # make-binary-wrapper-hook, shellcheck via diskoScript).
                 installerBuilderPaths = installerSystem.builderPaths;
                 # Path-locked templates/flake.lock + the input source paths
                 # it resolves against (see nix/offline-flake-lock.nix,
@@ -241,10 +251,19 @@
                 # store so disko-install runs offline (see
                 # nix/pi5-installer-system.nix).
                 installerClosure = installerSystem.toplevel;
-                installerDiskoScript = installerSystem.diskoScript;
+                # disko-install's actual eval products (nix/install-cli-products.nix),
+                # baked as outputs so a fixture-path install builds zero drvs.
+                installerCliProducts = with installerSystem.cliProducts; [
+                  diskoScript
+                  formatScript
+                  mountScript
+                  installToplevel
+                  closureInfo
+                ];
                 # Build-time builder closure for the per-machine delta rebuilds
                 # (nix/builder-closure.nix) — baked so a real Pi's own
-                # hardware-configuration.nix + disk rebuild offline.
+                # hardware-configuration.nix + disk rebuild offline. Now also
+                # carries the cli products' `.inputDerivation`s.
                 installerBuilderPaths = installerSystem.builderPaths;
                 # Path-locked templates/flake.lock + the input source paths
                 # it resolves against (see nix/offline-flake-lock.nix,

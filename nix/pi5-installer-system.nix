@@ -96,14 +96,29 @@
 
   sysBuild = installerSystem.config.system.build;
 
+  # disko-install's ACTUAL eval products (nix/install-cli-products.nix) — the
+  # aarch64 analogue of nix/installer-system.nix's `cliProducts`. The wizard
+  # runs `disko-install --flake ~/nixblitz#nixblitz-pi5-installer --disk main
+  # <device>`; fixture mapping is `main` → `/dev/nvme0n1`, the disko-pi5
+  # default target (the supported NVMe-via-M.2-HAT path).
+  cliProducts = import ./install-cli-products.nix {
+    originalSystem = installerSystem;
+    diskMappings = {main = "/dev/nvme0n1";};
+  };
+
   # Per-machine delta-rebuild builder closure — the aarch64 analogue of
   # nix/installer-system.nix's `builderPaths`. See nix/builder-closure.nix for
   # the full rationale (a real Pi's hardware-configuration.nix + disk device
   # forces the same fstab/grub/initrd/closure-info/toplevel rebuilds, whose
   # build-time-only builders live in no runtime closure).
-  builderPaths = import ./builder-closure.nix {inherit pkgs sysBuild;};
+  builderPaths = import ./builder-closure.nix {
+    inherit pkgs sysBuild;
+    installCliProducts = [cliProducts.diskoScript cliProducts.installToplevel cliProducts.closureInfo];
+    installCliToolchain = cliProducts.diskoScriptToolchain;
+  };
 in {
   toplevel = installerSystem.config.system.build.toplevel;
-  diskoScript = installerSystem.config.system.build.diskoScript;
-  inherit builderPaths;
+  # The install-cli eval products baked as OUTPUTS + their `.inputDerivation`s
+  # in builderPaths — see nix/installer-system.nix for the full rationale.
+  inherit cliProducts builderPaths;
 }

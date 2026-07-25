@@ -22,9 +22,13 @@
   # alongside offlineLock so the path references it contains actually
   # exist on the live medium.
   offlineSourcePaths,
-  # `disko-install` reads this directly; baking it means the install step
-  # doesn't need to re-derive it from the (network-dependent) flake eval.
-  installerDiskoScript,
+  # disko-install's ACTUAL eval products — the diskoScript / formatScript /
+  # mountScript / installToplevel / closureInfo it realizes on the live medium
+  # (nix/install-cli-products.nix). Baking these OUTPUTS means a fixture-path
+  # install builds zero drvs; their `.inputDerivation`s ride in
+  # installerBuilderPaths for the real-machine delta. A list so all five are
+  # threaded through one arg.
+  installerCliProducts,
   # Build-time closure (stdenv + perl-env + makeInitrd tooling) needed to
   # REBUILD the per-machine delta derivations offline — see
   # nix/builder-closure.nix. The baked `installerClosure` only carries the
@@ -111,13 +115,15 @@ nixpkgs.lib.nixosSystem {
         # against the live system's own closure, so the ISO grows only by the
         # non-overlapping installed paths. The closure is built by
         # nix/installer-system.nix and threaded in from flake.nix.
-        # installerDiskoScript and offlineSourcePaths are baked alongside it:
-        # the disko script is what disko-install actually runs, and the
-        # source paths are what offlineLock's path-locked nodes resolve
+        # installerCliProducts and offlineSourcePaths are baked alongside it:
+        # the cli products are exactly what disko-install realizes (its
+        # diskoScript + installToplevel + closureInfo + format/mountScript),
+        # and the source paths are what offlineLock's path-locked nodes resolve
         # against — without them present in the store, the lock's
         # references would dangle.
         isoImage.storeContents =
-          [installerClosure installerDiskoScript]
+          [installerClosure]
+          ++ installerCliProducts
           ++ offlineSourcePaths
           ++ installerBuilderPaths;
 
