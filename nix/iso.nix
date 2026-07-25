@@ -78,13 +78,18 @@ nixpkgs.lib.nixosSystem {
           fi
         '';
 
-        # Stable, recognizable artifact name. Set `isoImage.isoBaseName`
-        # (the filename *stem*) rather than `isoImage.isoName` /
-        # `image.fileName` directly: nixpkgs 25.11 recomposes the final
-        # filename from the base name via the new image API, so a direct
-        # `isoName` override is silently recomposed away, whereas the base
-        # name flows through cleanly. Result: nixblitz-installer.iso.
-        isoImage.isoBaseName = lib.mkForce "nixblitz-installer";
+        # Stable, recognizable artifact name. `image.baseName` is the
+        # 25.11 image-API home of what used to be `isoImage.isoBaseName`
+        # (the deprecation alias warned on every eval). Set the base name
+        # (the filename *stem*) rather than `image.fileName` directly:
+        # the image API recomposes the final filename from the base name,
+        # so a direct fileName override is silently recomposed away,
+        # whereas the base name flows through cleanly. Result:
+        # nixblitz-installer.iso. (Pi 5 analogue in nix/pi5-image.nix
+        # needs mkOverride 30 — its installer chain pre-sets the name at
+        # 40; here the profile only provides a default, so mkForce is
+        # plenty.)
+        image.baseName = lib.mkForce "nixblitz-installer";
 
         # Deliver the path-locked templates/flake.lock onto the live medium.
         # The install wizard's scaffolded ~/nixblitz gets its flake.lock
@@ -111,7 +116,16 @@ nixpkgs.lib.nixosSystem {
         # timeout so any attempt fails fast instead of hanging. Substituters
         # are deliberately NOT cleared — network stays a fallback if the
         # baked store is ever incomplete, rather than a hard failure.
+        #
+        # experimental-features must be enabled system-wide here:
+        # `flake-registry` is a flakes-gated setting, and NixOS's
+        # nix.conf build-time validation treats "ignoring setting
+        # 'flake-registry'" as fatal without it. (disko-install passes
+        # the features per-invocation, but the validator checks the
+        # system nix.conf.) Same pairing as clan-core's offline flash
+        # check.
         nix.settings = {
+          experimental-features = ["nix-command" "flakes"];
           flake-registry = "";
           connect-timeout = 3;
         };

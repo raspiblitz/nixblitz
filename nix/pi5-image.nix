@@ -77,7 +77,7 @@ nixos-raspberrypi.lib.nixosInstaller {
         # installer chain sets image.baseName at `mkOverride 40`
         # (nixos-raspberrypi flake.nix), so a plain `mkForce` (priority 50)
         # would LOSE — override at a higher priority. This is the Pi 5 analogue
-        # of the isoBaseName subtlety in nix/iso.nix.
+        # of the baseName subtlety in nix/iso.nix.
         image.baseName = lib.mkOverride 30 "nixblitz-pi5-installer";
 
         # Deliver the path-locked templates/flake.lock onto the live image.
@@ -110,8 +110,11 @@ nixos-raspberrypi.lib.nixosInstaller {
         # timeout so any attempt fails fast instead of hanging. Substituters
         # are deliberately NOT cleared — network stays a fallback if the
         # baked store is ever incomplete, rather than a hard failure
-        # (mirrors nix/iso.nix).
+        # (mirrors nix/iso.nix — incl. experimental-features, without
+        # which the nix.conf build-time validation rejects the
+        # flakes-gated flake-registry setting).
         nix.settings = {
+          experimental-features = ["nix-command" "flakes"];
           flake-registry = "";
           connect-timeout = 3;
         };
