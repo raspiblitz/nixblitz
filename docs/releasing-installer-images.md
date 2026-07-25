@@ -145,9 +145,12 @@ just vm-clean && just vm-boot-offline
 ```
 
 Run the installer wizard and complete a full install on a blank disk with
-**zero network** (`vm-boot-offline` passes `-nic none`, so there's no path out
-even if something tried). The install must complete end to end. Check the
-install log for the absence of both:
+**zero internet** (`vm-boot-offline` uses QEMU user networking with
+`restrict=on`: the guest has a NIC and DHCP but slirp drops all routed
+traffic, so there's no path out even if something tried — while the explicit
+SSH `hostfwd` keeps `just vm-ssh-installer` working for mid-install
+inspection). The install must complete end to end. Check the install log for
+the absence of both:
 
 - `copying path … from https://…` (a substituter fetch)
 - `Added input '…' to the lock file` (a flake input re-fetch)

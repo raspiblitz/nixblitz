@@ -366,7 +366,7 @@ vm-boot:
 # networking is dropped (so no SSH/HTTP port-forwards either — reach the
 # console via the QEMU window, not ssh).
 #
-# Boot the installer ISO for the offline acceptance test (no network device)
+# Boot the installer ISO for the offline acceptance test (no internet; SSH-only NIC)
 vm-boot-offline:
   #!/usr/bin/env nu
   # Build the nixblitz installer ISO if it isn't present, then boot it.
@@ -388,10 +388,17 @@ vm-boot-offline:
     qemu-img create -f qcow2 nixblitz-disk.qcow2 150G
   }
 
-  print "Booting NixOS installer VM (OFFLINE acceptance boot — no network device)..."
+  # restrict=on: the guest gets a NIC + DHCP but slirp drops ALL routed
+  # traffic — zero internet — while explicit hostfwd rules still work.
+  # That keeps `just vm-ssh-installer` usable for inspecting the offline
+  # install (reading ~/nixblitz.log mid-run) and is truer to the real
+  # "no internet at the install site" scenario than -nic none.
+  print "Booting NixOS installer VM (OFFLINE acceptance boot — NIC present, internet blocked)..."
+  print "  SSH:    ssh -p 10022 nixos@localhost  (host-only; guest has no internet)"
   print "  Disk:   nixblitz-disk.qcow2 (virtio)"
   (qemu-system-x86_64 -enable-kvm -m 8192 -smp 4
-    -nic none
+    -netdev user,id=mynet0,restrict=on,hostfwd=tcp::10022-:22
+    -device virtio-net-pci,netdev=mynet0
     -drive file=nixblitz-disk.qcow2,if=none,id=virtio0,format=qcow2
     -device virtio-blk-pci,drive=virtio0
     -cdrom $iso)
