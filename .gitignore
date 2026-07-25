@@ -23,6 +23,12 @@ pubspec.lock
 result
 result-*
 
+# Content-borne version stamp — only ever written into a stamped SOURCE
+# copy inside the Nix store at offline-image bake time (nix/offline-inputs.nix).
+# Must never exist in the working tree: its presence makes flake.nix's version
+# block bypass the git-metadata read, which is exactly wrong for a dev build.
+.nixblitz-version-stamp
+
 # Examples / old code
 examples_redesign/
 

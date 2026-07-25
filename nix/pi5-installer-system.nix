@@ -49,10 +49,10 @@
   nixos-raspberrypi,
   disko,
 }: let
-  offlineInputs = import ./offline-inputs.nix {inherit self nixos-raspberrypi disko;};
+  system = "aarch64-linux";
+  offlineInputs = import ./offline-inputs.nix {inherit self nixos-raspberrypi disko system;};
   inherit (offlineInputs.templatesInputs) nixpkgs;
 
-  system = "aarch64-linux";
   pkgs = nixpkgs.legacyPackages.${system};
   lib = nixpkgs.lib;
 

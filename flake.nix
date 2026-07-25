@@ -62,10 +62,33 @@
         # nix/wasmtime.nix and CLAUDE.md → Flake input rules.
         wasmtimePinned = pkgs.callPackage ./nix/wasmtime.nix {};
         version = "0.1.0";
+
+        # Content-borne version stamp (nix/offline-inputs.nix). The offline
+        # installer bakes the TUI closure evaluated with REAL flake metadata,
+        # but path-locking the `nixblitz` input onto the live medium drops
+        # rev/lastModified — so a naive on-ISO eval computes a DIFFERENT
+        # derivationVersion, rebuilds the TUI from source, and dies fetching a
+        # bootstrap toolchain offline. To keep both evals byte-identical, the
+        # bake writes the real metadata suffix into `.nixblitz-version-stamp`
+        # in a stamped source copy; when that file is present we consume it
+        # VERBATIM and never touch the (now-absent) metadata attrs. The file
+        # never exists in the working tree (see .gitignore), so dev/normal
+        # builds always take the metadata fallback below — byte-identical to
+        # before this stamp existed.
+        versionStamp =
+          if (self ? outPath) && builtins.pathExists (self.outPath + "/.nixblitz-version-stamp")
+          then lib.removeSuffix "\n" (builtins.readFile (self.outPath + "/.nixblitz-version-stamp"))
+          else null;
+
         # Short git hash of the source tree at build time, tagged with
         # "-dirty" when the worktree has uncommitted changes. Surfaces
-        # in the TUI header and `nixblitz --version` output.
-        gitHash = self.shortRev or self.dirtyShortRev or "unknown";
+        # in the TUI header and `nixblitz --version` output. When a stamp
+        # is present it carries the hash portion — everything after the
+        # leading YYYYMMDDHHMMSS date field (which never contains a dash).
+        gitHash =
+          if versionStamp != null
+          then lib.concatStringsSep "-" (builtins.tail (lib.splitString "-" versionStamp))
+          else self.shortRev or self.dirtyShortRev or "unknown";
 
         # Augmented version goes into the derivation's name so
         # `nvd diff` lists nixblitz as changed on every commit
@@ -87,7 +110,10 @@
         # `nixos-system-nixblitz` already uses
         # (`25.11.20260510.8fd9daa`).
         flakeDate = self.lastModifiedDate or "0";
-        derivationVersion = "${version}+${flakeDate}-${gitHash}";
+        derivationVersion =
+          if versionStamp != null
+          then "${version}+${versionStamp}"
+          else "${version}+${flakeDate}-${gitHash}";
 
         nixblitzUnwrapped = pkgsUnstable.callPackage ./nix/tui_pkg.nix {
           nixFilter = nix-filter.lib;
@@ -133,7 +159,7 @@
             # offline-flake-lock below (closes the "double-IFD" review Minor
             # — installer-system.nix's fixture build used to run twice).
             offlineInputs = import ./nix/offline-inputs.nix {
-              inherit self nixos-raspberrypi disko;
+              inherit self nixos-raspberrypi disko system;
             };
             offlineLock = import ./nix/offline-flake-lock.nix {
               inherit pkgs offlineInputs;
@@ -145,7 +171,13 @@
             installer-iso =
               (import ./nix/iso.nix {
                 inherit nixpkgs;
-                nixblitzPackage = nixblitzWrapped;
+                # The STAMPED wrapped TUI (nixblitzFlake, evaluated from the
+                # content-borne stamped source in offline-inputs), NOT the
+                # root-eval nixblitzWrapped. This makes the live medium and
+                # the install target share ONE TUI derivation — otherwise the
+                # ISO would carry two builds (root-metadata-stamped +
+                # content-stamped) and the drvs would diverge.
+                nixblitzPackage = offlineInputs.templatesInputs.nixblitz.packages.${system}.nixblitz;
                 # Minimal installer-system closure, baked into the ISO store
                 # so disko-install runs offline (see nix/installer-system.nix).
                 installerClosure = installerSystem.toplevel;
@@ -185,7 +217,7 @@
             # as the x86_64-linux block above — closes the "double-IFD"
             # review Minor for this side too).
             offlineInputs = import ./nix/offline-inputs.nix {
-              inherit self nixos-raspberrypi disko;
+              inherit self nixos-raspberrypi disko system;
             };
             offlineLock = import ./nix/offline-flake-lock.nix {
               inherit pkgs offlineInputs;
@@ -197,7 +229,10 @@
             pi5-installer-image =
               (import ./nix/pi5-image.nix {
                 inherit nixos-raspberrypi;
-                nixblitzPackage = nixblitzWrapped;
+                # The STAMPED wrapped TUI (aarch64), NOT root-eval
+                # nixblitzWrapped — same rationale as the x86 ISO above: one
+                # shared TUI derivation across live medium and install target.
+                nixblitzPackage = offlineInputs.templatesInputs.nixblitz.packages.${system}.nixblitz;
                 # Minimal installer-system closure, baked into the image
                 # store so disko-install runs offline (see
                 # nix/pi5-installer-system.nix).
