@@ -183,10 +183,15 @@ const String _flake = r'''
     # `systems` (nix-systems/default, flake-utils' input) field failure.
     #
     # Merge strategy: later attrsets win. Name collisions (disko / nixpkgs /
-    # nixos-raspberrypi appear in more than one source) are harmless — the
-    # colliding nodes resolve to identical store paths via the offline lock's
-    # overrides, so which copy wins doesn't change the pinned path set. The
-    # pin module dedups by store path anyway.
+    # nixos-raspberrypi appear in more than one source) resolve to identical
+    # store paths via the offline lock's overrides, so which copy wins doesn't
+    # change the pinned path set. NOTE this identity is LOAD-BEARING, not
+    # incidental: if nixblitz's pinned nixos-raspberrypi rev ever diverged
+    # from the top-level one, the losing copy's transitive nodes (argononed,
+    # flake-compat, nixos-images, nixpkgs) would silently drop out of the pin
+    # while remaining in the baked lock — and the offline-VM acceptance run
+    # (plus the lock generator's all-nodes assert at ISO build) is what
+    # catches that. Keep the two revs aligned deliberately.
     pinnedFlakeInputs =
       {
         inherit nixpkgs disko nixos-raspberrypi nixblitz;

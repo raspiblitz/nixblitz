@@ -166,7 +166,8 @@ closure guarantee (closure baked == closure evaluated) — accepted so the
 installer never needs connectivity.
 
 Installed nodes keep their own pinned input sources on disk too (roughly
-**+250-300 MB**), so config rebuilds and rollbacks evaluate offline; only an
+**+600 MB** — the complete offline lock graph, dominated by three nixpkgs
+snapshots), so config rebuilds and rollbacks evaluate offline; only an
 explicit update re-locks from the forge and re-fetches.
 
 ## Verify
