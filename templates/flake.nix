@@ -147,6 +147,37 @@
         (import modulePath) {pluginCfg = pluginCfg;};
     in
       map mkPluginModule pluginIds;
+
+    # Complete flake-input SOURCE set pinned into every system closure by
+    # modules/system/pin-flake-sources.nix. This MUST mirror the offline
+    # lock graph (nix/offline-inputs.nix's node list) EXACTLY — every
+    # `type = "path"` node the lock carries has to appear here.
+    #
+    # Why completeness is load-bearing: first boot evaluates the path-locked
+    # `~/nixblitz`, and that eval forces the FULL transitive source set, not
+    # just the five top-level inputs. `nixblitz.packages.<sys>` pulls the root
+    # flake's outputs → `flake-utils.lib.eachDefaultSystem` → imports
+    # flake-utils → imports its `systems` input; the TUI src filtering pulls
+    # nix-filter; the config-channel checks pull both unstable nixpkgs; the Pi
+    # 5 safety net pulls nixos-raspberrypi's argononed / flake-compat /
+    # nixos-images. The ISO bakes the full `sourcePaths` set so INSTALL works,
+    # but the TARGET only ever receives what THIS attrset pins. Any lock node
+    # missing here is absent on the installed node and bricks first boot
+    # offline with `path '/nix/store/…-source' does not exist` — exactly the
+    # `systems` (nix-systems/default, flake-utils' input) field failure.
+    #
+    # Merge strategy: later attrsets win. Name collisions (disko / nixpkgs /
+    # nixos-raspberrypi appear in more than one source) are harmless — the
+    # colliding nodes resolve to identical store paths via the offline lock's
+    # overrides, so which copy wins doesn't change the pinned path set. The
+    # pin module dedups by store path anyway.
+    pinnedFlakeInputs =
+      {
+        inherit nixpkgs disko nixos-raspberrypi nixblitz;
+      }
+      // nixblitz.inputs # disko, flake-utils, nix-filter, nixos-raspberrypi, nixpkgs (follows), nixpkgs-unstable, nixpkgs-vanilla-unstable
+      // nixblitz.inputs.flake-utils.inputs # systems (nix-systems/default)
+      // nixos-raspberrypi.inputs; # argononed, flake-compat, nixos-images, nixpkgs
   in {
     nixosModules.default = {
       imports =
@@ -175,11 +206,8 @@
           system = "x86_64-linux";
           specialArgs = {
             inherit nixblitz;
-            flakeInputs = {
-              inherit nixpkgs disko nixos-raspberrypi nixblitz;
-              # forced transitively by base.nix's nixblitz.packages access:
-              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
-            };
+            # Complete pinned source set — see `pinnedFlakeInputs` above.
+            flakeInputs = pinnedFlakeInputs;
           };
           modules = [
             ./hosts/installed.nix
@@ -194,11 +222,8 @@
           system = "x86_64-linux";
           specialArgs = {
             inherit nixblitz;
-            flakeInputs = {
-              inherit nixpkgs disko nixos-raspberrypi nixblitz;
-              # forced transitively by base.nix's nixblitz.packages access:
-              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
-            };
+            # Complete pinned source set — see `pinnedFlakeInputs` above.
+            flakeInputs = pinnedFlakeInputs;
           };
           modules = [
             ./hosts/installer.nix
@@ -216,11 +241,8 @@
         nixblitz-pi5 = nixos-raspberrypi.lib.nixosSystem {
           specialArgs = {
             inherit nixblitz nixos-raspberrypi;
-            flakeInputs = {
-              inherit nixpkgs disko nixos-raspberrypi nixblitz;
-              # forced transitively by base.nix's nixblitz.packages access:
-              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
-            };
+            # Complete pinned source set — see `pinnedFlakeInputs` above.
+            flakeInputs = pinnedFlakeInputs;
           };
           modules = [
             ./hosts/installed-pi5.nix
@@ -238,11 +260,8 @@
         nixblitz-pi5-installer = nixos-raspberrypi.lib.nixosSystem {
           specialArgs = {
             inherit nixblitz nixos-raspberrypi;
-            flakeInputs = {
-              inherit nixpkgs disko nixos-raspberrypi nixblitz;
-              # forced transitively by base.nix's nixblitz.packages access:
-              nixblitz-nixpkgs-unstable = nixblitz.inputs.nixpkgs-unstable;
-            };
+            # Complete pinned source set — see `pinnedFlakeInputs` above.
+            flakeInputs = pinnedFlakeInputs;
           };
           modules = [
             ./hosts/installer-pi5.nix

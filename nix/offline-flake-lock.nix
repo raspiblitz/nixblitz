@@ -22,11 +22,20 @@
     (builtins.head
       (builtins.filter (o: o.name == "nixblitz") offlineInputs.overrides))
     .path;
+
+  # Every store path the ISO actually bakes (offline-inputs.nix's
+  # deduplicated source set). The lock-wide assert below checks that EVERY
+  # `type = "path"` node in the generated lock resolves to one of these — a
+  # node pointing at anything the ISO doesn't carry would die on first boot
+  # offline with "path does not exist".
+  bakedSourcePaths =
+    pkgs.lib.concatStringsSep "\n"
+    (map (p: p.outPath or p) offlineInputs.sourcePaths);
 in
   pkgs.runCommand "nixblitz-offline-flake.lock"
   {
     nativeBuildInputs = [pkgs.nix pkgs.git pkgs.jq];
-    inherit expectedNixblitzPath;
+    inherit expectedNixblitzPath bakedSourcePaths;
   } ''
     export HOME="$TMPDIR/home"
     mkdir -p "$HOME"
@@ -59,6 +68,34 @@ in
       echo "cross-eval mix would break first boot ('path does not exist')." >&2
       echo "  expected (baked stampedSelf): $expectedNixblitzPath" >&2
       echo "  got (locked in flake.lock):   $lockedNixblitzPath" >&2
+      exit 1
+    fi
+
+    # Lock-wide completeness assert: EVERY path node the lock references must
+    # be a source the ISO bakes. The nixblitz-specific check above is the
+    # highest-signal special case; this generalizes it to the whole graph so a
+    # future unpinned transitive node (the `systems` field failure) can't slip
+    # through — first-boot eval forces the full transitive source set, and any
+    # node absent from the baked closure bricks the node offline.
+    printf '%s\n' "$bakedSourcePaths" > "$TMPDIR/baked-paths"
+    jq -r '
+      .nodes | to_entries[]
+      | select(.value.locked.type == "path")
+      | "\(.key) \(.value.locked.path)"
+    ' flake/flake.lock > "$TMPDIR/path-nodes"
+
+    lockAssertFail=0
+    while read -r node path; do
+      [ -z "$node" ] && continue
+      if ! grep -Fxq "$path" "$TMPDIR/baked-paths"; then
+        echo "offline lock node '$node' -> '$path'" >&2
+        echo "  references a source the ISO doesn't bake" >&2
+        echo "  (missing from offlineInputs.sourcePaths) — first boot would" >&2
+        echo "  die offline with 'path does not exist'." >&2
+        lockAssertFail=1
+      fi
+    done < "$TMPDIR/path-nodes"
+    if [ "$lockAssertFail" -ne 0 ]; then
       exit 1
     fi
 
