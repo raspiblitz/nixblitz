@@ -109,11 +109,30 @@
         # with; the hash stays for human debug, same shape
         # `nixos-system-nixblitz` already uses
         # (`25.11.20260510.8fd9daa`).
-        flakeDate = self.lastModifiedDate or "0";
+        # Metadata-fallback stamp (no stamp file present — dev/normal builds).
+        # Must be content-deterministic across evals of IDENTICAL source, or
+        # the derivation name (hence store path) drifts and the offline
+        # installer breaks on a cross-eval path mix (a stale offline lock
+        # referencing an older stamped path vs. a newer baked closure → first
+        # boot dies with "path does not exist"). `lastModifiedDate` is stable
+        # ONLY on a clean tree (self has `rev` → it's the commit time); on a
+        # dirty/jj tree every working-copy snapshot mints a fresh
+        # lastModifiedDate even when the content is byte-identical. So:
+        #   clean → "<lastModifiedDate>-<shortRev>"   (byte-identical to the
+        #           pre-fix stamp — release builds are unchanged)
+        #   dirty → "00000000000000-<dirtyShortRev>-dirty"   (fixed zero date:
+        #           less informative for dev builds, but stable across evals)
+        # MUST stay in lockstep with nix/offline-inputs.nix's `versionStamp`
+        # (the offline bake writes it into `.nixblitz-version-stamp` and the
+        # assert there compares the two) — change both or neither.
+        metadataStamp =
+          if self ? rev
+          then "${self.lastModifiedDate or "0"}-${self.shortRev or "unknown"}"
+          else "00000000000000-${self.dirtyShortRev or "unknown"}-dirty";
         derivationVersion =
           if versionStamp != null
           then "${version}+${versionStamp}"
-          else "${version}+${flakeDate}-${gitHash}";
+          else "${version}+${metadataStamp}";
 
         nixblitzUnwrapped = pkgsUnstable.callPackage ./nix/tui_pkg.nix {
           nixFilter = nix-filter.lib;

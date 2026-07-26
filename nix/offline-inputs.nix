@@ -53,11 +53,24 @@
   # Real metadata-derived version suffix, computed HERE at bake time from the
   # ROOT flake's `self` — which still carries `rev`/`dirtyShortRev` +
   # `lastModifiedDate`. This mirrors flake.nix's own metadata-fallback
-  # expression EXACTLY (`${lastModifiedDate}-${shortRev|dirtyShortRev}`); the
-  # two must stay in lockstep or the assert below fires.
-  gitHash = self.shortRev or self.dirtyShortRev or "unknown";
-  flakeDate = self.lastModifiedDate or "0";
-  versionStamp = "${flakeDate}-${gitHash}";
+  # expression (`metadataStamp`) EXACTLY and the two must stay in lockstep, or
+  # the assert below fires: this string is written into the stamped source's
+  # `.nixblitz-version-stamp`, which flake.nix then reads VERBATIM to build the
+  # baked TUI drv — a mismatch means the baked and install-time evals diverge.
+  #
+  # Content-determinism (the whole point of this file's `builtins.path`
+  # indirection): on a clean tree `lastModifiedDate` is the commit time
+  # (stable), but on a dirty/jj tree it drifts on every working-copy snapshot
+  # even for byte-identical content — so we stamp a FIXED zero date + `-dirty`
+  # marker there instead. Otherwise the stamp file's text drifts across evals,
+  # the content-addressed `stampedSelf` path drifts with it, and successive ISO
+  # builds mint mismatched offline lock / baked-closure path pairs.
+  #   clean → "<lastModifiedDate>-<shortRev>"
+  #   dirty → "00000000000000-<dirtyShortRev>-dirty"
+  versionStamp =
+    if self ? rev
+    then "${self.lastModifiedDate or "0"}-${self.shortRev or "unknown"}"
+    else "00000000000000-${self.dirtyShortRev or "unknown"}-dirty";
 
   # Content-borne version stamp: a copy of the ROOT source with the real
   # metadata suffix written into `.nixblitz-version-stamp`. Path-locking

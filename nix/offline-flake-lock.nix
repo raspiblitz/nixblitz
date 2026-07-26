@@ -14,30 +14,53 @@
 {
   pkgs,
   offlineInputs,
-}:
-pkgs.runCommand "nixblitz-offline-flake.lock"
-{
-  nativeBuildInputs = [pkgs.nix pkgs.git];
-} ''
-  export HOME="$TMPDIR/home"
-  mkdir -p "$HOME"
+}: let
+  # The store path the `nixblitz` node MUST lock to — the content-addressed
+  # stamped source (offline-inputs.nix's `stampedSelf`). Pulled from the same
+  # override list the lock is generated from, so bake and lock can never drift.
+  expectedNixblitzPath =
+    (builtins.head
+      (builtins.filter (o: o.name == "nixblitz") offlineInputs.overrides))
+    .path;
+in
+  pkgs.runCommand "nixblitz-offline-flake.lock"
+  {
+    nativeBuildInputs = [pkgs.nix pkgs.git pkgs.jq];
+    inherit expectedNixblitzPath;
+  } ''
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME"
 
-  mkdir flake
-  cp ${../templates/flake.nix} flake/flake.nix
+    mkdir flake
+    cp ${../templates/flake.nix} flake/flake.nix
 
-  # nix flake lock requires the target to live inside a git work tree
-  # (bare directories are rejected); a staged-but-uncommitted index is
-  # sufficient, no commit needed.
-  git -C flake init -q
-  git -C flake add -A
+    # nix flake lock requires the target to live inside a git work tree
+    # (bare directories are rejected); a staged-but-uncommitted index is
+    # sufficient, no commit needed.
+    git -C flake init -q
+    git -C flake add -A
 
-  nix flake lock ./flake \
-    --extra-experimental-features 'nix-command flakes' \
-    --flake-registry "" \
-    --store "$TMPDIR/store" \
-    ${pkgs.lib.concatMapStringsSep " \\\n    "
-    (o: "--override-input ${o.name} ${o.path}")
-    offlineInputs.overrides}
+    nix flake lock ./flake \
+      --extra-experimental-features 'nix-command flakes' \
+      --flake-registry "" \
+      --store "$TMPDIR/store" \
+      ${pkgs.lib.concatMapStringsSep " \\\n      "
+      (o: "--override-input ${o.name} ${o.path}")
+      offlineInputs.overrides}
 
-  cp flake/flake.lock $out
-''
+    # Self-assert: the generated lock's `nixblitz` node MUST point at the very
+    # stamped source path we baked into the ISO closure. If a content-stamp
+    # regression (or any future change) let these diverge, a cross-eval mix
+    # would break first boot with "path does not exist" — so make it a loud
+    # ISO-build failure right here instead.
+    lockedNixblitzPath=$(jq -r '.nodes.nixblitz.locked.path' flake/flake.lock)
+    if [ "$lockedNixblitzPath" != "$expectedNixblitzPath" ]; then
+      echo "offline lock's nixblitz node diverged from the baked source —" >&2
+      echo "cross-eval mix would break first boot ('path does not exist')." >&2
+      echo "  expected (baked stampedSelf): $expectedNixblitzPath" >&2
+      echo "  got (locked in flake.lock):   $lockedNixblitzPath" >&2
+      exit 1
+    fi
+
+    cp flake/flake.lock $out
+  ''
