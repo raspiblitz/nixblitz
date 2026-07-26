@@ -1,6 +1,7 @@
 // common/lib/src/services/git_service.dart
 import 'dart:io';
 
+import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/process_runner.dart';
 
 /// Result of `git verify-commit` / `git log --format=%G…`. See
@@ -113,6 +114,23 @@ class GitService {
       workingDirectory: repoDir,
       environment: environment,
     );
+    // git's default fsync policy skips loose objects; a power cut
+    // right after the wizard's commits left zero-byte objects and
+    // an unpeelable HEAD on a real node. The config repo is tiny,
+    // so paying for full fsync on every commit costs nothing and
+    // makes commits crash-durable.
+    await Process.run(
+      'git',
+      _g(['config', 'core.fsync', 'all']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    await Process.run(
+      'git',
+      _g(['config', 'core.fsyncMethod', 'fsync']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
     return true;
   }
 
@@ -137,6 +155,23 @@ class GitService {
     runCheckedSync(
       'git',
       _g(['config', 'user.name', 'NixBlitz']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    // git's default fsync policy skips loose objects; a power cut
+    // right after the wizard's commits left zero-byte objects and
+    // an unpeelable HEAD on a real node. The config repo is tiny,
+    // so paying for full fsync on every commit costs nothing and
+    // makes commits crash-durable.
+    runCheckedSync(
+      'git',
+      _g(['config', 'core.fsync', 'all']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    runCheckedSync(
+      'git',
+      _g(['config', 'core.fsyncMethod', 'fsync']),
       workingDirectory: repoDir,
       environment: environment,
     );
@@ -449,5 +484,76 @@ class GitService {
       environment: environment,
     );
     return result.exitCode == 0;
+  }
+
+  /// True when the repo exists but HEAD is unresolvable (corrupt refs or
+  /// zero-byte objects — the post-power-loss signature). A missing repo
+  /// dir or a fresh unborn repo (init'd, no commits) is NOT broken.
+  ///
+  /// Discriminator: `git fsck --connectivity-only` alone, NOT
+  /// `git rev-parse --verify HEAD`. Verified empirically: on a
+  /// zero-byte/missing loose object, `rev-parse --verify HEAD` still
+  /// exits 0 — it only resolves the ref to a SHA, it doesn't read the
+  /// object the SHA names. `fsck` is what actually notices ("object
+  /// file … is empty" / "invalid sha1 pointer") and is what the field
+  /// failure's "bad object HEAD" surfaces from. `fsck` exits 0 on a
+  /// fresh unborn repo (nothing to check yet) and non-zero on a
+  /// corrupt one, so it alone correctly separates the two.
+  bool isRepoBrokenSync() {
+    if (!Directory('$repoDir/.git').existsSync()) return false;
+
+    final fsck = runCheckedSync(
+      'git',
+      _g(['fsck', '--no-progress', '--connectivity-only']),
+      workingDirectory: repoDir,
+      environment: environment,
+    );
+    return !fsck.ok;
+  }
+
+  /// Move the corrupt `.git` aside (to `.git.corrupt-<epochSeconds>`)
+  /// and re-init + commit the intact working tree. Returns true when
+  /// the recovered repo has a valid HEAD afterwards. Never throws —
+  /// any failure along the way returns false.
+  bool recoverRepoSync(String message) {
+    try {
+      final gitDir = Directory('$repoDir/.git');
+      final epochSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final quarantineDir = Directory('$repoDir/.git.corrupt-$epochSeconds');
+      LogService.warn(
+        'GitService: repo at $repoDir looks corrupt, quarantining '
+        '.git to ${quarantineDir.path}',
+      );
+      gitDir.renameSync(quarantineDir.path);
+
+      if (!initSync()) {
+        LogService.warn(
+          'GitService: recoverRepoSync failed — git init did not '
+          'succeed after quarantining the corrupt .git',
+        );
+        return false;
+      }
+
+      commitAllSync(message);
+
+      final verify = runCheckedSync(
+        'git',
+        _g(['rev-parse', '--verify', 'HEAD']),
+        workingDirectory: repoDir,
+        environment: environment,
+      );
+      if (!verify.ok) {
+        LogService.warn(
+          'GitService: recoverRepoSync re-init succeeded but HEAD is '
+          'still unresolvable after commit',
+        );
+        return false;
+      }
+      LogService.warn('GitService: repo at $repoDir recovered successfully');
+      return true;
+    } catch (e, st) {
+      LogService.error('GitService: recoverRepoSync threw', e, st);
+      return false;
+    }
   }
 }

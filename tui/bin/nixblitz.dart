@@ -85,6 +85,26 @@ Future<void> _autoRefreshTemplatesIfDrifted(String baseDir) async {
   // create files where there's no profile yet.
   if (!File('$baseDir/config.json').existsSync()) return;
 
+  // Self-heal: a Pi operator pulling power right after the wizard's
+  // commits can leave the git repo with zero-byte loose objects and
+  // an unpeelable HEAD (git doesn't fsync loose objects by default).
+  // Detect and recover before anything else touches the repo — the
+  // drift refresh below commits via git, which would otherwise fail
+  // on every startup until the operator intervenes manually.
+  final startupGit = GitService(repoDir: baseDir);
+  if (startupGit.isRepoBrokenSync()) {
+    LogService.warn(
+      'Startup: git repo at $baseDir looks corrupt '
+      '(unresolvable HEAD); attempting self-heal recovery',
+    );
+    final recovered = startupGit.recoverRepoSync(
+      'Recover configuration after unclean shutdown (git corruption)',
+    );
+    LogService.warn(
+      'Startup: git repo recovery ${recovered ? 'succeeded' : 'failed'}',
+    );
+  }
+
   final drift = detectTemplatesDrift(baseDir);
   if (!drift.hasDrift) return;
 

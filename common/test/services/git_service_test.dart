@@ -384,6 +384,116 @@ void main() {
       expect(h2, isNot(h1)); // moved
     });
 
+    group('fsync durability config', () {
+      test('init configures core.fsync=all', () async {
+        await service.init();
+        final r = await Process.run(
+          'git',
+          ['config', 'core.fsync'],
+          workingDirectory: tempDir.path,
+          environment: hermeticGitEnv,
+        );
+        expect(r.exitCode, 0);
+        expect((r.stdout as String).trim(), 'all');
+      });
+
+      test('initSync configures core.fsync=all', () {
+        service.initSync();
+        final r = Process.runSync(
+          'git',
+          ['config', 'core.fsync'],
+          workingDirectory: tempDir.path,
+          environment: hermeticGitEnv,
+        );
+        expect(r.exitCode, 0);
+        expect((r.stdout as String).trim(), 'all');
+      });
+    });
+
+    group('isRepoBrokenSync / recoverRepoSync', () {
+      test('false when the repo dir does not exist', () {
+        final missing = Directory('${tempDir.path}/does-not-exist').path;
+        final svc = GitService(
+          repoDir: missing,
+          environment: hermeticGitEnv,
+          extraConfigArgs: hermeticGitConfigArgs,
+        );
+        expect(svc.isRepoBrokenSync(), isFalse);
+      });
+
+      test('false on a fresh unborn repo (init, no commits)', () {
+        service.initSync();
+        expect(service.isRepoBrokenSync(), isFalse);
+      });
+
+      test('false on a healthy repo with a commit', () {
+        service.initSync();
+        File('${tempDir.path}/a.txt').writeAsStringSync('a');
+        service.commitAllSync('initial');
+        expect(service.isRepoBrokenSync(), isFalse);
+      });
+
+      test('true when HEAD object is truncated to zero bytes (corruption)', () {
+        service.initSync();
+        File('${tempDir.path}/a.txt').writeAsStringSync('a');
+        service.commitAllSync('initial');
+
+        final rp = Process.runSync(
+          'git',
+          ['rev-parse', 'HEAD'],
+          workingDirectory: tempDir.path,
+          environment: hermeticGitEnv,
+        );
+        expect(rp.exitCode, 0);
+        final sha = (rp.stdout as String).trim();
+        final objectFile = File(
+          '${tempDir.path}/.git/objects/${sha.substring(0, 2)}/'
+          '${sha.substring(2)}',
+        );
+        expect(objectFile.existsSync(), isTrue);
+        // git writes loose objects read-only (mode 444); make it
+        // writable before truncating to simulate the power-loss
+        // zero-byte-object signature.
+        Process.runSync('chmod', ['u+w', objectFile.path]);
+        objectFile.writeAsBytesSync(const []);
+
+        expect(service.isRepoBrokenSync(), isTrue);
+      });
+
+      test('recoverRepoSync heals a corrupt repo', () {
+        service.initSync();
+        File('${tempDir.path}/a.txt').writeAsStringSync('a');
+        service.commitAllSync('initial');
+
+        final rp = Process.runSync(
+          'git',
+          ['rev-parse', 'HEAD'],
+          workingDirectory: tempDir.path,
+          environment: hermeticGitEnv,
+        );
+        final sha = (rp.stdout as String).trim();
+        final objectFile = File(
+          '${tempDir.path}/.git/objects/${sha.substring(0, 2)}/'
+          '${sha.substring(2)}',
+        );
+        Process.runSync('chmod', ['u+w', objectFile.path]);
+        objectFile.writeAsBytesSync(const []);
+        expect(service.isRepoBrokenSync(), isTrue);
+
+        final recovered = service.recoverRepoSync('recovery commit');
+        expect(recovered, isTrue);
+
+        expect(service.isRepoBrokenSync(), isFalse);
+        expect(File('${tempDir.path}/a.txt').existsSync(), isTrue);
+
+        final corruptDirs = Directory(tempDir.path)
+            .listSync()
+            .whereType<Directory>()
+            .where((d) => d.path.contains('.git.corrupt-'));
+        expect(corruptDirs, isNotEmpty);
+      });
+    });
+
     group('readCommittedFile', () {
       test(
         'returns committed content even when working tree is dirty',
