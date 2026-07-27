@@ -288,6 +288,28 @@ iso-build:
   let iso = (ls result/iso/*.iso | get name | first)
   print $"ISO built: ($iso)"
 
+# Mirror an artifact's ENTIRE build closure into attic.f44.fyi/nixblitz —
+# every store path that was substituted from cache.nixos.org or built
+# locally to produce it. Run after `just iso-build` (or pass another
+# result symlink). Later builds substitute from the attic instead of
+# hammering cache.nixos.org after a GC or on a fresh machine — put the
+# attic first in your machine's substituters for that to actually win.
+# First push moves several GiB; attic chunks + dedupes, so re-pushing
+# after a rebuild only uploads what changed.
+cache-push root="result":
+  #!/usr/bin/env nu
+  let target = (readlink -f {{ root }} | str trim)
+  let drv = (nix-store -qd $target | str trim)
+  # Deriver closure incl. realized outputs = the full build-time set;
+  # drop the .drv files themselves (nothing to substitute from those).
+  let paths = (
+    nix-store -qR --include-outputs $drv
+    | lines
+    | where {|p| not ($p | str ends-with '.drv') }
+  )
+  print $"Pushing ($paths | length) store paths to attic:nixblitz..."
+  $paths | to text | ^xargs attic push nixblitz
+
 # Build the aarch64 Raspberry Pi 5 installer image (carries the nixblitz TUI)
 pi5-image:
   #!/usr/bin/env nu
