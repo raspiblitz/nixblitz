@@ -7,9 +7,11 @@ import 'package:riverpod/legacy.dart';
 import 'package:common/common.dart';
 import '../widgets/ascii_banner.dart';
 import '../widgets/experimental_warning.dart';
+import '../widgets/lnd_journal_popup.dart';
 import '../widgets/lnd_seed_panel.dart';
 import '../widgets/password_input.dart';
 import '../widgets/scrollable_log.dart';
+import '../widgets/seed_wait_checklist.dart';
 import '../widgets/select_popup.dart';
 import '../widgets/spinner.dart';
 import '../../providers/ui_state_provider.dart';
@@ -114,6 +116,22 @@ class _SetupViewState extends State<SetupView> {
   /// previous attempt is still mid-flight (the timer ticks every
   /// 2s but a sudo round-trip can briefly outlast that).
   bool _lndSeedLoading = false;
+
+  /// Latest poll status for the checklist. Never outlives the step:
+  /// on `done` the words move to [_lndSeedWords] and this is reset to
+  /// a plain non-terminal value so a Riverpod-triggered rebuild can't
+  /// re-read stale seed words from it.
+  SeedWaitStatus _seedWaitStatus = const SeedWaitStatus(
+    phase: SeedWaitPhase.startingService,
+  );
+
+  /// Poll service. Created lazily on first use so `context.read` of the
+  /// sudo session happens inside a build/microtask, not at field-init.
+  LndSeedWaitService? _seedWaitService;
+
+  /// Journal popup visibility. Plain bool (nocterm pitfall #1: no
+  /// provider writes mid-handler).
+  bool _lndJournalVisible = false;
 
   /// True once the operator has explicitly chosen to show the
   /// seed on screen (option A on the choice prompt). Until then,
@@ -1200,51 +1218,33 @@ class _SetupViewState extends State<SetupView> {
     _lndSeedLoading = true;
     try {
       final session = context.read(sudoSessionProvider);
-      final ok = await session.ensureFresh();
-      if (!ok) {
+      _seedWaitService ??= LndSeedWaitService(
+        ensureSudoFresh: session.ensureFresh,
+        runSudo: (args) => session.runOneShot(args),
+        seedPath: _kLndSeedPath,
+      );
+      final status = await _seedWaitService!.poll();
+      if (status.phase == SeedWaitPhase.done && status.seedWords != null) {
         setState(() {
-          _lndSeedError = 'Sudo authorization cancelled.';
+          _lndSeedWords = status.seedWords;
+          // Wipe the words from checklist state immediately — the
+          // reveal gate reads _lndSeedWords only.
+          _seedWaitStatus = const SeedWaitStatus(phase: SeedWaitPhase.done);
         });
         _stopLndSeedPoll();
         return;
       }
-      // Probe existence first — nix-bitcoin's lnd preStart can
-      // take 5-30s to drop the file, and we'd rather show a
-      // spinner than a confusing "cat: No such file" error
-      // during that window.
-      final probe = await session.runOneShot(['test', '-f', _kLndSeedPath]);
-      if (probe.exitCode != 0) {
-        return;
-      }
-      final res = await session.runOneShot(['cat', _kLndSeedPath]);
-      if (res.exitCode != 0) {
+      if (status.error != null) {
         setState(() {
-          _lndSeedError =
-              'Could not read seed file (exit ${res.exitCode}): '
-              '${res.stderr.trim()}';
-        });
-        _stopLndSeedPoll();
-        return;
-      }
-      final words = res.stdout
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim()
-          .split(' ')
-          .where((w) => w.isNotEmpty)
-          .toList(growable: false);
-      if (words.length != 24) {
-        setState(() {
-          _lndSeedError =
-              'Seed file has ${words.length} words; expected 24. '
-              'Aborting display.';
+          _seedWaitStatus = status;
+          _lndSeedError = status.error;
         });
         _stopLndSeedPoll();
         return;
       }
       setState(() {
-        _lndSeedWords = words;
+        _seedWaitStatus = status;
       });
-      _stopLndSeedPoll();
     } catch (e, st) {
       LogService.error('LND seed load failed', e, st);
       setState(() {
@@ -1437,32 +1437,66 @@ class _SetupViewState extends State<SetupView> {
   }
 
   Component _buildLndSeedWaiting() {
-    return Container(
-      padding: const EdgeInsets.all(2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Lightning Wallet Setup',
-            style: const TextStyle(
-              color: Color.fromRGB(247, 147, 26),
-              fontWeight: FontWeight.bold,
-            ),
+    return Stack(
+      children: [
+        Focusable(
+          // Yield to the popup while it's up (same dispatch rule as the
+          // app-level modals: the popup's Focusable must be reached by
+          // the Stack iteration).
+          focused: !_lndJournalVisible,
+          onKeyEvent: (event) {
+            try {
+              if (event.character?.toLowerCase() == 'l') {
+                setState(() {
+                  _lndJournalVisible = true;
+                });
+                return true;
+              }
+              return false;
+            } catch (e, st) {
+              LogService.error('seed-wait key handler failed', e, st);
+              return true;
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            child: SeedWaitChecklist(status: _seedWaitStatus),
           ),
-          const SizedBox(height: 1),
-          Spinner(label: 'Waiting for LND to create wallet seed'),
-          const SizedBox(height: 1),
-          const Text(
-            'LND generates the 24-word seed during its first start;',
-            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
+        ),
+        if (_lndJournalVisible)
+          LndJournalPopup(
+            fetchJournal: _fetchLndJournal,
+            onClose: () {
+              setState(() {
+                _lndJournalVisible = false;
+              });
+            },
           ),
-          const Text(
-            'this usually takes a few seconds.',
-            style: TextStyle(color: Color.fromRGB(150, 150, 180)),
-          ),
-        ],
-      ),
+      ],
     );
+  }
+
+  /// Journal fetch for the popup. Uses the sudo session's one-shot
+  /// runner; by the time anyone opens the log the session is normally
+  /// fresh, but ensureFresh here makes an explicit open work even
+  /// before the poll's first sudo call (the user asked for the log —
+  /// a prompt is expected then, not a surprise).
+  Future<String> _fetchLndJournal() async {
+    final session = context.read(sudoSessionProvider);
+    final ok = await session.ensureFresh();
+    if (!ok) return 'Sudo authorization cancelled — cannot read journal.';
+    final res = await session.runOneShot([
+      'journalctl',
+      '-u',
+      'lnd',
+      '-n',
+      '150',
+      '--no-pager',
+    ]);
+    if (res.exitCode != 0) {
+      return 'journalctl failed (exit ${res.exitCode}): ${res.stderr}';
+    }
+    return res.stdout;
   }
 
   Component _buildLndSeedDisplay({
@@ -1530,57 +1564,83 @@ class _SetupViewState extends State<SetupView> {
   }
 
   Component _buildLndSeedError() {
-    return Focusable(
-      focused: true,
-      onKeyEvent: (event) {
-        try {
-          final c = event.character?.toLowerCase();
-          if (c == 'r') {
-            setState(() {
-              _lndSeedError = null;
-            });
-            Future.microtask(_startLndSeedPoll);
-            return true;
-          }
-          if (event.logicalKey == LogicalKey.enter) {
-            // Operator chose to skip the seed display. The file
-            // is still on disk; they can recover with `sudo cat
-            // /mnt/data/lnd/lnd-seed-mnemonic` later.
-            _markStepCompleted(SetupStep.initLightning);
-            context.read(_setupStepProvider.notifier).state = SetupStep.summary;
-            return true;
-          }
-          return false;
-        } catch (e, st) {
-          LogService.error('LND seed error handler failed', e, st);
-          return true;
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Could not read LND seed',
-              style: const TextStyle(
-                color: Color.fromRGB(255, 80, 80),
-                fontWeight: FontWeight.bold,
-              ),
+    return Stack(
+      children: [
+        Focusable(
+          focused: !_lndJournalVisible,
+          onKeyEvent: (event) {
+            try {
+              final c = event.character?.toLowerCase();
+              if (c == 'l') {
+                setState(() {
+                  _lndJournalVisible = true;
+                });
+                return true;
+              }
+              if (c == 'r') {
+                setState(() {
+                  _lndSeedError = null;
+                  _seedWaitStatus = const SeedWaitStatus(
+                    phase: SeedWaitPhase.startingService,
+                  );
+                  _seedWaitService = null; // fresh announce tick on retry
+                });
+                Future.microtask(_startLndSeedPoll);
+                return true;
+              }
+              if (event.logicalKey == LogicalKey.enter) {
+                // Operator chose to skip the seed display. The file
+                // is still on disk; they can recover with `sudo cat
+                // /mnt/data/lnd/lnd-seed-mnemonic` later.
+                _markStepCompleted(SetupStep.initLightning);
+                context.read(_setupStepProvider.notifier).state =
+                    SetupStep.summary;
+                return true;
+              }
+              return false;
+            } catch (e, st) {
+              LogService.error('LND seed error handler failed', e, st);
+              return true;
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.all(2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Could not read LND seed',
+                  style: const TextStyle(
+                    color: Color.fromRGB(255, 80, 80),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(_lndSeedError ?? 'Unknown error'),
+                const SizedBox(height: 1),
+                const Text('You can recover the seed later with:'),
+                Text(
+                  '  sudo cat $_kLndSeedPath',
+                  style: const TextStyle(color: Color.fromRGB(200, 200, 100)),
+                ),
+                const SizedBox(height: 1),
+                const Text(
+                  '[R] retry   [L] LND log   [Enter] continue without showing',
+                ),
+              ],
             ),
-            const SizedBox(height: 1),
-            Text(_lndSeedError ?? 'Unknown error'),
-            const SizedBox(height: 1),
-            const Text('You can recover the seed later with:'),
-            Text(
-              '  sudo cat $_kLndSeedPath',
-              style: const TextStyle(color: Color.fromRGB(200, 200, 100)),
-            ),
-            const SizedBox(height: 1),
-            const Text('[R] retry   [Enter] continue without showing'),
-          ],
+          ),
         ),
-      ),
+        if (_lndJournalVisible)
+          LndJournalPopup(
+            fetchJournal: _fetchLndJournal,
+            onClose: () {
+              setState(() {
+                _lndJournalVisible = false;
+              });
+            },
+          ),
+      ],
     );
   }
 
