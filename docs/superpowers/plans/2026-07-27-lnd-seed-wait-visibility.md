@@ -31,11 +31,13 @@
 ### Task 1: `LndSeedWaitService` + `SeedWaitStatus` (common)
 
 **Files:**
+
 - Create: `common/lib/src/services/lnd_seed_wait_service.dart`
 - Modify: `common/lib/common.dart` (add one `export` line, alphabetical with the others)
 - Test: `common/test/services/lnd_seed_wait_service_test.dart`
 
 **Interfaces:**
+
 - Consumes: `ServiceState` + `SystemService.parseServiceStatus` from `common/lib/src/services/system_service.dart` (`parseServiceStatus(String name, String output) → ServiceStatus`, maps `ActiveState=active|inactive|failed|activating` → `running|stopped|failed|activating`, else `unknown`).
 - Produces (later tasks rely on these exact names):
   - `enum SeedWaitPhase { startingService, waitingForSeedFile, readingSeed, done }`
@@ -409,10 +411,12 @@ jj new
 ### Task 2: Checklist rows + widget (tui)
 
 **Files:**
+
 - Create: `tui/lib/src/ui/widgets/seed_wait_checklist.dart`
 - Test: `tui/test/seed_wait_checklist_test.dart`
 
 **Interfaces:**
+
 - Consumes: `SeedWaitPhase`, `SeedWaitStatus`, `ServiceState` from `package:common/common.dart` (Task 1).
 - Produces:
   - `class SeedWaitRow { final String glyph; final String label; final bool isCurrent; final bool isFailed; }`
@@ -639,9 +643,11 @@ jj new
 ### Task 3: `LndJournalPopup` (tui)
 
 **Files:**
+
 - Create: `tui/lib/src/ui/widgets/lnd_journal_popup.dart`
 
 **Interfaces:**
+
 - Consumes: `PopupChrome` + `kPopupAccent` (`popup_chrome.dart`), `ScrollableLog` with `ignoreModalGate: true` (`scrollable_log.dart`), `viewportSizeProvider` (`../../providers/viewport_provider.dart`). Mirror `update_check_log_popup.dart` for sizing/chrome.
 - Produces: `class LndJournalPopup extends StatefulComponent { const LndJournalPopup({required this.fetchJournal, required this.onClose}); final Future<String> Function() fetchJournal; final VoidCallback onClose; }`
 - No unit test (timer + nocterm rendering; covered by the manual VM gate). The fetch callback is injected so the widget owns no sudo logic.
@@ -805,9 +811,11 @@ jj new
 ### Task 4: Wire into `setup_view.dart`
 
 **Files:**
+
 - Modify: `tui/lib/src/ui/views/setup_view.dart` — the seed-wait cluster: instance fields near `_lndSeedWords` (~line 100), `_startLndSeedPoll`/`_tryLoadLndSeed` (~lines 1178–1258), `_buildLndSeedWaiting` (~line 1439), `_buildLndSeedError` (~line 1532).
 
 **Interfaces:**
+
 - Consumes: `LndSeedWaitService`, `SeedWaitStatus`, `SeedWaitPhase` (Task 1); `SeedWaitChecklist` (Task 2); `LndJournalPopup` (Task 3); existing `sudoSessionProvider`, `_kLndSeedPath`, `_stopLndSeedPoll`, `_markStepCompleted`.
 - Produces: no new public surface — behavior change only.
 
