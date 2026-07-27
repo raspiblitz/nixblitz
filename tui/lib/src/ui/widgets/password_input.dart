@@ -184,6 +184,11 @@ class _PasswordInputState extends State<PasswordInput> {
       child: Container(
         padding: const EdgeInsets.all(2),
         child: Column(
+          // Shrink to content: inside the centered sudo overlay a
+          // max-height Column stretches the popup to the full
+          // viewport; full-page callers top-align identically
+          // either way.
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
