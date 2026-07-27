@@ -206,6 +206,15 @@ class StagingService {
   void clearLockBump() => _safeDelete(File(lockPath));
   void clearPluginPins() => _safeDelete(File(_pluginsPath));
 
+  /// Drop the staged build preview (nvd diff + new-toplevel) without
+  /// touching the lock/plugin candidates. The check calls this when a
+  /// re-lock produced no real input movement — a preview computed from
+  /// that candidate would show a phantom stamp-only diff.
+  void clearBuildPreview() {
+    _safeDelete(File(_nvdPath));
+    _safeDelete(File(_toplevelPath));
+  }
+
   void _safeDelete(File f) {
     if (!f.existsSync()) return;
     try {

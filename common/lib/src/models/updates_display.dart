@@ -66,7 +66,14 @@ UpdatesDisplay mapUpdatesDisplay({
   }
 
   final pluginsCount = result.pluginsAhead.length;
-  final nixblitzAhead = aheadInputCount > 0;
+  // Two movement signals, either one lights the row: the network
+  // probe's rev comparison (aheadInputCount), and the check's own
+  // semantic lock diff (lockInputsMoved). The latter is the ONLY
+  // signal on offline-installed nodes — their nixblitz input is a
+  // `path:` pin the probe cannot query, so the probe alone showed
+  // "up to date" while a staged update sat in the log.
+  final nixblitzAhead =
+      aheadInputCount > 0 || result.lockInputsMoved.isNotEmpty;
   final pluginsAhead = pluginsCount > 0;
   final hasDiff = result.diffText.trim().isNotEmpty;
 

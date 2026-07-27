@@ -98,6 +98,7 @@ class CheckResult {
     this.wouldBuild = const [],
     this.sbomChanges = const [],
     this.transcript = const [],
+    this.lockInputsMoved = const [],
   });
 
   final DateTime checkedAt;
@@ -148,6 +149,14 @@ class CheckResult {
   /// from a status file written before this field existed.
   final List<String> transcript;
 
+  /// Flake-input node names whose locked content actually moved in
+  /// the candidate re-lock (semantic narHash diff, plugin inputs
+  /// excluded). Drives the "NixBlitz" row on offline-installed nodes,
+  /// where the rev probe cannot query the path-pinned nixblitz input
+  /// and [inputsAhead] therefore stays empty even when an update was
+  /// staged. Empty when nothing moved or the file predates the field.
+  final List<String> lockInputsMoved;
+
   /// Convenience: true when [wouldBuild] is non-empty.
   bool get compileNeeded => wouldBuild.isNotEmpty;
 
@@ -168,6 +177,8 @@ class CheckResult {
         .map((e) => SbomChange.fromJson(e as Map<String, dynamic>))
         .toList(),
     transcript: (j['transcript'] as List?)?.cast<String>() ?? const <String>[],
+    lockInputsMoved:
+        (j['lock_inputs_moved'] as List?)?.cast<String>() ?? const <String>[],
   );
 
   Map<String, dynamic> toJson() => {
@@ -184,6 +195,7 @@ class CheckResult {
     if (sbomChanges.isNotEmpty)
       'sbom_changes': sbomChanges.map((e) => e.toJson()).toList(),
     if (transcript.isNotEmpty) 'transcript': transcript,
+    if (lockInputsMoved.isNotEmpty) 'lock_inputs_moved': lockInputsMoved,
   };
 }
 

@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:common/common.dart';
 
+import '../build_info.dart';
+
 /// `nixblitz check` — probe upstream + run the unified update
 /// check. Invoked by the systemd timer that surfaces "X updates
 /// available" on the dashboard, and by the in-TUI `[c]` action
@@ -28,6 +30,7 @@ class CheckCommand extends Command<int> {
     final svc = UpdateCheckService(
       flakePath: baseDir,
       statusPath: updateStatusPath,
+      runningGitHash: buildGitHash,
     );
     try {
       return await svc.runCheck();

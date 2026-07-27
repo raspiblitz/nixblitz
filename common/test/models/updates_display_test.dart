@@ -9,6 +9,7 @@ CheckResult _result({
   String diffText = '',
   bool noChanges = false,
   List<String> wouldBuild = const [],
+  List<String> lockInputsMoved = const [],
 }) => CheckResult(
   checkedAt: DateTime(2026, 1, 1),
   ok: ok,
@@ -18,6 +19,7 @@ CheckResult _result({
   diffText: diffText,
   noChanges: noChanges,
   wouldBuild: wouldBuild,
+  lockInputsMoved: lockInputsMoved,
 );
 
 PluginAhead _plugin(String id) => PluginAhead(
@@ -143,6 +145,26 @@ void main() {
         'Inputs moved but the built system is unchanged — applying re-pins, '
         'nothing rebuilds.',
       );
+    });
+
+    test('staged lock movement flips the NixBlitz row even when the '
+        'probe saw nothing (offline nodes: the nixblitz input is a '
+        'path: pin the rev probe cannot query — the panel said "up to '
+        'date" while the log staged a 20-package update)', () {
+      final d = mapUpdatesDisplay(
+        result: _result(
+          wouldBuild: ['nixblitz-0.1.0'],
+          lockInputsMoved: ['nixblitz'],
+        ),
+        aheadInputCount: 0,
+      );
+      expect(d.nixblitz, UpdateRowStatus.updateAvailable);
+      expect(d.detailsAvailable, isTrue);
+    });
+
+    test('no probe hits and no lock movement stays up to date', () {
+      final d = mapUpdatesDisplay(result: _result(), aheadInputCount: 0);
+      expect(d.nixblitz, UpdateRowStatus.upToDate);
     });
   });
 }

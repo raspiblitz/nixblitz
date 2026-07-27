@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:common/src/services/log_service.dart';
 import 'package:common/src/services/plugin/plugin_marker.dart';
 import 'package:common/src/services/update/update_check_types.dart';
 
@@ -224,4 +227,125 @@ class _ParsedGitUrl {
   final String host;
   final String owner;
   final String repo;
+}
+
+/// Node keys whose locked `narHash` differs between two parsed
+/// flake.lock documents, plus keys present in only one of them.
+/// Nodes without a `locked` block (the root node) are ignored.
+Set<String> lockNarHashDiff(Map<String, dynamic> a, Map<String, dynamic> b) {
+  String? hashOf(Map<String, dynamic> lock, String key) {
+    final node = (lock['nodes'] as Map<String, dynamic>?)?[key];
+    if (node is! Map<String, dynamic>) return null;
+    final locked = node['locked'];
+    if (locked is! Map<String, dynamic>) return null;
+    return locked['narHash'] as String?;
+  }
+
+  Set<String> lockedKeys(Map<String, dynamic> lock) {
+    final nodes = lock['nodes'] as Map<String, dynamic>? ?? const {};
+    return nodes.keys
+        .where((k) => (nodes[k] as Map<String, dynamic>?)?['locked'] != null)
+        .toSet();
+  }
+
+  final keysA = lockedKeys(a);
+  final keysB = lockedKeys(b);
+  final diff = <String>{...keysA.difference(keysB), ...keysB.difference(keysA)};
+  for (final k in keysA.intersection(keysB)) {
+    if (hashOf(a, k) != hashOf(b, k)) diff.add(k);
+  }
+  return diff;
+}
+
+/// Whether a `nix flake update` candidate lock represents real
+/// upstream movement relative to the live lock — the staging gate
+/// for the check's lock bump.
+///
+/// Byte inequality is NOT movement: on offline-installed nodes the
+/// live lock pins every input as `path:/nix/store/…` and a re-lock
+/// rewrites all of them to `github:`/forge URLs, so the bytes always
+/// differ even when every input's content (narHash) is unchanged.
+/// Staging that rewrite made the first-ever check on a fresh offline
+/// node offer a phantom "update" whose Apply dropped every offline
+/// pin (mass re-download) and re-locked nixblitz to whatever the
+/// forge's HEAD was — observed live as a node silently downgrading
+/// itself.
+///
+/// Movement = any node's narHash changed (or nodes appeared /
+/// disappeared), with one carve-out: the `nixblitz` node's narHash
+/// ALWAYS differs from its baked path pin, because the installer
+/// stamps a `.nixblitz-version-stamp` file into the source copy that
+/// the git checkout doesn't have. For a nixblitz-only diff the real
+/// question is "is the candidate a different rev than the code I am?"
+/// — answered against [runningGitHash] (`buildGitHash`, the short
+/// hash baked into the binary). Unusable hashes ('local', '-dirty',
+/// empty) and parse failures fall back to staging — the old, noisy,
+/// but safe behavior.
+bool lockMovementRequiresStaging({
+  required String liveLockRaw,
+  required String candidateLockRaw,
+  String? runningGitHash,
+  void Function(String line)? log,
+}) => stagedLockMovement(
+  liveLockRaw: liveLockRaw,
+  candidateLockRaw: candidateLockRaw,
+  runningGitHash: runningGitHash,
+  log: log,
+).isNotEmpty;
+
+/// Sentinel entry in [stagedLockMovement]'s result when the locks
+/// could not be parsed — staging proceeds conservatively but the
+/// UI shouldn't pretend it knows which input moved.
+const kLockMovementUnknown = '(unparsed lock)';
+
+/// The set of input node names whose movement justifies staging the
+/// candidate lock — empty means "don't stage". Same policy as
+/// [lockMovementRequiresStaging] (which is a thin wrapper); returning
+/// the set lets the check persist WHICH inputs moved, so the Updates
+/// panel's "NixBlitz" row can reflect movement the network probe
+/// cannot see (path-pinned inputs on offline nodes have no rev/URL
+/// to probe).
+Set<String> stagedLockMovement({
+  required String liveLockRaw,
+  required String candidateLockRaw,
+  String? runningGitHash,
+  void Function(String line)? log,
+}) {
+  try {
+    final live = jsonDecode(liveLockRaw) as Map<String, dynamic>;
+    final cand = jsonDecode(candidateLockRaw) as Map<String, dynamic>;
+    final moved = lockNarHashDiff(live, cand);
+    if (moved.isEmpty) {
+      log?.call('  lock re-written but no input content moved');
+      return const {};
+    }
+    if (moved.length == 1 && moved.single == 'nixblitz') {
+      final hash = runningGitHash;
+      final usable =
+          hash != null &&
+          hash.length >= 7 &&
+          hash != 'local' &&
+          !hash.endsWith('-dirty');
+      if (usable) {
+        final node =
+            (cand['nodes'] as Map<String, dynamic>?)?['nixblitz']
+                as Map<String, dynamic>?;
+        final rev = (node?['locked'] as Map<String, dynamic>?)?['rev'];
+        if (rev is String && rev.startsWith(hash)) {
+          log?.call(
+            '  only nixblitz re-hashed (stamp artifact) and its rev '
+            'matches this build ($hash) — no movement',
+          );
+          return const {};
+        }
+      }
+    }
+    log?.call('  input(s) moved: ${moved.join(', ')}');
+    return moved;
+  } catch (e) {
+    LogService.warn(
+      'stagedLockMovement: lock parse failed, staging conservatively: $e',
+    );
+    return const {kLockMovementUnknown};
+  }
 }

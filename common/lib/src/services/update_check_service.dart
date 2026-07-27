@@ -44,6 +44,7 @@ class UpdateCheckService {
   UpdateCheckService({
     required this.flakePath,
     required this.statusPath,
+    this.runningGitHash,
     StagingService? stagingService,
     http.Client? httpClient,
     List<PluginMarker> Function()? markersReader,
@@ -51,6 +52,13 @@ class UpdateCheckService {
        _staging = stagingService ?? StagingService(),
        _markersReader =
            markersReader ?? (() => _defaultMarkersReader(flakePath));
+
+  /// Short git hash of the running build (`buildGitHash` from the
+  /// TUI's build info). Lets the lock-movement gate recognize a
+  /// candidate nixblitz re-lock that is the SAME code this binary
+  /// was built from (see [lockMovementRequiresStaging]). Null / dev
+  /// values degrade to conservative staging.
+  final String? runningGitHash;
 
   /// Directory holding `flake.nix` + `flake.lock` (the user's
   /// `~/nixblitz/`).
@@ -291,22 +299,62 @@ class UpdateCheckService {
         );
       }
 
-      // Stage candidate flake.lock if it actually moved relative
-      // to the live one. Even when `nix flake update` rewrites the
-      // file with no input changes, byte-equality is the right
-      // gate — if the bytes match, nixos-rebuild would build the
-      // same closure either way and there's nothing for Apply to
-      // promote.
+      // Stage the candidate flake.lock only when an input's CONTENT
+      // actually moved. Byte comparison is the wrong gate on
+      // offline-installed nodes: their live lock pins every input as
+      // `path:/nix/store/…`, so a re-lock always rewrites the bytes
+      // (path→github URLs) even when every narHash is unchanged —
+      // staging that offered a phantom "update" whose Apply dropped
+      // all offline pins and re-locked nixblitz to forge HEAD (a
+      // live node downgraded itself this way).
       final tmpLock = File('$tmpFlake/flake.lock');
       final liveLock = File('$flakePath/flake.lock');
-      final lockBumped =
-          tmpLock.existsSync() &&
-          liveLock.existsSync() &&
-          tmpLock.readAsStringSync() != liveLock.readAsStringSync();
+      var movedInputs = const <String>{};
+      if (tmpLock.existsSync() && liveLock.existsSync()) {
+        final liveRaw = liveLock.readAsStringSync();
+        final tmpRaw = tmpLock.readAsStringSync();
+        if (tmpRaw != liveRaw) {
+          movedInputs = stagedLockMovement(
+            liveLockRaw: liveRaw,
+            candidateLockRaw: tmpRaw,
+            runningGitHash: runningGitHash,
+            log: log,
+          );
+        }
+      }
+      final lockBumped = movedInputs.isNotEmpty;
+      // Persisted so the Updates panel can light the "NixBlitz" row —
+      // on offline nodes the rev probe can't see path-pinned inputs,
+      // making this the row's only movement signal. Plugin inputs are
+      // excluded (they have their own row via the probe).
+      final pluginIds = _markersReader().map((m) => m.id).toSet();
+      final lockInputsMoved = movedInputs
+          .where((n) => !pluginIds.contains(n))
+          .toList(growable: false);
       if (lockBumped) {
         _staging.writeLockBump(tmpLock);
       } else {
         _staging.clearLockBump();
+      }
+
+      // No lock movement → the candidate flake is just the live
+      // system in re-locked clothing. Skip the dry-run/nvd preview
+      // against it: evaluating the re-locked candidate loses the
+      // baked version stamp, so its toplevel differs from
+      // /run/current-system by the stamp alone and the preview
+      // would stage a phantom diff for Apply to display. Nothing
+      // moved, so there is nothing to preview or promote.
+      if (!lockBumped) {
+        _staging.clearBuildPreview();
+        _staging.writeCheckedAt(now);
+        log('• no input movement — system is current');
+        return _persist(
+          now,
+          probe,
+          ok: true,
+          noChanges: true,
+          transcript: transcript,
+        );
       }
 
       // 2. dry-run probe.
@@ -341,6 +389,7 @@ class UpdateCheckService {
               'nix build --dry-run failed: '
               '${(dry.stderr as String).trim()}',
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       }
       final plan = parseDryRunStderr(dry.stderr as String);
@@ -364,6 +413,7 @@ class UpdateCheckService {
           ok: true,
           wouldBuild: plan.wouldBuild,
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       }
 
@@ -397,6 +447,7 @@ class UpdateCheckService {
           ok: false,
           error: 'nix build failed: ${(eval.stderr as String).trim()}',
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       }
       final newTop = (eval.stdout as String).trim();
@@ -407,6 +458,7 @@ class UpdateCheckService {
           ok: false,
           error: 'nix build did not return a store path: $newTop',
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       }
 
@@ -423,6 +475,7 @@ class UpdateCheckService {
           ok: true,
           noChanges: true,
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       }
 
@@ -464,6 +517,7 @@ class UpdateCheckService {
           diffText: diff,
           sbomChanges: sbomChanges,
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       } on ProcessException catch (e) {
         LogService.error('UpdateCheckService.runCheck: nvd diff failed', e);
@@ -473,6 +527,7 @@ class UpdateCheckService {
           ok: false,
           error: 'nvd not on PATH: ${e.message}',
           transcript: transcript,
+          lockInputsMoved: lockInputsMoved,
         );
       }
     } catch (e, st) {
@@ -525,6 +580,7 @@ class UpdateCheckService {
     List<String> wouldBuild = const [],
     List<SbomChange> sbomChanges = const [],
     List<String> transcript = const [],
+    List<String> lockInputsMoved = const [],
   }) {
     final errors = [...probe.errors];
     if (error != null) errors.add(error);
@@ -539,6 +595,7 @@ class UpdateCheckService {
       wouldBuild: wouldBuild,
       sbomChanges: sbomChanges,
       transcript: tailLines(transcript.join('\n'), 200),
+      lockInputsMoved: lockInputsMoved,
     );
     final f = File(statusPath);
     f.parent.createSync(recursive: true);
