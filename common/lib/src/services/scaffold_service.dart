@@ -103,11 +103,48 @@ class ScaffoldService {
       file.parent.createSync(recursive: true);
       file.writeAsStringSync(entry.value);
     }
+    _sweepStaleTemplateFiles(templates.keys.toSet());
     LogService.info(
       'refreshTemplates: wrote ${templates.length} files to $targetDir',
     );
     copyOfflineLockIfPresent(targetDir, offlineLockPath: offlineLockPath);
     return templates.length;
+  }
+
+  /// Delete files inside template-managed directories that the current
+  /// template set no longer contains. Overwrite-only refreshes leave
+  /// orphans behind when the running TUI's template set differs from the
+  /// one that scaffolded the dir (version up- OR downgrade), and the
+  /// dendritic loader auto-discovers every `.nix` file — an orphaned
+  /// module whose expected specialArgs are gone breaks all evals
+  /// (observed live: "attribute 'flakeInputs' missing" after a node
+  /// downgrade left the new pin-flake-sources.nix beside an old
+  /// flake.nix).
+  ///
+  /// Managed scope = only the subdirectories the embedded template set
+  /// itself populates (modules/, hosts/, …). Root-level operator files
+  /// (config.json, flake.lock, hardware-configuration.nix) and
+  /// non-template dirs (plugins/, .git/) are never touched.
+  void _sweepStaleTemplateFiles(Set<String> templateKeys) {
+    final managedDirs = templateKeys
+        .where((k) => k.contains('/'))
+        .map((k) => k.substring(0, k.indexOf('/')))
+        .toSet();
+    for (final dir in managedDirs) {
+      final root = Directory('$targetDir/$dir');
+      if (!root.existsSync()) continue;
+      for (final entity in root.listSync(recursive: true)) {
+        if (entity is! File) continue;
+        final rel = entity.path.substring('$targetDir/'.length);
+        if (templateKeys.contains(rel)) continue;
+        try {
+          entity.deleteSync();
+          LogService.info('refreshTemplates: swept stale $rel');
+        } catch (e, st) {
+          LogService.error('refreshTemplates: sweep of $rel failed', e, st);
+        }
+      }
+    }
   }
 
   /// Remove [targetDir] entirely, so the installer can re-scaffold onto

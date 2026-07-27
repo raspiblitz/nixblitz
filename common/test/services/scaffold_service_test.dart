@@ -248,6 +248,39 @@ nixblitz = {
       );
     });
 
+    test('refreshTemplatesSync deletes stale files inside template-managed '
+        'dirs but never touches operator files (a version switch that '
+        'leaves an orphaned module behind breaks eval: the dendritic '
+        'loader auto-discovers it and its expected specialArgs are gone '
+        '— seen live as "attribute flakeInputs missing" after a '
+        'downgrade)', () {
+      final baseDir = '${tempDir.path}/nixblitz';
+      // Simulate leftovers from a different TUI version + operator files.
+      File('$baseDir/modules/system/stale-module.nix')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{ flakeInputs, ... }: { }');
+      File('$baseDir/plugins/keep.nix')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('kept');
+      File('$baseDir/config.json').writeAsStringSync('{}');
+      File(
+        '$baseDir/hardware-configuration.nix',
+      ).writeAsStringSync('{...}: {}');
+
+      service.refreshTemplatesSync();
+
+      expect(
+        File('$baseDir/modules/system/stale-module.nix').existsSync(),
+        false,
+        reason: 'orphaned module in a managed dir must be swept',
+      );
+      expect(File('$baseDir/plugins/keep.nix').existsSync(), true);
+      expect(File('$baseDir/config.json').existsSync(), true);
+      expect(File('$baseDir/hardware-configuration.nix').existsSync(), true);
+      // Embedded templates are present as usual.
+      expect(File('$baseDir/modules/system/base.nix').existsSync(), true);
+    });
+
     test('refreshTemplatesSync does not create flake.lock when the offline '
         'lock is absent', () {
       final baseDir = '${tempDir.path}/nixblitz';
