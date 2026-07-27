@@ -17,6 +17,7 @@ import 'widgets/footer_hints.dart';
 import 'widgets/help_popup.dart';
 import 'widgets/password_overlay.dart';
 import 'widgets/top_menu.dart';
+import 'widgets/update_check_log_popup.dart';
 import '../build_info.dart';
 import '../providers/ui_state_provider.dart';
 import '../providers/viewport_provider.dart';
@@ -210,9 +211,20 @@ List<FooterHint> _hintsFor(BuildContext context, AppView view) {
         SystemSection.apply => 'run action',
         SystemSection.power => 'arm / confirm',
       };
+      // `[l]` only makes sense once a check has actually produced a
+      // transcript — hide the hint on a fresh install where nothing's
+      // run yet rather than dangling a shortcut that opens an empty
+      // popup. Watches the refresh tick so the hint appears as soon
+      // as a check subprocess exits, without waiting for an unrelated
+      // rebuild.
+      context.watch(checkRefreshTickProvider);
+      final hasLog =
+          section == SystemSection.check &&
+          (readUpdateStatus().checkResult?.transcript.isNotEmpty ?? false);
       return [
         const FooterHint(key: '↑/↓', action: 'pick action'),
         FooterHint(key: 'Enter', action: enterLabel),
+        if (hasLog) const FooterHint(key: 'l', action: 'log'),
         const FooterHint(key: 'Esc', action: 'back to sidebar'),
         _hintTop,
         _hintHelp,
@@ -456,6 +468,7 @@ class _ShellState extends State<_Shell> {
     final helpVisible = context.watch(helpVisibleProvider);
     final sudoPromptVisible = context.watch(pendingSudoPromptProvider) != null;
     final applyNowPrompt = context.watch(applyNowPromptProvider);
+    final updateLogVisible = context.watch(updateCheckLogVisibleProvider);
 
     // Fire-and-forget light check at startup if the cached status is
     // stale (>30 min). Guarded by a per-process flag inside the
@@ -469,7 +482,11 @@ class _ShellState extends State<_Shell> {
     return Stack(
       children: [
         Focusable(
-          focused: !helpVisible && !sudoPromptVisible && applyNowPrompt == null,
+          focused:
+              !helpVisible &&
+              !sudoPromptVisible &&
+              applyNowPrompt == null &&
+              !updateLogVisible,
           onKeyEvent: (event) {
             try {
               if (event.matches(LogicalKey.keyC, ctrl: true)) {
@@ -759,6 +776,19 @@ class _ShellState extends State<_Shell> {
             },
             onCancel: () {
               context.read(applyNowPromptProvider.notifier).state = null;
+            },
+          ),
+        // Full transcript of the last `nixblitz check` run — opened via
+        // `[l]` from System → Updates. Reads the status file fresh on
+        // each open rather than threading the transcript through a
+        // provider; the popup is transient and the file is cheap to
+        // read once at open time.
+        if (updateLogVisible)
+          UpdateCheckLogPopup(
+            transcript: readUpdateStatus().checkResult?.transcript ?? const [],
+            onClose: () {
+              context.read(updateCheckLogVisibleProvider.notifier).state =
+                  false;
             },
           ),
       ],

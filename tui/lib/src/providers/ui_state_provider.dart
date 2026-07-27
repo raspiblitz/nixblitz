@@ -73,8 +73,15 @@ class ApplyNowPrompt {
 /// Drives the "Apply now?" popup; non-null while the popup is up.
 final applyNowPromptProvider = StateProvider<ApplyNowPrompt?>((ref) => null);
 
+/// True while the update-check transcript popup (`[l] log` on the
+/// System → Updates panel) is showing. Lives here alongside
+/// [helpVisibleProvider] so [modalActiveProvider] can read it without
+/// circular imports back to the system view.
+final updateCheckLogVisibleProvider = StateProvider<bool>((ref) => false);
+
 /// True while any modal popup is on top of the view tree (help,
-/// sudo prompt, hamburger overlay, apply-now prompt). Widgets that hold an interactive
+/// sudo prompt, hamburger overlay, apply-now prompt, update-check
+/// log). Widgets that hold an interactive
 /// [Focusable] should set `focused: !modalActive` so a stray
 /// keystroke can't bubble into the underlying view while a modal is
 /// up — independent of nocterm's BlockFocus dispatch behavior.
@@ -83,7 +90,8 @@ final modalActiveProvider = Provider<bool>((ref) {
   final sudo = ref.watch(pendingSudoPromptProvider);
   final topMenu = ref.watch(topMenuOverlayProvider);
   final applyNow = ref.watch(applyNowPromptProvider);
-  return help || sudo != null || topMenu || applyNow != null;
+  final updateLog = ref.watch(updateCheckLogVisibleProvider);
+  return help || sudo != null || topMenu || applyNow != null || updateLog;
 });
 
 /// View-declared "I'm in a non-resumable rebuild flow" flag. Apply

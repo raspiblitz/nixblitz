@@ -184,6 +184,20 @@ class SystemView extends StatelessComponent {
             return true;
           }
 
+          // `l` opens the full transcript of the last check run — the
+          // "[l] log" hint. Gated on there actually being a transcript
+          // to show (a fresh install has never run a check) so `l`
+          // still falls through to the shell's top-menu nav
+          // shortcut otherwise. Matches `[v]`'s pattern: a
+          // section-local shortcut, not restricted to the content
+          // column.
+          if (event.logicalKey == LogicalKey.keyL &&
+              section == SystemSection.check &&
+              (r?.transcript.isNotEmpty ?? false)) {
+            context.read(updateCheckLogVisibleProvider.notifier).state = true;
+            return true;
+          }
+
           // Esc: ascend (content → sidebar, sidebar → dashboard).
           // Always disarms any armed Power action — escaping is a
           // clear "I changed my mind" signal.
@@ -471,7 +485,20 @@ class _CheckStatusPanel extends StatelessComponent {
 
     if (display.error != null) {
       rows.add(const SizedBox(height: 1));
-      rows.add(_indentedNote("Couldn't check for updates — ${display.error}"));
+      // The static "Last check" block below can't scroll, so a long
+      // multi-line nix error (a dry-run stderr trace easily runs to
+      // dozens of lines) either dominates the pane or clips off the
+      // bottom of the terminal with the actual failing line hidden
+      // below the fold. Show only the first few lines here and point
+      // at `[l]` for the rest — the full transcript is always
+      // available in the popup, truncated or not.
+      const maxErrorLines = 4;
+      final errLines = display.error!.split('\n');
+      final shown = errLines.take(maxErrorLines).join('\n');
+      rows.add(_indentedNote("Couldn't check for updates — $shown"));
+      if (result?.transcript.isNotEmpty ?? false) {
+        rows.add(_indentedNote('… [l] full log', color: _ageCol));
+      }
     }
 
     rows.add(const SizedBox(height: 1));
@@ -561,11 +588,11 @@ class _CheckStatusPanel extends StatelessComponent {
   }
 
   /// Indented note line (the "when you apply" note + probe errors).
-  Component _indentedNote(String message) {
+  Component _indentedNote(String message, {Color color = _dimCol}) {
     return Row(
       children: [
         const SizedBox(width: 4),
-        Text(message, style: const TextStyle(color: _dimCol)),
+        Text(message, style: TextStyle(color: color)),
       ],
     );
   }

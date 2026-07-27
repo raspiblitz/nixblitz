@@ -64,3 +64,18 @@ Future<ProcessResult> runBounded(
     await stderrFuture,
   );
 }
+
+/// Returns the last [maxLines] lines of [text] (split on `\n`),
+/// preserving order. If [text] has [maxLines] lines or fewer, every
+/// line is returned unchanged.
+///
+/// Used to bound noisy `nix` output before it's written to
+/// [LogService] or persisted into a [CheckResult.transcript] — a
+/// failed `nix build` can print thousands of lines of a dependency's
+/// build log, and neither the log file nor the status JSON should
+/// grow unbounded on every failed check.
+List<String> tailLines(String text, int maxLines) {
+  final lines = const LineSplitter().convert(text);
+  if (lines.length <= maxLines) return lines;
+  return lines.sublist(lines.length - maxLines);
+}

@@ -207,6 +207,18 @@ class UpdateCheckService {
     LogService.info('UpdateCheckService.runCheck: starting');
     final now = DateTime.now().toUtc();
 
+    // Bounded transcript of this run's own output — step headers plus
+    // each subprocess's combined stdout+stderr. Threaded through every
+    // `_persist` call (success and failure alike) so the TUI's log
+    // popup has something to show regardless of outcome. Trimmed to
+    // the last ~200 lines at persist time; unbounded here since a
+    // single check run is short-lived and discarded after.
+    final transcript = <String>[];
+    void log(String line) {
+      stdout.writeln(line);
+      transcript.add(line);
+    }
+
     // Step 1: pure-network probe. Results merged into the final
     // CheckResult regardless of how the heavy step goes — a
     // network-only success is still useful signal for the
@@ -219,14 +231,16 @@ class UpdateCheckService {
       final tmpFlake = '${tmp.path}/flake';
       Directory(tmpFlake).createSync();
 
-      stdout.writeln('• copying flake to ${tmp.path}');
+      log('• copying flake to ${tmp.path}');
       final cp = await Process.run('cp', ['-aT', flakePath, tmpFlake]);
       if (cp.exitCode != 0) {
+        _logStepFailure('cp -aT', cp.exitCode, cp.stdout, cp.stderr);
         return _persist(
           now,
           probe,
           ok: false,
           error: 'cp failed: ${cp.stderr}',
+          transcript: transcript,
         );
       }
 
@@ -245,7 +259,7 @@ class UpdateCheckService {
       // real `nixos-rebuild switch` those same paths fetch from
       // cache and only the operator's truly out-of-cache packages
       // compile.
-      stdout.writeln('• nix flake update');
+      log('• nix flake update');
       final upd = await runBounded(
         'nix',
         ['--accept-flake-config', 'flake', 'update'],
@@ -253,7 +267,14 @@ class UpdateCheckService {
         timeout: _flakeUpdateTimeout,
         label: 'nix flake update',
       );
+      transcript.addAll(_stepOutputLines(upd));
       if (upd.exitCode != 0) {
+        _logStepFailure(
+          'nix flake update',
+          upd.exitCode,
+          upd.stdout,
+          upd.stderr,
+        );
         return _persist(
           now,
           probe,
@@ -261,6 +282,7 @@ class UpdateCheckService {
           error:
               'nix flake update failed (exit ${upd.exitCode}): '
               '${(upd.stderr as String).trim()}',
+          transcript: transcript,
         );
       }
 
@@ -290,7 +312,7 @@ class UpdateCheckService {
       LogService.info(
         'UpdateCheckService.runCheck: platform=$platform attr=$attrName',
       );
-      stdout.writeln('• nix build --dry-run (probing cache)');
+      log('• nix build --dry-run (probing cache)');
       final dry = await runBounded(
         'nix',
         ['--accept-flake-config', 'build', '--dry-run', '--no-link', attr],
@@ -298,7 +320,14 @@ class UpdateCheckService {
         timeout: _dryRunTimeout,
         label: 'nix build --dry-run',
       );
+      transcript.addAll(_stepOutputLines(dry));
       if (dry.exitCode != 0) {
+        _logStepFailure(
+          'nix build --dry-run',
+          dry.exitCode,
+          dry.stdout,
+          dry.stderr,
+        );
         return _persist(
           now,
           probe,
@@ -306,33 +335,36 @@ class UpdateCheckService {
           error:
               'nix build --dry-run failed: '
               '${(dry.stderr as String).trim()}',
+          transcript: transcript,
         );
       }
       final plan = parseDryRunStderr(dry.stderr as String);
       if (plan.wouldBuild.isNotEmpty) {
-        stdout.writeln(
-          '! ${plan.wouldBuild.length} package(s) would need local compile:',
-        );
+        log('! ${plan.wouldBuild.length} package(s) would need local compile:');
         for (final name in plan.wouldBuild.take(20)) {
-          stdout.writeln('    $name');
+          log('    $name');
         }
         if (plan.wouldBuild.length > 20) {
-          stdout.writeln('    … (${plan.wouldBuild.length - 20} more)');
+          log('    … (${plan.wouldBuild.length - 20} more)');
         }
-        stdout.writeln('  skipping nvd diff — Apply when ready to compile.');
+        log('  skipping nvd diff — Apply when ready to compile.');
         // Bail before realising the toplevel: on aarch64 with no
         // cache hits, rustc/llvm storms can pin all cores for
         // hours, which is exactly the spike the background check
         // should suppress. The TUI surfaces the would-build names
         // so the operator decides.
-        return _persist(now, probe, ok: true, wouldBuild: plan.wouldBuild);
+        return _persist(
+          now,
+          probe,
+          ok: true,
+          wouldBuild: plan.wouldBuild,
+          transcript: transcript,
+        );
       }
 
       // 3. realise the toplevel (substitute-only when dry-run is empty).
-      stdout.writeln(
-        '• ${plan.wouldFetch.length} path(s) will be fetched from cache',
-      );
-      stdout.writeln('• nix build (substitute-only)');
+      log('• ${plan.wouldFetch.length} path(s) will be fetched from cache');
+      log('• nix build (substitute-only)');
       final eval = await runBounded(
         'nix',
         [
@@ -346,12 +378,20 @@ class UpdateCheckService {
         timeout: _buildTimeout,
         label: 'nix build (substitute)',
       );
+      transcript.addAll(_stepOutputLines(eval));
       if (eval.exitCode != 0) {
+        _logStepFailure(
+          'nix build (substitute)',
+          eval.exitCode,
+          eval.stdout,
+          eval.stderr,
+        );
         return _persist(
           now,
           probe,
           ok: false,
           error: 'nix build failed: ${(eval.stderr as String).trim()}',
+          transcript: transcript,
         );
       }
       final newTop = (eval.stdout as String).trim();
@@ -361,6 +401,7 @@ class UpdateCheckService {
           probe,
           ok: false,
           error: 'nix build did not return a store path: $newTop',
+          transcript: transcript,
         );
       }
 
@@ -371,17 +412,25 @@ class UpdateCheckService {
       ]);
       final currentTop = (readlink.stdout as String).trim();
       if (currentTop == newTop) {
-        return _persist(now, probe, ok: true, noChanges: true);
+        return _persist(
+          now,
+          probe,
+          ok: true,
+          noChanges: true,
+          transcript: transcript,
+        );
       }
 
       // 5. nvd diff.
       try {
+        log('• nvd diff');
         final nvd = await Process.run('nvd', [
           'diff',
           '/run/current-system',
           newTop,
         ]);
         final diff = (nvd.stdout as String) + (nvd.stderr as String);
+        transcript.addAll(const LineSplitter().convert(diff.trim()));
         _staging.writeNvdDiff(diff);
         _staging.writeNewToplevel(newTop);
         _staging.writeCheckedAt(now);
@@ -409,18 +458,27 @@ class UpdateCheckService {
           ok: true,
           diffText: diff,
           sbomChanges: sbomChanges,
+          transcript: transcript,
         );
       } on ProcessException catch (e) {
+        LogService.error('UpdateCheckService.runCheck: nvd diff failed', e);
         return _persist(
           now,
           probe,
           ok: false,
           error: 'nvd not on PATH: ${e.message}',
+          transcript: transcript,
         );
       }
     } catch (e, st) {
       LogService.error('UpdateCheckService.runCheck failed', e, st);
-      return _persist(now, probe, ok: false, error: '$e');
+      return _persist(
+        now,
+        probe,
+        ok: false,
+        error: '$e',
+        transcript: transcript,
+      );
     } finally {
       if (tmp != null) {
         try {
@@ -461,6 +519,7 @@ class UpdateCheckService {
     bool noChanges = false,
     List<String> wouldBuild = const [],
     List<SbomChange> sbomChanges = const [],
+    List<String> transcript = const [],
   }) {
     final errors = [...probe.errors];
     if (error != null) errors.add(error);
@@ -474,6 +533,7 @@ class UpdateCheckService {
       noChanges: noChanges,
       wouldBuild: wouldBuild,
       sbomChanges: sbomChanges,
+      transcript: tailLines(transcript.join('\n'), 200),
     );
     final f = File(statusPath);
     f.parent.createSync(recursive: true);
@@ -493,6 +553,44 @@ class UpdateCheckService {
       'errors=${errors.length}',
     );
     return ok ? 0 : 1;
+  }
+
+  /// Flatten a subprocess's stdout+stderr into transcript lines. Both
+  /// streams are included (in stdout-then-stderr order) since `nix`
+  /// splits its progress/plan output across both depending on the
+  /// subcommand — dropping either would silently lose "the work it's
+  /// doing" from the transcript.
+  static List<String> _stepOutputLines(ProcessResult result) {
+    final lines = <String>[];
+    final out = (result.stdout as String).trim();
+    final err = (result.stderr as String).trim();
+    if (out.isNotEmpty) lines.addAll(const LineSplitter().convert(out));
+    if (err.isNotEmpty) lines.addAll(const LineSplitter().convert(err));
+    return lines;
+  }
+
+  /// Surface a failed check step in `~/nixblitz.log`: an ERROR line
+  /// with the step label + exit code, plus a bounded INFO tail (last
+  /// ~80 lines) of the step's combined output. Before this, a failure
+  /// like a corrupt-sqlite error from `nix build` only ever showed up
+  /// in the TUI's "Last check" panel — never in the log file, which
+  /// made field failures undiagnosable without a screenshot.
+  static void _logStepFailure(
+    String label,
+    int exitCode,
+    String stdoutText,
+    String stderrText,
+  ) {
+    LogService.error(
+      'UpdateCheckService.runCheck: $label failed (exit $exitCode)',
+    );
+    final combined = '$stdoutText\n$stderrText'.trim();
+    if (combined.isEmpty) return;
+    final tail = tailLines(combined, 80);
+    LogService.info(
+      'UpdateCheckService.runCheck: $label output (last ${tail.length} '
+      'line${tail.length == 1 ? '' : 's'}):\n${tail.join('\n')}',
+    );
   }
 
   /// Per-plugin probe driving the version-tracking flow described in

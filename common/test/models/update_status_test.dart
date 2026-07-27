@@ -105,6 +105,39 @@ void main() {
       expect(reparsed.compileNeeded, isTrue);
     });
 
+    test('transcript round-trips through toJson/fromJson', () {
+      final original = CheckResult(
+        checkedAt: DateTime.utc(2026, 5, 4),
+        ok: false,
+        error: 'nix build failed',
+        transcript: const ['• nix flake update', 'error: corrupt sqlite db'],
+      );
+      final reparsed = CheckResult.fromJson(original.toJson());
+      expect(reparsed.transcript, [
+        '• nix flake update',
+        'error: corrupt sqlite db',
+      ]);
+    });
+
+    test('missing transcript parses as empty (backward compat)', () {
+      final json = {
+        'checked_at': '2026-05-04T10:00:00.000Z',
+        'ok': true,
+        'diff_text': '',
+        'no_changes': false,
+      };
+      final r = CheckResult.fromJson(json);
+      expect(r.transcript, isEmpty);
+    });
+
+    test('empty transcript is omitted from toJson', () {
+      final j = CheckResult(
+        checkedAt: DateTime.utc(2026, 5, 4),
+        ok: true,
+      ).toJson();
+      expect(j.containsKey('transcript'), isFalse);
+    });
+
     test('compileNeeded reflects wouldBuild non-empty', () {
       final empty = CheckResult(checkedAt: DateTime.utc(2026, 5, 4), ok: true);
       expect(empty.compileNeeded, isFalse);

@@ -63,4 +63,26 @@ void main() {
       expect((r.stderr as String).trim(), 'oops');
     });
   });
+
+  group('tailLines', () {
+    test('returns every line when under the cap', () {
+      final result = tailLines('a\nb\nc', 5);
+      expect(result, ['a', 'b', 'c']);
+    });
+
+    test('keeps only the last N lines, preserving order', () {
+      final text = List.generate(10, (i) => 'line$i').join('\n');
+      final result = tailLines(text, 3);
+      expect(result, ['line7', 'line8', 'line9']);
+    });
+
+    test('returns an empty list for empty input', () {
+      expect(tailLines('', 10), isEmpty);
+    });
+
+    test('exact-cap input is returned unchanged', () {
+      final text = List.generate(4, (i) => 'l$i').join('\n');
+      expect(tailLines(text, 4), ['l0', 'l1', 'l2', 'l3']);
+    });
+  });
 }

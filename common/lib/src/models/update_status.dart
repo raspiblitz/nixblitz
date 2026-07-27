@@ -97,6 +97,7 @@ class CheckResult {
     this.noChanges = false,
     this.wouldBuild = const [],
     this.sbomChanges = const [],
+    this.transcript = const [],
   });
 
   final DateTime checkedAt;
@@ -139,6 +140,14 @@ class CheckResult {
   /// path; empty otherwise (and when there is no committed SBOM baseline).
   final List<SbomChange> sbomChanges;
 
+  /// Bounded transcript of the check's own output — step headers plus
+  /// each `nix`/`nvd` step's combined stdout+stderr, trimmed to the
+  /// last ~200 lines of the whole run. Written on both success and
+  /// failure so the TUI's log popup has something to show either way
+  /// ("see the work it's doing"), not just on error. Empty when read
+  /// from a status file written before this field existed.
+  final List<String> transcript;
+
   /// Convenience: true when [wouldBuild] is non-empty.
   bool get compileNeeded => wouldBuild.isNotEmpty;
 
@@ -158,6 +167,7 @@ class CheckResult {
     sbomChanges: ((j['sbom_changes'] as List?) ?? const [])
         .map((e) => SbomChange.fromJson(e as Map<String, dynamic>))
         .toList(),
+    transcript: (j['transcript'] as List?)?.cast<String>() ?? const <String>[],
   );
 
   Map<String, dynamic> toJson() => {
@@ -173,6 +183,7 @@ class CheckResult {
     if (wouldBuild.isNotEmpty) 'would_build': wouldBuild,
     if (sbomChanges.isNotEmpty)
       'sbom_changes': sbomChanges.map((e) => e.toJson()).toList(),
+    if (transcript.isNotEmpty) 'transcript': transcript,
   };
 }
 

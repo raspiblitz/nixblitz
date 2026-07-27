@@ -42,6 +42,17 @@ class ScrollableLog extends StatefulComponent {
   /// when [focused] is true.
   final bool Function(KeyboardEvent event)? onKeyEvent;
 
+  /// When true, this instance does not yield focus while
+  /// [modalActiveProvider] is true. Every other call site uses
+  /// `ScrollableLog` as a *background* pane (e.g. streaming rebuild
+  /// output behind the sudo prompt) and relies on the modal gate so
+  /// those panes don't eat keys meant for the overlay on top of them.
+  /// A `ScrollableLog` used as the CONTENT of a modal popup itself
+  /// (the update-check transcript popup) is the one exception: for
+  /// it, `modalActive` is true precisely because it IS the modal, so
+  /// gating on it would make the popup's own log unscrollable.
+  final bool ignoreModalGate;
+
   const ScrollableLog({
     super.key,
     required this.lines,
@@ -49,6 +60,7 @@ class ScrollableLog extends StatefulComponent {
     this.lineColor,
     this.focused = false,
     this.onKeyEvent,
+    this.ignoreModalGate = false,
   });
 
   @override
@@ -231,8 +243,11 @@ class _ScrollableLogState extends State<ScrollableLog> {
     // Yield focus while a modal popup (sudo prompt / help) is up —
     // the streaming-output panes that wrap us during nixos-rebuild
     // would otherwise eat the keystrokes meant for the password
-    // input.
-    final modalActive = context.watch(modalActiveProvider);
+    // input. Skipped for instances that ARE the modal (see
+    // [ScrollableLog.ignoreModalGate]).
+    final modalActive = comp.ignoreModalGate
+        ? false
+        : context.watch(modalActiveProvider);
 
     final showStatus = _composing || _query.isNotEmpty;
 
