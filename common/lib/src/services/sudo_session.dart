@@ -100,20 +100,37 @@ class SudoSession {
       _lastAuthAt != null &&
       DateTime.now().difference(_lastAuthAt!) < _freshThreshold;
 
+  /// Single in-flight ensureFresh. Concurrent privileged flows are
+  /// normal (the wizard's seed poll and its journal popup both tick
+  /// every 2 s); unserialized they race the one password-callback
+  /// slot and can double-prompt.
+  Future<bool>? _ensureInFlight;
+
   /// Ensures sudo's timestamp is fresh enough for a `-n` invocation.
   ///
-  /// Tries three paths in order:
-  ///   1. Cached timestamp younger than [_freshThreshold] → no-op.
-  ///   2. `sudo -n -v` succeeds silently → cache the timestamp.
-  ///   3. Prompt for password (up to 3 attempts) and run `sudo -S -v`.
+  /// Tries two paths in order:
+  ///   1. `sudo -n -v` succeeds silently → cache the timestamp.
+  ///   2. Prompt for password (up to 3 attempts) and run `sudo -S -v`.
+  ///
+  /// Deliberately NO Dart-side freshness short-circuit: the kernel's
+  /// timestamp can die behind our back mid-session (a wizard rebuild
+  /// swapping the sudo posture, `sudo -K`, a tight timestamp_timeout),
+  /// and a stale "fresh" answer sends every subsequent `sudo -n` into
+  /// "a password is required" without the user ever seeing a prompt —
+  /// observed live in the seed-wait journal popup. `sudo -n -v` costs
+  /// milliseconds; correctness wins.
   ///
   /// Returns false if the user cancels the prompt or 3 wrong
   /// attempts in a row exhaust the retry budget. Caller is
   /// responsible for surfacing that to the user as "operation
   /// cancelled" / "authentication failed".
-  Future<bool> ensureFresh() async {
-    if (isFresh) return true;
+  Future<bool> ensureFresh() {
+    return _ensureInFlight ??= _ensureFreshInner().whenComplete(() {
+      _ensureInFlight = null;
+    });
+  }
 
+  Future<bool> _ensureFreshInner() async {
     final silentExit = await _auth.silentVerify();
     if (silentExit == 0) {
       _lastAuthAt = DateTime.now();
@@ -261,10 +278,25 @@ class SudoSession {
     await stderrDone.future;
     termTimer.cancel();
 
+    final stderrStr = stderrBuf.toString();
+    if (actual != 0 && stderrStr.contains('a password is required')) {
+      // The timestamp died between ensureFresh's verify and this
+      // invocation (tiny window, but real). Clear the informational
+      // cache and shout — callers that swallow non-zero exits (the
+      // seed poll's `test -f` probe) would otherwise misread this
+      // as their own domain's failure.
+      _lastAuthAt = null;
+      LogService.warn(
+        'SudoSession.runOneShot: sudo demanded a password mid-flow '
+        '(cmd=${args.isEmpty ? '?' : args.first}) — timestamp lost '
+        'between verify and exec',
+      );
+    }
+
     return (
       exitCode: timedOut ? 124 : actual,
       stdout: stdoutBuf.toString(),
-      stderr: stderrBuf.toString(),
+      stderr: stderrStr,
     );
   }
 

@@ -26,6 +26,7 @@ export 'src/services/apply_commit.dart';
 export 'src/services/config_service.dart';
 export 'src/services/environment_service.dart';
 export 'src/services/git_service.dart';
+export 'src/services/lnd_seed_wait_service.dart';
 export 'src/services/process_runner.dart';
 export 'src/services/sbom_service.dart';
 export 'src/services/system_service.dart';

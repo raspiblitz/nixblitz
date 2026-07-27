@@ -4,7 +4,11 @@ import 'package:common/src/services/sudo_session.dart';
 import 'package:test/test.dart';
 
 class _FakeAuth implements SudoAuthBackend {
-  _FakeAuth({required this.silentExit, this.passwordExits = const []});
+  _FakeAuth({
+    required this.silentExit,
+    this.passwordExits = const [],
+    this.silentDelay = Duration.zero,
+  });
 
   /// Exit code returned by `sudo -n -v`.
   int silentExit;
@@ -12,6 +16,10 @@ class _FakeAuth implements SudoAuthBackend {
   /// Per-attempt exit codes for `sudo -S -v`. Consumed in order;
   /// running off the end throws.
   List<int> passwordExits;
+
+  /// Artificial latency for [silentVerify] — lets tests overlap
+  /// concurrent ensureFresh calls deterministically.
+  Duration silentDelay;
 
   int silentCalls = 0;
   int passwordCalls = 0;
@@ -21,6 +29,9 @@ class _FakeAuth implements SudoAuthBackend {
   @override
   Future<int> silentVerify() async {
     silentCalls++;
+    if (silentDelay > Duration.zero) {
+      await Future<void>.delayed(silentDelay);
+    }
     return silentExit;
   }
 
@@ -49,17 +60,73 @@ Uint8List _bytes(String s) => Uint8List.fromList(s.codeUnits);
 
 void main() {
   group('SudoSession.ensureFresh', () {
-    test('cached timestamp short-circuits silently', () async {
+    test('always re-verifies against sudo, even right after a success '
+        '(a Dart-side freshness cache diverges from the kernel when the '
+        'node invalidates the timestamp mid-session — seen live: the '
+        'wizard journal popup got a stale "fresh" answer and every '
+        'sudo -n died with "a password is required" without ever '
+        'prompting)', () async {
       final auth = _FakeAuth(silentExit: 0);
       final s = SudoSession(authBackend: auth);
-      // Prime the cache with a successful verify.
       expect(await s.ensureFresh(), isTrue);
       expect(auth.silentCalls, 1);
 
-      // Second call within freshThreshold must not touch the backend.
+      // Immediately after: must consult sudo again, not a cache.
       expect(await s.ensureFresh(), isTrue);
-      expect(auth.silentCalls, 1);
+      expect(auth.silentCalls, 2);
       expect(auth.passwordCalls, 0);
+    });
+
+    test(
+      'stale success followed by OS-side invalidation prompts again',
+      () async {
+        final auth = _FakeAuth(silentExit: 0);
+        final s = SudoSession(authBackend: auth);
+        var prompts = 0;
+        s.setPasswordCallback((_) async {
+          prompts++;
+          return _bytes('hunter2');
+        });
+        expect(await s.ensureFresh(), isTrue);
+        expect(prompts, 0);
+
+        // Timestamp dies behind our back (rebuild, sudo -K, timeout…).
+        auth.silentExit = 1;
+        auth.passwordExits = [0];
+        expect(await s.ensureFresh(), isTrue);
+        expect(prompts, 1);
+      },
+    );
+
+    test('concurrent callers share one in-flight verification', () async {
+      final auth = _FakeAuth(
+        silentExit: 0,
+        silentDelay: const Duration(milliseconds: 40),
+      );
+      final s = SudoSession(authBackend: auth);
+      // Seed poll + journal popup both tick every 2s; unserialized
+      // they race the single password-callback slot.
+      final results = await Future.wait([s.ensureFresh(), s.ensureFresh()]);
+      expect(results, [true, true]);
+      expect(auth.silentCalls, 1);
+    });
+
+    test('concurrent callers share one password prompt', () async {
+      final auth = _FakeAuth(
+        silentExit: 1,
+        passwordExits: [0],
+        silentDelay: const Duration(milliseconds: 40),
+      );
+      final s = SudoSession(authBackend: auth);
+      var prompts = 0;
+      s.setPasswordCallback((_) async {
+        prompts++;
+        return _bytes('hunter2');
+      });
+      final results = await Future.wait([s.ensureFresh(), s.ensureFresh()]);
+      expect(results, [true, true]);
+      expect(prompts, 1);
+      expect(auth.passwordCalls, 1);
     });
 
     test('silent verify success caches timestamp', () async {
@@ -159,24 +226,6 @@ void main() {
       await s.forget();
       expect(auth.forgetCalls, 2);
       expect(s.isFresh, isFalse);
-    });
-  });
-
-  group('SudoSession freshness threshold', () {
-    test('expires after freshThreshold and re-verifies silently', () async {
-      final auth = _FakeAuth(silentExit: 0);
-      final s = SudoSession(
-        authBackend: auth,
-        freshThreshold: const Duration(milliseconds: 50),
-      );
-      expect(await s.ensureFresh(), isTrue);
-      expect(auth.silentCalls, 1);
-
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-
-      expect(await s.ensureFresh(), isTrue);
-      // Cache expired → silent verify ran a second time.
-      expect(auth.silentCalls, 2);
     });
   });
 
