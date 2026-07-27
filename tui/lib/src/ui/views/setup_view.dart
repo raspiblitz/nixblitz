@@ -1230,6 +1230,10 @@ class _SetupViewState extends State<SetupView> {
           // Wipe the words from checklist state immediately — the
           // reveal gate reads _lndSeedWords only.
           _seedWaitStatus = const SeedWaitStatus(phase: SeedWaitPhase.done);
+          // The waiting screen (and its journal popup) unmounts once
+          // we leave this branch; don't let a stale true survive into
+          // whatever step renders next.
+          _lndJournalVisible = false;
         });
         _stopLndSeedPoll();
         return;
@@ -1442,8 +1446,12 @@ class _SetupViewState extends State<SetupView> {
         Focusable(
           // Yield to the popup while it's up (same dispatch rule as the
           // app-level modals: the popup's Focusable must be reached by
-          // the Stack iteration).
-          focused: !_lndJournalVisible,
+          // the Stack iteration). Also yield while an app-wide modal
+          // (e.g. the sudo password overlay) is up — nocterm dispatches
+          // depth-first view-first, so without this an 'l' typed into a
+          // password would mount the journal popup underneath the
+          // overlay instead of reaching it.
+          focused: !_lndJournalVisible && !context.watch(modalActiveProvider),
           onKeyEvent: (event) {
             try {
               if (event.character?.toLowerCase() == 'l') {
@@ -1567,7 +1575,7 @@ class _SetupViewState extends State<SetupView> {
     return Stack(
       children: [
         Focusable(
-          focused: !_lndJournalVisible,
+          focused: !_lndJournalVisible && !context.watch(modalActiveProvider),
           onKeyEvent: (event) {
             try {
               final c = event.character?.toLowerCase();

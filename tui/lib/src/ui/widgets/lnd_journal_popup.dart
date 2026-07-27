@@ -5,6 +5,7 @@ import 'package:common/common.dart' show LogService;
 import 'package:nocterm/nocterm.dart';
 import 'package:nocterm_riverpod/nocterm_riverpod.dart';
 
+import '../../providers/ui_state_provider.dart';
 import '../../providers/viewport_provider.dart';
 import 'popup_chrome.dart';
 import 'scrollable_log.dart';
@@ -74,7 +75,12 @@ class _LndJournalPopupState extends State<LndJournalPopup> {
     final height = math.min(30, math.max(10, viewportHeight - 6));
 
     return Focusable(
-      focused: true,
+      // Yield to an app-wide modal (e.g. the sudo password overlay) —
+      // this popup is not itself registered as a modal, so without this
+      // its Focusable would out-race the overlay in nocterm's
+      // depth-first, view-first dispatch and eat Esc / search keys
+      // meant for the password prompt.
+      focused: !context.watch(modalActiveProvider),
       onKeyEvent: (event) {
         try {
           if (event.logicalKey == LogicalKey.escape) {
@@ -110,7 +116,6 @@ class _LndJournalPopupState extends State<LndJournalPopup> {
                     lines: _lines,
                     textColor: kPopupBody,
                     focused: true,
-                    ignoreModalGate: true,
                     onKeyEvent: (event) {
                       if (event.logicalKey == LogicalKey.escape) {
                         component.onClose();
