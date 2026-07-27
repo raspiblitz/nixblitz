@@ -29,7 +29,9 @@ import '../../services/check_runner.dart';
 /// probe lives in the same [CheckResult] as the diff, no separate
 /// staleness predicate is needed: if a more recent run found the
 /// lock caught up, it overwrote the diff with `noChanges=true`.
-bool _hasCachedPackageDiff(UpdateStatus status) {
+/// Public: the footer hint builder in app.dart mirrors the [v]
+/// handler gate with this exact predicate.
+bool hasCachedPackageDiff(UpdateStatus status) {
   final r = status.checkResult;
   if (r == null || !r.ok) return false;
   if (r.noChanges) return false;
@@ -95,7 +97,7 @@ class SystemView extends StatelessComponent {
 
     final status = readUpdateStatus();
     final r = status.checkResult;
-    final hasCachedDiff = _hasCachedPackageDiff(status);
+    final hasCachedDiff = hasCachedPackageDiff(status);
     final hasCachedWouldBuild = r?.compileNeeded ?? false;
     final armedPower = context.watch(_armedPowerActionProvider);
     final powerStatus = context.watch(_powerStatusProvider);
@@ -184,14 +186,16 @@ class SystemView extends StatelessComponent {
             return true;
           }
 
-          // `l` opens the full transcript of the last check run — the
-          // "[l] log" hint. Gated on there actually being a transcript
-          // to show (a fresh install has never run a check) so `l`
-          // still falls through to the shell's top-menu nav
-          // shortcut otherwise. Matches `[v]`'s pattern: a
+          // `o` opens the full transcript of the last check run — the
+          // "[o] open log" hint. NOT `l`: that's the vim-style
+          // top-menu nav key (h/l switch tabs), and a view-local `l`
+          // shadows it exactly when the Check section is selected —
+          // which after any check run is the common state. Gated on
+          // there actually being a transcript (a fresh install has
+          // never run a check). Matches `[v]`'s pattern: a
           // section-local shortcut, not restricted to the content
           // column.
-          if (event.logicalKey == LogicalKey.keyL &&
+          if (event.logicalKey == LogicalKey.keyO &&
               section == SystemSection.check &&
               (r?.transcript.isNotEmpty ?? false)) {
             context.read(updateCheckLogVisibleProvider.notifier).state = true;
@@ -490,14 +494,14 @@ class _CheckStatusPanel extends StatelessComponent {
       // dozens of lines) either dominates the pane or clips off the
       // bottom of the terminal with the actual failing line hidden
       // below the fold. Show only the first few lines here and point
-      // at `[l]` for the rest — the full transcript is always
+      // at `[o]` for the rest — the full transcript is always
       // available in the popup, truncated or not.
       const maxErrorLines = 4;
       final errLines = display.error!.split('\n');
       final shown = errLines.take(maxErrorLines).join('\n');
       rows.add(_indentedNote("Couldn't check for updates — $shown"));
       if (result?.transcript.isNotEmpty ?? false) {
-        rows.add(_indentedNote('… [l] full log', color: _ageCol));
+        rows.add(_indentedNote('… [o] full log', color: _ageCol));
       }
     }
 

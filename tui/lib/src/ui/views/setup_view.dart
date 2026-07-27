@@ -1448,13 +1448,13 @@ class _SetupViewState extends State<SetupView> {
           // app-level modals: the popup's Focusable must be reached by
           // the Stack iteration). Also yield while an app-wide modal
           // (e.g. the sudo password overlay) is up — nocterm dispatches
-          // depth-first view-first, so without this an 'l' typed into a
+          // depth-first view-first, so without this an 'o' typed into a
           // password would mount the journal popup underneath the
           // overlay instead of reaching it.
           focused: !_lndJournalVisible && !context.watch(modalActiveProvider),
           onKeyEvent: (event) {
             try {
-              if (event.character?.toLowerCase() == 'l') {
+              if (event.character?.toLowerCase() == 'o') {
                 setState(() {
                   _lndJournalVisible = true;
                 });
@@ -1579,7 +1579,7 @@ class _SetupViewState extends State<SetupView> {
           onKeyEvent: (event) {
             try {
               final c = event.character?.toLowerCase();
-              if (c == 'l') {
+              if (c == 'o') {
                 setState(() {
                   _lndJournalVisible = true;
                 });
@@ -1633,7 +1633,7 @@ class _SetupViewState extends State<SetupView> {
                 ),
                 const SizedBox(height: 1),
                 const Text(
-                  '[R] retry   [L] LND log   [Enter] continue without showing',
+                  '[R] retry   [O] LND log   [Enter] continue without showing',
                 ),
               ],
             ),

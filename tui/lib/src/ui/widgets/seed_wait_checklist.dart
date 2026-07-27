@@ -100,7 +100,7 @@ class SeedWaitChecklist extends StatelessComponent {
         ],
         const SizedBox(height: 1),
         const Text(
-          '[l] show LND log',
+          '[o] show LND log',
           style: TextStyle(color: Color.fromRGB(150, 150, 180)),
         ),
       ],

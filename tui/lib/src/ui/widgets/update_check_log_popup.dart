@@ -8,7 +8,7 @@ import 'popup_chrome.dart';
 import 'scrollable_log.dart';
 
 /// Full transcript of the most recent `nixblitz check` run — opened
-/// via `[l]` from the System → Updates panel. Exists because the
+/// via `[o]` from the System → Updates panel. Exists because the
 /// panel's inline "Last check" block is a static, non-scrollable
 /// `Text` that either hides a long nix error below the fold or (for
 /// a successful run) shows nothing at all about the work the check

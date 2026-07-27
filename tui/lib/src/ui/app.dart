@@ -197,11 +197,34 @@ List<FooterHint> _hintsFor(BuildContext context, AppView view) {
     case AppView.system:
       final col = context.watch(systemColumnProvider);
       final section = context.watch(systemSectionProvider);
+      // `[o]` only makes sense once a check has actually produced a
+      // transcript — hide the hint on a fresh install where nothing's
+      // run yet rather than dangling a shortcut that opens an empty
+      // popup. Watches the refresh tick so the hint appears as soon
+      // as a check subprocess exits, without waiting for an unrelated
+      // rebuild. Computed BEFORE the column branch because the key
+      // handler is column-agnostic — a hotkey that works from the
+      // sidebar must be advertised from the sidebar (an unhinted
+      // binding reads as a phantom key, which is how the old [l]
+      // clash was found).
+      context.watch(checkRefreshTickProvider);
+      final sysStatus = readUpdateStatus();
+      final hasLog =
+          section == SystemSection.check &&
+          (sysStatus.checkResult?.transcript.isNotEmpty ?? false);
+      // Same gate as the view's [v] handler (shared predicate) — a
+      // hotkey that fires must be advertised in the same states.
+      final hasPackages =
+          section == SystemSection.check &&
+          (hasCachedPackageDiff(sysStatus) ||
+              (sysStatus.checkResult?.compileNeeded ?? false));
       if (col == SystemColumn.sidebar) {
-        return const [
-          FooterHint(key: '↑/↓', action: 'Check / Apply / Power'),
-          FooterHint(key: 'Enter', action: 'pick action'),
-          FooterHint(key: 'Esc', action: 'back to dashboard'),
+        return [
+          const FooterHint(key: '↑/↓', action: 'Check / Apply / Power'),
+          const FooterHint(key: 'Enter', action: 'pick action'),
+          if (hasPackages) const FooterHint(key: 'v', action: 'packages'),
+          if (hasLog) const FooterHint(key: 'o', action: 'open log'),
+          const FooterHint(key: 'Esc', action: 'back to dashboard'),
           _hintTop,
           _hintHelp,
         ];
@@ -211,20 +234,11 @@ List<FooterHint> _hintsFor(BuildContext context, AppView view) {
         SystemSection.apply => 'run action',
         SystemSection.power => 'arm / confirm',
       };
-      // `[l]` only makes sense once a check has actually produced a
-      // transcript — hide the hint on a fresh install where nothing's
-      // run yet rather than dangling a shortcut that opens an empty
-      // popup. Watches the refresh tick so the hint appears as soon
-      // as a check subprocess exits, without waiting for an unrelated
-      // rebuild.
-      context.watch(checkRefreshTickProvider);
-      final hasLog =
-          section == SystemSection.check &&
-          (readUpdateStatus().checkResult?.transcript.isNotEmpty ?? false);
       return [
         const FooterHint(key: '↑/↓', action: 'pick action'),
         FooterHint(key: 'Enter', action: enterLabel),
-        if (hasLog) const FooterHint(key: 'l', action: 'log'),
+        if (hasPackages) const FooterHint(key: 'v', action: 'packages'),
+        if (hasLog) const FooterHint(key: 'o', action: 'open log'),
         const FooterHint(key: 'Esc', action: 'back to sidebar'),
         _hintTop,
         _hintHelp,
@@ -779,7 +793,7 @@ class _ShellState extends State<_Shell> {
             },
           ),
         // Full transcript of the last `nixblitz check` run — opened via
-        // `[l]` from System → Updates. Reads the status file fresh on
+        // `[o]` from System → Updates. Reads the status file fresh on
         // each open rather than threading the transcript through a
         // provider; the popup is transient and the file is cheap to
         // read once at open time.
