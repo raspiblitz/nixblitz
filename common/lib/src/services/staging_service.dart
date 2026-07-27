@@ -134,7 +134,12 @@ class StagingService {
   bool promoteLockTo(String destDir) {
     final src = File(lockPath);
     if (!src.existsSync()) return false;
-    src.copySync('$destDir/flake.lock');
+    // Delete before copying: on offline-installed nodes the live lock may
+    // be read-only (mode 444, copied from the nix store by older
+    // scaffolds), and copySync can't open it for writing.
+    final dest = File('$destDir/flake.lock');
+    if (dest.existsSync()) dest.deleteSync();
+    src.copySync(dest.path);
     return true;
   }
 

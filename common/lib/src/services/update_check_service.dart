@@ -243,6 +243,11 @@ class UpdateCheckService {
           transcript: transcript,
         );
       }
+      // `cp -aT` preserves mode bits. On offline-installed nodes the live
+      // flake.lock was copied from the nix store (mode 444) by older
+      // scaffolds, so `nix flake update` below would die with EACCES
+      // rewriting the lock. Make the throwaway copy writable.
+      await Process.run('chmod', ['-R', 'u+w', tmpFlake]);
 
       // 1. flake update.
       //

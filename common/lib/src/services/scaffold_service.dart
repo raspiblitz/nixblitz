@@ -22,7 +22,14 @@ class ScaffoldService {
     try {
       final src = File(offlineLockPath);
       if (!src.existsSync()) return;
-      src.copySync('$baseDir/flake.lock');
+      // NOT copySync: the source is nix-store-backed (mode 444) and Dart's
+      // copySync preserves mode bits, leaving a read-only flake.lock that
+      // every later re-lock (`nix flake update` in the update check, lock
+      // promotion on apply) fails to rewrite with EACCES. Delete + write
+      // fresh so the lock gets normal umask permissions.
+      final dest = File('$baseDir/flake.lock');
+      if (dest.existsSync()) dest.deleteSync();
+      dest.writeAsBytesSync(src.readAsBytesSync());
       LogService.info(
         'scaffold: offline flake.lock copied from $offlineLockPath',
       );

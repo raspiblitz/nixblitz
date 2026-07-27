@@ -189,6 +189,36 @@ nixblitz = {
       expect(copied.readAsStringSync(), offlineLock.readAsStringSync());
     });
 
+    test('copied lock is writable even when the source is read-only '
+        '(store-backed /etc/nixblitz/offline-flake.lock is mode 444; a '
+        'preserved mode breaks every later re-lock with EACCES)', () {
+      final baseDir = '${tempDir.path}/nixblitz';
+      final offlineLock = File('${tempDir.path}/offline-flake.lock');
+      offlineLock.writeAsStringSync('{"nodes": {"root": {}}}');
+      Process.runSync('chmod', ['444', offlineLock.path]);
+
+      service.copyOfflineLockIfPresent(
+        baseDir,
+        offlineLockPath: offlineLock.path,
+      );
+
+      final copied = File('$baseDir/flake.lock');
+      expect(copied.existsSync(), true);
+      // Overwriting in place is the writability proof — this is exactly
+      // what `nix flake update` needs to do.
+      expect(() => copied.writeAsStringSync('{"nodes": {}}'), returnsNormally);
+
+      // Re-scaffold over the existing lock must also succeed.
+      expect(
+        () => service.copyOfflineLockIfPresent(
+          baseDir,
+          offlineLockPath: offlineLock.path,
+        ),
+        returnsNormally,
+      );
+      expect(copied.readAsStringSync(), offlineLock.readAsStringSync());
+    });
+
     test('is a no-op when the offline lock source is absent', () {
       final baseDir = '${tempDir.path}/nixblitz';
       final missingPath = '${tempDir.path}/does-not-exist.lock';

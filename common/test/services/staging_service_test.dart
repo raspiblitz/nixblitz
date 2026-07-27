@@ -52,6 +52,20 @@ void main() {
       expect(File('${dest.path}/flake.lock').readAsStringSync(), '{"v":7}');
     });
 
+    test('promoteLockTo overwrites a read-only live lock (offline installs '
+        'copied it from the nix store at mode 444)', () {
+      final source = File('${tmp.path}/source.lock')
+        ..writeAsStringSync('{"v":8}');
+      svc.writeLockBump(source);
+      final dest = Directory('${tmp.path}/repo')..createSync();
+      final liveLock = File('${dest.path}/flake.lock')
+        ..writeAsStringSync('{"v":1}');
+      Process.runSync('chmod', ['444', liveLock.path]);
+
+      expect(svc.promoteLockTo(dest.path), isTrue);
+      expect(liveLock.readAsStringSync(), '{"v":8}');
+    });
+
     test('promoteLockTo without a staged lock is a no-op returning false', () {
       final dest = Directory('${tmp.path}/repo')..createSync();
       expect(svc.promoteLockTo(dest.path), isFalse);
