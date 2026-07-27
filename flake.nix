@@ -220,6 +220,14 @@
                 # nix/offline-inputs.nix) — makes the ISO fully offline.
                 inherit offlineLock;
                 offlineSourcePaths = offlineInputs.sourcePaths;
+                # closureInfo's `total-nar-size` file — baked as a static
+                # /etc file so the install wizard's copy-progress bar gets
+                # an instant total instead of `du -sb /nix/store`ing the
+                # live medium's ~500k-file offline store (see nix/iso.nix's
+                # `installTotalBytesFile` doc comment).
+                installTotalBytesFile =
+                  installerSystem.cliProducts.closureInfo
+                  + "/total-nar-size";
               })
               .config
               .system
@@ -289,6 +297,14 @@
                 # nix/offline-inputs.nix) — makes the image fully offline.
                 inherit offlineLock;
                 offlineSourcePaths = offlineInputs.sourcePaths;
+                # closureInfo's `total-nar-size` file — baked as a static
+                # /etc file so the install wizard's copy-progress bar gets
+                # an instant total instead of `du -sb /nix/store`ing the
+                # live medium's ~500k-file offline store (see
+                # nix/pi5-image.nix's `installTotalBytesFile` doc comment).
+                installTotalBytesFile =
+                  installerSystem.cliProducts.closureInfo
+                  + "/total-nar-size";
               })
               .config
               .system

@@ -47,6 +47,36 @@ Future<int?> duSourceBytes([String path = '/nix/store']) async {
   }
 }
 
+/// Total install bytes baked into the live medium at ISO/image build time
+/// (`nix/iso.nix` / `nix/pi5-image.nix` write closureInfo's
+/// `total-nar-size` to this path — see `nix/install-cli-products.nix`).
+/// Reading it is instant, unlike [duSourceBytes]. Null on any failure
+/// (missing file, unparsable contents, non-ISO context) — never throws.
+Future<int?> installTotalBytesFromEtc({
+  String path = '/etc/nixblitz/install-total-bytes',
+}) async {
+  try {
+    final contents = await File(path).readAsString();
+    return int.tryParse(contents.trim());
+  } catch (e) {
+    LogService.warn('installTotalBytesFromEtc failed: $e');
+    return null;
+  }
+}
+
+/// Total bytes to copy during install: prefer the value baked at ISO/image
+/// build time (instant), falling back to a live `du -sb` scan (used
+/// outside the baked-ISO context, e.g. dev runs). Injectable readers for
+/// tests.
+Future<int?> installTotalBytes({
+  Future<int?> Function() readEtc = installTotalBytesFromEtc,
+  Future<int?> Function() readDu = duSourceBytes,
+}) async {
+  final etcTotal = await readEtc();
+  if (etcTotal != null) return etcTotal;
+  return readDu();
+}
+
 /// Bytes used on the target mount. Null when the mount is absent or the
 /// command fails — the tracker keeps showing a spinner instead.
 Future<int?> dfUsedBytes(String mountPoint) async {
@@ -64,15 +94,19 @@ Future<int?> dfUsedBytes(String mountPoint) async {
 /// filesystem byte counts. Never throws into the caller; all reader
 /// failures degrade to a hidden bar.
 class InstallProgressTracker {
+  // Kicked off here rather than lazily on the first copy-phase poll: with
+  // the baked etc-file reader it resolves instantly anyway, and with the
+  // `du -sb` fallback it gets the whole eval/partition/format/mount phase
+  // as a head start instead of blocking the first copy-phase tick.
   InstallProgressTracker({
     required Future<int?> Function() readTotalBytes,
     required Future<int?> Function() readUsedBytes,
     this.pollInterval = const Duration(seconds: 2),
     required this.onChange,
-  }) : _readTotal = readTotalBytes,
+  }) : _totalFuture = readTotalBytes(),
        _readUsed = readUsedBytes;
 
-  final Future<int?> Function() _readTotal;
+  final Future<int?> _totalFuture;
   final Future<int?> Function() _readUsed;
   final Duration pollInterval;
   final void Function(InstallProgress) onChange;
@@ -124,7 +158,7 @@ class InstallProgressTracker {
     if (_value.phase != InstallPhase.copying) return;
     if (!_totalRequested) {
       _totalRequested = true;
-      _total = await _readTotal();
+      _total = await _totalFuture;
     }
     // Bail before the (wasted) used-bytes read if the phase moved on or we
     // were disposed while awaiting the total-bytes read above.

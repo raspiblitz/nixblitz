@@ -36,6 +36,16 @@
   # closure, so without these a real Pi's hardware-configuration.nix + disk
   # would trigger a bootstrap-stdenv rebuild that dies offline.
   installerBuilderPaths,
+  # closureInfo's `total-nar-size` file (nix/install-cli-products.nix
+  # `cliProducts.closureInfo` — a store path, not baked separately: it's
+  # already one of the `installerCliProducts` above). Exposed to the
+  # install wizard's copy-progress bar as a static file so it doesn't have
+  # to `du -sb /nix/store` on the live medium (minutes, with the offline
+  # image's ~500k-file store) to learn the total it's copying (13s on fast
+  # hardware, and this is a slow-SD-card target where the bar actually
+  # matters). See common/lib/src/services/install/install_progress.dart
+  # `installTotalBytesFromEtc`.
+  installTotalBytesFile,
 }:
 # nixosInstaller composes nixos-raspberrypi's full config + the sd-image module
 # (→ config.system.build.sdImage) + the installer profile (installation-device:
@@ -98,6 +108,13 @@ nixos-raspberrypi.lib.nixosInstaller {
         # resolves every input from the baked store paths below (mirrors
         # nix/iso.nix).
         environment.etc."nixblitz/offline-flake.lock".source = offlineLock;
+
+        # Static install-total-bytes for the copy-progress bar (see the
+        # `installTotalBytesFile` doc comment above). Read by
+        # `installTotalBytesFromEtc` in common/lib/src/services/install/
+        # install_progress.dart.
+        environment.etc."nixblitz/install-total-bytes".source =
+          installTotalBytesFile;
 
         # Bake the minimal installer-system closure into the image rootfs so
         # disko-install runs fully offline — the direct analogue of

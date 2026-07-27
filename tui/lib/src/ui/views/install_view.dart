@@ -164,7 +164,7 @@ class _InstallViewState extends State<InstallView> {
       _startElapsedTimer();
 
       _tracker = InstallProgressTracker(
-        readTotalBytes: () => duSourceBytes(),
+        readTotalBytes: () => installTotalBytes(),
         readUsedBytes: () => dfUsedBytes('/mnt/disko-install-root'),
         onChange: (p) {
           // Stream-listener context (not a key handler) — provider write is

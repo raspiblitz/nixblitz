@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:common/src/services/install/install_phase.dart';
 import 'package:common/src/services/install/install_progress.dart';
@@ -12,6 +14,62 @@ void main() {
     test('parseDfUsedBytes reads the value under the "used" header', () {
       expect(parseDfUsedBytes('used\n67890\n'), 67890);
       expect(parseDfUsedBytes(''), isNull);
+    });
+  });
+
+  group('installTotalBytesFromEtc', () {
+    late Directory tmpDir;
+
+    setUp(() {
+      tmpDir = Directory.systemTemp.createTempSync('install-progress-test');
+    });
+
+    tearDown(() {
+      tmpDir.deleteSync(recursive: true);
+    });
+
+    test('reads a valid baked total', () async {
+      final file = File(p.join(tmpDir.path, 'install-total-bytes'));
+      file.writeAsStringSync('123456\n');
+      final total = await installTotalBytesFromEtc(path: file.path);
+      expect(total, 123456);
+    });
+
+    test('returns null when the file is missing', () async {
+      final total = await installTotalBytesFromEtc(
+        path: p.join(tmpDir.path, 'does-not-exist'),
+      );
+      expect(total, isNull);
+    });
+
+    test('returns null on unparsable contents', () async {
+      final file = File(p.join(tmpDir.path, 'install-total-bytes'));
+      file.writeAsStringSync('not-a-number\n');
+      final total = await installTotalBytesFromEtc(path: file.path);
+      expect(total, isNull);
+    });
+  });
+
+  group('installTotalBytes', () {
+    test('prefers the etc-baked total over du', () async {
+      var duCalled = false;
+      final total = await installTotalBytes(
+        readEtc: () async => 42,
+        readDu: () async {
+          duCalled = true;
+          return 99;
+        },
+      );
+      expect(total, 42);
+      expect(duCalled, isFalse);
+    });
+
+    test('falls back to du when the etc read is null', () async {
+      final total = await installTotalBytes(
+        readEtc: () async => null,
+        readDu: () async => 99,
+      );
+      expect(total, 99);
     });
   });
 
@@ -134,6 +192,34 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
 
         expect(onChangeCalls, callsBeforeDispose);
+      },
+    );
+
+    test(
+      'readTotalBytes is invoked at construction, before the copying phase',
+      () async {
+        var invoked = false;
+        final tracker = InstallProgressTracker(
+          readTotalBytes: () async {
+            invoked = true;
+            return 100;
+          },
+          readUsedBytes: () async => 50,
+          pollInterval: const Duration(milliseconds: 10),
+          onChange: (_) {},
+        );
+
+        // Invoked synchronously by the constructor — no addLine() call yet.
+        expect(invoked, isTrue);
+        expect(tracker.value.phase, InstallPhase.preparing);
+
+        tracker.addLine('Copying store paths');
+        await Future.delayed(const Duration(milliseconds: 25));
+        // The same future backs the poll: the fraction resolves using the
+        // value already fetched at construction time.
+        expect(tracker.value.copyFraction, closeTo(0.5, 0.001));
+
+        tracker.dispose();
       },
     );
 
