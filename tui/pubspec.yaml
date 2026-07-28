@@ -12,7 +12,7 @@ dependencies:
   args: ^2.7.0
   cli_completion: ^0.5.1
   riverpod: ^3.2.1
-  # nocterm is pinned to the fork while the bare-Esc deferral fix
+  # nocterm is pinned to the fork (v0.8.0 base) while the bare-Esc deferral fix
   # for fragmented CSI sequences (Ghostty / kernel-TTY arrow keys
   # not scrolling — issue #20) is unmerged upstream. Once the
   # upstream PR lands and a release cuts, drop back to a
@@ -20,12 +20,12 @@ dependencies:
   nocterm:
     git:
       url: https://forge.f44.fyi/f44/nocterm
-      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
+      ref: 09cc3b20bf7a27de5bf3c83aea7daef290433d4a
   nocterm_riverpod:
     git:
       url: https://forge.f44.fyi/f44/nocterm
       path: packages/nocterm_riverpod
-      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
+      ref: 09cc3b20bf7a27de5bf3c83aea7daef290433d4a
   common:
     path: ../common
 
@@ -42,4 +42,4 @@ dependency_overrides:
   nocterm:
     git:
       url: https://forge.f44.fyi/f44/nocterm
-      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
+      ref: 09cc3b20bf7a27de5bf3c83aea7daef290433d4a

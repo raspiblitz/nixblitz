@@ -73,8 +73,8 @@ buildDartApplication {
     # bumping BOTH hashes — the workstation tends to mask this via
     # FOD substitution from its store cache, but a fresh build
     # (e.g. live ISO) trips the mismatch every time.
-    nocterm = "sha256-t/eJb/OJPh/MNvBKPDZfG6kVFZkvOH7VydNlyc6aMvQ=";
-    nocterm_riverpod = "sha256-t/eJb/OJPh/MNvBKPDZfG6kVFZkvOH7VydNlyc6aMvQ=";
+    nocterm = "sha256-sTpkqqL2uYbnS+0U8r5C+NCXCVZpRmHzjDRhPr323WU=";
+    nocterm_riverpod = "sha256-sTpkqqL2uYbnS+0U8r5C+NCXCVZpRmHzjDRhPr323WU=";
   };
 
   workspaceMembers = ["common" "tui" "wasmtime_dart"];

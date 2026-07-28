@@ -103,19 +103,25 @@
     "build_web_compilers": [
       "analyzer",
       "archive",
+      "async",
       "bazel_worker",
       "build",
-      "build_modules",
       "build_runner",
       "collection",
+      "crypto",
+      "file",
       "glob",
+      "graphs",
+      "json_annotation",
       "logging",
       "path",
       "pool",
       "scratch_space",
       "source_maps",
       "source_span",
-      "stack_trace"
+      "stack_trace",
+      "stream_transform",
+      "uuid"
     ],
     "built_collection": [],
     "built_value": ["built_collection", "collection", "fixnum", "meta"],
@@ -125,6 +131,7 @@
     "cli_config": ["args", "yaml"],
     "cli_util": ["meta", "path"],
     "clock": [],
+    "code_assets": ["collection", "hooks"],
     "collection": [],
     "common": [
       "riverpod",
@@ -152,6 +159,9 @@
     ],
     "crypto": ["typed_data"],
     "csslib": ["source_span"],
+    "d4_array": [],
+    "d4_time": ["d4_array"],
+    "d4_time_format": ["d4_array", "d4_time"],
     "dap": [],
     "dart_service_protocol_shared": ["meta"],
     "dart_style": [
@@ -169,11 +179,11 @@
       "async",
       "browser_launcher",
       "collection",
-      "dds_service_extensions",
       "dap",
+      "dds_service_extensions",
+      "devtools_shared",
       "dtd",
       "extension_discovery",
-      "devtools_shared",
       "http_multi_server",
       "json_rpc_2",
       "meta",
@@ -194,6 +204,7 @@
       "collection",
       "dtd",
       "extension_discovery",
+      "file",
       "meta",
       "path",
       "shelf",
@@ -248,13 +259,16 @@
     "ffigen": [
       "args",
       "cli_util",
+      "code_assets",
       "collection",
       "dart_style",
       "ffi",
       "file",
       "glob",
+      "hooks",
       "logging",
       "meta",
+      "native_toolchain_c",
       "package_config",
       "path",
       "pub_semver",
@@ -268,6 +282,15 @@
     "gato": [],
     "glob": ["async", "collection", "file", "path", "string_scanner"],
     "graphs": ["collection"],
+    "hooks": [
+      "collection",
+      "crypto",
+      "logging",
+      "meta",
+      "pub_semver",
+      "record_use",
+      "yaml"
+    ],
     "hotreloader": [
       "logging",
       "path",
@@ -285,7 +308,7 @@
       "string_scanner",
       "typed_data"
     ],
-    "image": ["archive", "meta", "xml"],
+    "image": ["archive", "xml"],
     "intl": ["clock", "meta", "path"],
     "io": ["meta", "path", "string_scanner"],
     "jaspr": [
@@ -374,10 +397,12 @@
       "html_unescape",
       "intl",
       "timezone",
+      "d4_time_format",
       "gato",
       "file",
       "args",
-      "logging"
+      "logging",
+      "web"
     ],
     "logging": [],
     "markdown": ["args", "meta"],
@@ -402,6 +427,14 @@
     "meta": [],
     "mime": [],
     "mustache_template": [],
+    "native_toolchain_c": [
+      "code_assets",
+      "glob",
+      "hooks",
+      "logging",
+      "meta",
+      "pub_semver"
+    ],
     "nixblitz_workspace": [],
     "nocterm": [
       "ansi_escape_codes",
@@ -439,13 +472,16 @@
       "yaml"
     ],
     "quiver": ["matcher"],
+    "record_use": ["collection", "meta", "pub_semver"],
     "riverpod": [
       "async",
       "clock",
       "collection",
       "meta",
+      "stack_trace",
       "state_notifier",
-      "test"
+      "test",
+      "uuid"
     ],
     "scratch_space": ["build", "crypto", "path", "pool"],
     "shelf": [

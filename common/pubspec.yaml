@@ -25,7 +25,7 @@ dependencies:
   nocterm:
     git:
       url: https://forge.f44.fyi/f44/nocterm
-      ref: 2412584224bae49814c720bab1f0a86bfdc94b8e
+      ref: 09cc3b20bf7a27de5bf3c83aea7daef290433d4a
   # sha256 for module_cache.dart's compiled-module cache key.
   crypto: ^3.0.6
   wasmtime_dart:
