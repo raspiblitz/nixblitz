@@ -493,7 +493,10 @@ derivation would need a local compile the check bails out before
 realising the toplevel (to spare a Pi 5 from a multi-hour rustc
 storm) and surfaces the would-build list under **View packages
 to compile** — `[v]` from anywhere in the Check section is the
-shortcut into the same viewer.
+shortcut into the same viewer. `[o]` (also shown in the footer once
+a check has run) opens the full transcript of the last check in a
+scrollable popup — the whole `nix flake update` / dry-run / `nvd`
+output, useful when the inline summary truncates an error.
 
 ## 7. Access the running node
 

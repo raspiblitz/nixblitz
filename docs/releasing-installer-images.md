@@ -67,8 +67,28 @@ just pi5-image          # → result/sd-image/nixblitz-pi5-installer.img.zst
 
   Without `nixos-raspberrypi.cachix.org` the vendor kernel + 16K jemalloc rebuild
   locally (multi-hour under qemu) and you risk pulling 4K-aligned aarch64
-  substitutes → SIGBUS. `attic.f44.fyi/nixblitz` carries the nixblitz-specific
-  Pi 5 leaves (issue #24 jemalloc) for a fast offline-closure resolve.
+  substitutes → SIGBUS. `attic.f44.fyi/nixblitz` is a **full mirror** of every
+  closure the project builds (not just the Pi 5 jemalloc leaves it started
+  with): it advertises priority 39 — one below cache.nixos.org's 40 — so any
+  path it carries is preferred automatically by every consumer, no client
+  config needed beyond listing it as a substituter.
+
+### Keeping the attic mirror current
+
+After a successful build, push the artifact's **entire build closure**
+(everything substituted or built for it) so later builds and node-side
+installs pull from the attic instead of cache.nixos.org:
+
+```bash
+just cache-push            # deriver closure of ./result → attic:nixblitz
+```
+
+Node-side closures (what the first-boot wizard installs: bitcoind, lnd/cln,
+blitz stack) are populated by **cachepop** (`nixblitz_official_plugins/cachepop`,
+standalone shape on a build host) with `"ignoreUpstreamFilter": true` — without
+that flag attic silently skips any path cache.nixos.org already serves, which
+defeats the mirror. Same flag exists on the CLI as
+`attic push --ignore-upstream-cache-filter`.
 
 The `nixos-raspberrypi` input is **tag-pinned** (`v1.20260707.1`) with no
 `follows` — the Pi 5 image must build against nvmd's own nixpkgs (the rev their

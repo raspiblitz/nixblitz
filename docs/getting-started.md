@@ -319,7 +319,16 @@ moves under `/var/lib/nixblitz-tui/staging/` for the next Apply
 to promote. Result lands in
 `/var/lib/nixblitz-tui/update-status.json`; the dashboard reads
 it each render. Run **`nixblitz check`** at any shell to trigger
-it on demand.
+it on demand. In **System → Check**, `[o]` opens the full
+transcript of the last run in a scrollable popup — handy when the
+inline summary truncates a long nix error.
+
+On offline-installed nodes every flake input is pinned to an
+on-disk `path:` source, so a check's re-lock always rewrites the
+lock file's URLs — the check compares locked _content_ (narHashes),
+not bytes, and only stages a bump when an input truly moved. "Up to
+date" there means exactly that, even though the lock would re-lock
+to forge URLs on the next real update.
 
 ## Access the running node
 
