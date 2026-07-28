@@ -9,3 +9,12 @@ workspace:
   - tui
   - website
   - wasmtime_dart
+
+# Workspace-wide: jaspr_cli >=0.23.2 needs cli_util ^0.5 while ffigen
+# (21.0.0, the newest) still pins ^0.4 — pub resolves ONE cli_util for
+# the whole workspace, so without this the two can never coexist.
+# ffigen only runs at `just gen-wasmtime-bindings` time (bindings are
+# checked in) and was verified to generate identically under 0.5.
+# Drop when ffigen releases with cli_util ^0.5.
+dependency_overrides:
+  cli_util: ^0.5.0

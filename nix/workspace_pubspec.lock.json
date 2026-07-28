@@ -4,21 +4,21 @@
       "dependency": "transitive",
       "description": {
         "name": "_fe_analyzer_shared",
-        "sha256": "3b19a47f6ea7c2632760777c78174f47f6aec1e05f0cd611380d4593b8af1dbc",
+        "sha256": "a49d6cf99e8d8e7a8e93668d09ced0bbdb954d0b4fccc2f5f9241c6b87fad95c",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "96.0.0"
+      "version": "99.0.0"
     },
     "analyzer": {
       "dependency": "transitive",
       "description": {
         "name": "analyzer",
-        "sha256": "0c516bc4ad36a1a75759e54d5047cb9d15cded4459df01aa35a0b5ec7db2c2a0",
+        "sha256": "663efa951fb8a45e06f491223a604c93820598f20e6a99c25617a1576065e8b7",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "10.2.0"
+      "version": "12.1.0"
     },
     "ansi_escape_codes": {
       "dependency": "transitive",
@@ -144,21 +144,21 @@
       "dependency": "transitive",
       "description": {
         "name": "build_runner",
-        "sha256": "5367e521935b102bdf1e735d2aab461e36b2edca6517662d088dd04cc39f8d16",
+        "sha256": "1523ce62448ebac2c15a8ba5fbad8acac169788658a7dd2a1c2d9c2a9318b9a6",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "2.15.1"
+      "version": "2.15.0"
     },
     "build_web_compilers": {
       "dependency": "transitive",
       "description": {
         "name": "build_web_compilers",
-        "sha256": "c8be4b48f09289d145c7eaa3240f1e7776c529ea1cecddf483218edd3129de3f",
+        "sha256": "8a8a3d18b6b341df6dc61a65beaabc89fcd7c68dc10b02777fc31a35ffb6efa4",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "4.8.0"
+      "version": "4.4.19"
     },
     "built_collection": {
       "dependency": "transitive",
@@ -221,14 +221,14 @@
       "version": "0.2.0"
     },
     "cli_util": {
-      "dependency": "transitive",
+      "dependency": "direct overridden",
       "description": {
         "name": "cli_util",
-        "sha256": "ff6785f7e9e3c38ac98b2fb035701789de90154024a75b6cb926445e83197d1c",
+        "sha256": "71e43f1976c3eae2d9468a5b4d6600bf8cae61508b87f27fa1799228935d48ab",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "0.4.2"
+      "version": "0.5.2"
     },
     "clock": {
       "dependency": "transitive",
@@ -340,6 +340,16 @@
       "source": "hosted",
       "version": "1.4.0"
     },
+    "dart_data_home": {
+      "dependency": "transitive",
+      "description": {
+        "name": "dart_data_home",
+        "sha256": "2b310fd3eb8ca9e2e56a22ce2095d343ead75e9e65da69b847fc85d88746f18b",
+        "url": "https://pub.dev"
+      },
+      "source": "hosted",
+      "version": "0.1.0"
+    },
     "dart_service_protocol_shared": {
       "dependency": "transitive",
       "description": {
@@ -354,11 +364,11 @@
       "dependency": "transitive",
       "description": {
         "name": "dart_style",
-        "sha256": "29f7ecc274a86d32920b1d9cfc7502fa87220da41ec60b55f329559d5732e2b2",
+        "sha256": "a4c1ccfee44c7e75ed80484071a5c142a385345e658fd8bd7c4b5c97e7198f98",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "3.1.7"
+      "version": "3.1.8"
     },
     "dds": {
       "dependency": "transitive",
@@ -624,32 +634,32 @@
       "dependency": "transitive",
       "description": {
         "name": "jaspr",
-        "sha256": "0a27800a0ae8c9f5c606c278d29ce535bfddde00932aa2b56a67c2b0bd86fd80",
+        "sha256": "261e2095f2e158b4fc554273ac70f170c0256f19f5e30ba744f83ec5c620dc9a",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "0.23.1"
+      "version": "0.23.2"
     },
     "jaspr_builder": {
       "dependency": "transitive",
       "description": {
         "name": "jaspr_builder",
-        "sha256": "1b591b686dde54fec4f23dbe3cce5493545c4ee303325ab371d2de916e808d3f",
+        "sha256": "4c1c6585c18b58e85f047b4543535229bc7c4cf72ebcef18b2b8536ec546cb9c",
         "url": "https://pub.dev"
       },
       "source": "hosted",
-      "version": "0.23.1"
+      "version": "0.23.2"
     },
     "jaspr_cli": {
       "dependency": "transitive",
       "description": {
         "path": "packages/jaspr_cli",
-        "ref": "cli_build_daemon_bypass",
-        "resolved-ref": "e3633960a14d3f6e9ed57a86b40c8983d8370303",
+        "ref": "42c35d79dd3945aa6888fad0faecce75ef4f5dd3",
+        "resolved-ref": "42c35d79dd3945aa6888fad0faecce75ef4f5dd3",
         "url": "https://forge.f44.fyi/f44/jaspr.git"
       },
       "source": "git",
-      "version": "0.23.0+3"
+      "version": "0.23.2"
     },
     "jaspr_content": {
       "dependency": "transitive",
