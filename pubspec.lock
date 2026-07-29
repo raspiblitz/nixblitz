@@ -101,34 +101,26 @@ packages:
     dependency: transitive
     description:
       name: build_daemon
-      sha256: fd754058c342243718d5171a95f352cfc9fcf0cba8cfa26df67cb13a5836db78
+      sha256: "8c0535c3b2f625619f4dd1036ef1127f2e77bfedf89ed2eb2676ef076e0b6712"
       url: "https://pub.dev"
     source: hosted
-    version: "4.1.2"
-  build_modules:
-    dependency: transitive
-    description:
-      name: build_modules
-      sha256: "63c56d2663da4bba51c56825169a5356dd8401240241217c8eba711b2e12be5c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.1.12"
+    version: "4.1.3"
   build_runner:
     dependency: transitive
     description:
       name: build_runner
-      sha256: "1523ce62448ebac2c15a8ba5fbad8acac169788658a7dd2a1c2d9c2a9318b9a6"
+      sha256: "5367e521935b102bdf1e735d2aab461e36b2edca6517662d088dd04cc39f8d16"
       url: "https://pub.dev"
     source: hosted
-    version: "2.15.0"
+    version: "2.15.1"
   build_web_compilers:
     dependency: transitive
     description:
       name: build_web_compilers
-      sha256: "8a8a3d18b6b341df6dc61a65beaabc89fcd7c68dc10b02777fc31a35ffb6efa4"
+      sha256: c8be4b48f09289d145c7eaa3240f1e7776c529ea1cecddf483218edd3129de3f
       url: "https://pub.dev"
     source: hosted
-    version: "4.4.19"
+    version: "4.8.0"
   built_collection:
     dependency: transitive
     description:
@@ -554,14 +546,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.8.3"
-  jaspr_tailwind:
-    dependency: transitive
-    description:
-      name: jaspr_tailwind
-      sha256: ecc9c1d43d16b11e1f194b25122b7c56df3232cf4c0cf2ada11cad575a7c842f
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.6"
   json_annotation:
     dependency: transitive
     description:

@@ -89,7 +89,7 @@ in {
     dart --disable-analytics > /dev/null
 
     echo "Enabling Jaspr CLI"
-    dart pub global activate jaspr_cli
+    dart pub global activate jaspr_cli 0.23.2
     jaspr --disable-analytics
 
     echo "Disabling Flutter analytics"

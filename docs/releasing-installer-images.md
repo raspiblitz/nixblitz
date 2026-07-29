@@ -98,8 +98,8 @@ CLAUDE.md → Flake input rules.
 ### Upstream Pi 5 image (the `nix run` path for capable Pi 5s)
 
 For users who take the official-image + `nix run` route, build and flash the
-vanilla nixos-raspberrypi image (documented in
-`website/content/docs/installation.md`):
+vanilla nixos-raspberrypi image (documented in the appendix of
+`website/content/docs/install-pi5.md`):
 
 ```bash
 nix run nixpkgs#cachix -- use nixos-raspberrypi        # one-time, on the build machine
@@ -121,6 +121,9 @@ zstd -dc result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status
   Raspberry Pi Imager also flashes `.img.zst` natively.
 
 Replace `/dev/sdX` with the real device (`lsblk`); the wrong device wipes a disk.
+Or skip the guessing entirely: `nix run nixpkgs#caligula -- burn <artifact>` picks
+the drive interactively, decompresses `.img.zst` on the fly, and verifies the
+write (field-tested on the Pi 5 image).
 
 ## Release
 

@@ -318,7 +318,7 @@ escape hatches you usually don't need.
 
 ## What to read next
 
-- [Installation](/docs/installation) — install + first-boot
-  walkthrough.
+- [Installation](/docs/installation) — platform install guides
+  (Pi 5 / x86).
 - [Plugins](/docs/plugins) — write a plugin to wrap a service
   or extension.

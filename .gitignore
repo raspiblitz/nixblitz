@@ -36,3 +36,7 @@ examples_redesign/
 .claude/
 
 Screenshot*.png
+
+# Release artifacts staged in the repo root for upload — never tracked
+/*.iso
+/*.img.zst

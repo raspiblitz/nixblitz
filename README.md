@@ -36,8 +36,9 @@ nix run git+https://forge.f44.fyi/f44/nixblitz_ng \
 ```
 
 The TUI walks you through disk + network + Lightning choices,
-runs the install, reboots into the configured system. Full VM
-walkthrough: [docs/getting-started.md](docs/getting-started.md).
+runs the install, reboots into the configured system. Full install
+walkthrough: [Install on x86](website/content/docs/install-x86.md) /
+[Install on Pi 5](website/content/docs/install-pi5.md).
 
 ## Supported services
 
@@ -58,14 +59,20 @@ walkthrough: [docs/getting-started.md](docs/getting-started.md).
   [`nvmd/nixos-raspberrypi`](https://github.com/nvmd/nixos-raspberrypi)
   installer image, run the same bootstrap. NixBlitz layers on
   the upstream's vendor kernel + matched firmware.
-  [Walkthrough](docs/getting-started.md#raspberry-pi-5).
+  [Walkthrough](website/content/docs/install-pi5.md).
 
 ## Documentation
 
+For operators:
+
+- [**Install on x86**](website/content/docs/install-x86.md) /
+  [**Install on Pi 5**](website/content/docs/install-pi5.md) —
+  bootstrap, wizard, first-boot, dashboard tour.
+
 For developers and contributors:
 
-- **[Getting started](docs/getting-started.md)** — VM walkthrough
-  (Proxmox / qemu), bootstrap, install, first-boot.
+- **[Getting started](docs/getting-started.md)** — contributor
+  quickstart: dev VM loop, regtest rationale, debug-menu pointers.
 - **[Architecture](docs/architecture.md)** — repo tour, the
   config-as-source-of-truth model, plugin two-stage ABI, Nix
   concepts cheat-sheet.

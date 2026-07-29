@@ -217,7 +217,7 @@ class HomePage extends StatelessComponent {
               _docLink(
                 '/docs/installation',
                 'installation',
-                'Stock NixOS ISO → working node, x86 + Pi 5 walkthrough.',
+                'Prebuilt image → working node; per-platform guides.',
               ),
               _docLink(
                 '/docs/architecture',
@@ -290,62 +290,36 @@ class _InstallationBody extends StatelessComponent {
     return div([
       p(classes: 'mb-3', [
         Component.text(
-          'Boot a live image, run one command, walk a three-question '
-          'wizard, reboot into a working node. On x86 the live image is '
-          'stock NixOS from nixos.org — NixBlitz isn\'t baked in, the '
-          'TUI bootstraps over the network. Pi 5 currently uses a '
-          'third-party live image (a NixBlitz-branded Pi 5 image is on '
-          'the roadmap).',
+          'Download the prebuilt image for your platform — TUI and a '
+          'fully offline install closure baked in — flash it, boot, and '
+          'walk the wizard. Reboot into a working node. No Nix '
+          'knowledge required.',
         ),
       ]),
-      pre(
-        classes: 'text-xs sm:text-sm overflow-x-auto p-3 my-3',
-        styles: Styles(
-          raw: {
-            'background': 'var(--background)',
-            'border': '1px solid var(--border)',
-          },
-        ),
-        [
-          Component.text(
-            'nix run git+https://forge.f44.fyi/f44/nixblitz_ng \\\n'
-            '  --experimental-features "nix-command flakes" \\\n'
-            '  --no-write-lock-file --refresh',
-          ),
-        ],
-      ),
       ul(classes: 'space-y-1.5 mt-2', [
-        _step(
-          '1',
-          'Boot the NixOS 25.11 minimal ISO (or the Pi 5 live image).',
-        ),
-        _step(
-          '2',
-          'Run the bootstrap above. The TUI launches in install mode.',
-        ),
-        _step(
-          '3',
-          'Pick disk, network (mainnet / regtest), Lightning backend.',
-        ),
+        _step('1', 'Download the image for your platform (links below).'),
+        _step('2', 'Flash it, boot. The TUI launches in install mode.'),
+        _step('3', 'Pick the target disk; the install runs fully offline.'),
         _step(
           '4',
-          '`disko-install` partitions, copies, installs the bootloader.',
+          'Reboot. First-boot setup: admin password, Bitcoin network, '
+              'Lightning backend, services.',
         ),
-        _step(
-          '5',
-          'Reboot. First-boot wizard sets the admin password and brings services up.',
-        ),
-        _step('6', 'Back up the LND seed when prompted. Done.'),
+        _step('5', 'Back up the LND seed when prompted. Done.'),
       ]),
-      p(classes: 'mt-4', [
-        a(href: href('/docs/installation'), classes: 'keybind', [
+      p(classes: 'mt-4 space-x-4', [
+        a(href: href('/docs/install-pi5'), classes: 'keybind', [
           span(classes: 'key', [Component.text('[>]')]),
-          Component.text(' full installation walkthrough'),
+          Component.text(' install on pi 5'),
+        ]),
+        a(href: href('/docs/install-x86'), classes: 'keybind', [
+          span(classes: 'key', [Component.text('[>]')]),
+          Component.text(' install on x86'),
         ]),
         span(
-          classes: 'text-sm ml-3',
+          classes: 'text-sm',
           styles: Styles(raw: {'color': 'var(--color-tui-muted)'}),
-          [Component.text('— x86 + Pi 5, troubleshooting, command listings')],
+          [Component.text('— linear guides, flash to first boot')],
         ),
       ]),
     ]);

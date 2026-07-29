@@ -83,7 +83,9 @@ just vm-boot
 already present (`just iso-build`) and boots it inside qemu, with
 port 22 forwarded to host port 10022. Walk the install wizard inside
 the VM exactly like a real Proxmox install (see
-[getting-started.md](getting-started.md)). Building & releasing the
+`website/content/docs/install-x86.md` for the wizard / first-boot
+walkthrough, or [getting-started.md](getting-started.md) for the
+dev-VM specifics). Building & releasing the
 installer media: [releasing-installer-images.md](releasing-installer-images.md).
 
 After install completes, the VM reboots. Subsequent boots use the

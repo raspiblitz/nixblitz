@@ -403,8 +403,10 @@ escape hatches you usually don't need.
 
 ## What to read next
 
-- [getting-started.md](getting-started.md) — install + first-boot
-  walkthrough.
+- [getting-started.md](getting-started.md) — contributor dev-VM
+  quickstart. For the operator install + first-boot walkthrough see
+  `website/content/docs/install-x86.md` /
+  `website/content/docs/install-pi5.md`.
 - [dev-loop.md](dev-loop.md) — `just` targets, where artifacts
   land, how to iterate.
 - [plugin-authoring.md](plugin-authoring.md) — for porting a

@@ -1,3 +1,9 @@
+// Deliberately zero client-side Dart: the site is fully static and
+// every interaction (keyboard nav, lightbox, service-worker cleanup)
+// is hand-rolled inline JS injected below. There is NO main.client.dart
+// on purpose — do not "fix" jaspr's missing-client-script warning by
+// adding one; compiled-dart hydration would ship hundreds of KB of JS
+// for functionality these few inline snippets already provide.
 import 'package:jaspr/server.dart';
 import 'package:jaspr/dom.dart';
 import 'app.dart';

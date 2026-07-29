@@ -14,21 +14,13 @@ dependencies:
 
 dev_dependencies:
   build_runner: ^2.10.0
-  # Capped at the 4.4.x line: 4.5+ (with the build_runner it drags
-  # in) adds an output-collision check that fires on jaspr_tailwind's
-  # build_modules module_library ("outputs collide:
-  # package:collection/algorithms.module.library") and kills the
-  # build daemon at startup. Lift the cap only after jaspr_tailwind
-  # stops registering build_modules builders alongside
-  # build_web_compilers.
-  build_web_compilers: ">=4.4.15 <4.5.0"
+  build_web_compilers: ^4.4.15
   jaspr_builder: ^0.23.0
   jaspr_cli:
     git:
       url: https://forge.f44.fyi/f44/jaspr.git
       ref: 42c35d79dd3945aa6888fad0faecce75ef4f5dd3
       path: packages/jaspr_cli
-  jaspr_tailwind: ^0.3.6
 
 jaspr:
   mode: static

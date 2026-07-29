@@ -58,8 +58,9 @@ in
 
     # `which` because jaspr_cli locates the Dart SDK via `which dart`
     # (see jaspr_cli's project.dart) and the Nix sandbox doesn't ship
-    # it by default. tailwindcss_4 because jaspr_tailwind shells out
-    # to `tailwindcss` during the build_runner pass. gnused + findutils
+    # it by default. tailwindcss_4 for the standalone CSS compile
+    # below (input.css → styles.css — the only Tailwind integration;
+    # the jaspr_tailwind Dart package is gone). gnused + findutils
     # for the markdown link-rewrite pass when basePath is non-empty.
     nativeBuildInputs = [tailwindcss_4 which gnused findutils];
 
