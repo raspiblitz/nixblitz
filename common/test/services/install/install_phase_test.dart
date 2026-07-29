@@ -54,6 +54,34 @@ void main() {
       expect(installPhaseForLine('some unrelated chatter'), isNull);
       expect(installPhaseForLine(''), isNull);
     });
+
+    test('the disko-install command echo enters the evaluating phase '
+        '(nix evaluation is silent for minutes on a Pi 5 — without an '
+        'explicit phase the install looks hung)', () {
+      expect(
+        installPhaseForLine(
+          '> sudo disko-install --flake /home/nixos/nixblitz'
+          '#nixblitz-pi5-installer --disk main /dev/nvme0n1',
+        ),
+        InstallPhase.evaluating,
+      );
+      // Mid-eval chatter keeps the phase honest.
+      expect(
+        installPhaseForLine(
+          "evaluation warning: 'system' has been renamed to/replaced by "
+          "'stdenv.hostPlatform.system'",
+        ),
+        InstallPhase.evaluating,
+      );
+      expect(
+        installPhaseForLine(
+          "warning: not writing modified lock file of flake 'path:/nix/…'",
+        ),
+        InstallPhase.evaluating,
+      );
+      // Terminal marker still wins despite containing "disko-install".
+      expect(installPhaseForLine('disko-install succeeded'), InstallPhase.done);
+    });
   });
 
   group('phaseLabel', () {

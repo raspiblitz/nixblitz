@@ -3,6 +3,9 @@
 /// `InstallStep.failed` on a non-zero exit.
 enum InstallPhase {
   preparing,
+  // Order matters: the tracker's monotonic guard compares enum indices,
+  // so evaluating must sit before building.
+  evaluating,
   building,
   partitioning,
   formatting,
@@ -20,6 +23,15 @@ enum InstallPhase {
 InstallPhase? installPhaseForLine(String line) {
   final l = line.toLowerCase();
   if (l.contains('disko-install succeeded')) return InstallPhase.done;
+  // Nix evaluation of the full system is SILENT for minutes on a Pi 5
+  // (single-threaded eval on a slow SoC) — without an explicit phase the
+  // install looks hung right after the command echo. Enter it on the
+  // TUI's own command echo and hold it through eval-time chatter.
+  if (l.contains('disko-install --flake') ||
+      l.contains('evaluation warning') ||
+      l.contains('not writing modified lock file')) {
+    return InstallPhase.evaluating;
+  }
   if (l.contains('loading nix database')) return InstallPhase.loadingDb;
   if (l.contains('boot loader') || l.contains('nixos-install')) {
     return InstallPhase.installing;
@@ -39,9 +51,8 @@ InstallPhase? installPhaseForLine(String line) {
   if (l.contains('sgdisk') || l.contains('wipefs') || l.contains('zpool')) {
     return InstallPhase.partitioning;
   }
-  if (l.contains('building ') || l.contains('evaluating')) {
-    return InstallPhase.building;
-  }
+  if (l.contains('building ')) return InstallPhase.building;
+  if (l.contains('evaluating')) return InstallPhase.evaluating;
   return null;
 }
 
@@ -49,6 +60,8 @@ InstallPhase? installPhaseForLine(String line) {
 /// labelled, the string is identical (preserving existing behaviour).
 String phaseLabel(InstallPhase phase) => switch (phase) {
   InstallPhase.preparing => 'Starting...',
+  InstallPhase.evaluating =>
+    'Evaluating system configuration (quiet — takes minutes on a Pi)...',
   InstallPhase.building => 'Building install artifacts...',
   InstallPhase.partitioning => 'Partitioning disk...',
   InstallPhase.formatting => 'Formatting partitions...',
