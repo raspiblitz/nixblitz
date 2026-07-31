@@ -43,7 +43,7 @@ const List<OfficialPlugin> officialPluginCatalog = [
         'Enable Tailscale on this NixBlitz node. Optionally '
         'auto-join a tailnet via a reusable auth key, and advertise '
         'the node as an exit-node.',
-    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/tailscale',
+    url: 'github:raspiblitz/nixblitz_official_plugins/tailscale',
   ),
   OfficialPlugin(
     id: 'netbird',
@@ -52,7 +52,7 @@ const List<OfficialPlugin> officialPluginCatalog = [
         'Enable NetBird on this NixBlitz node. Join a NetBird '
         'network on demand via a setup key; optionally point at a '
         'self-hosted management server.',
-    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/netbird',
+    url: 'github:raspiblitz/nixblitz_official_plugins/netbird',
   ),
   OfficialPlugin(
     id: 'lnbits',
@@ -61,7 +61,7 @@ const List<OfficialPlugin> officialPluginCatalog = [
         'Run LNBits — a Lightning wallet & accounts system — on '
         "this node. Optionally auto-wires the admin macaroon from "
         "the node's LND (or the regtest test-lnd instance).",
-    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/lnbits',
+    url: 'github:raspiblitz/nixblitz_official_plugins/lnbits',
   ),
   OfficialPlugin(
     id: 'electrs',
@@ -70,13 +70,13 @@ const List<OfficialPlugin> officialPluginCatalog = [
         "Run electrs (the Rust Electrum server) backed by this "
         "node's Bitcoin Core. Initial mainnet sync takes 6–18h and "
         '~45GB of disk; bitcoind must be unpruned.',
-    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/electrs',
+    url: 'github:raspiblitz/nixblitz_official_plugins/electrs',
   ),
   OfficialPlugin(
     id: 'blitz-api',
     name: 'Blitz API',
     description: 'FastAPI backend for the Blitz web frontend.',
-    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/blitz-api',
+    url: 'github:raspiblitz/nixblitz_official_plugins/blitz-api',
   ),
   OfficialPlugin(
     id: 'blitz-web',
@@ -84,6 +84,6 @@ const List<OfficialPlugin> officialPluginCatalog = [
     description:
         'Mobile-first web frontend for the node (raspiblitz-web). '
         'Requires Blitz API.',
-    url: 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/blitz-web',
+    url: 'github:raspiblitz/nixblitz_official_plugins/blitz-web',
   ),
 ];

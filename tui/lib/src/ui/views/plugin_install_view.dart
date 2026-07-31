@@ -296,7 +296,7 @@ class _PluginInstallViewState extends State<PluginInstallView> {
       const SizedBox(height: 1),
       const Text('Examples:', style: _dim),
       const Text(
-        '  forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/lnbits',
+        '  github:raspiblitz/nixblitz_official_plugins/lnbits',
         style: _dim,
       ),
       const Text(
@@ -304,7 +304,7 @@ class _PluginInstallViewState extends State<PluginInstallView> {
         style: _dim,
       ),
       const Text(
-        '  git+https://forge.f44.fyi/f44/nixblitz-plugin-blitz-api',
+        '  git+https://github.com/raspiblitz/nixblitz-plugin-example',
         style: _dim,
       ),
       const Text(

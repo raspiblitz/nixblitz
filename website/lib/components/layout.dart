@@ -4,7 +4,7 @@ import 'package:jaspr/dom.dart';
 import '../build_info.dart';
 
 /// Forge URL the `[r] Repo` keybind opens.
-const _kRepoUrl = 'https://forge.f44.fyi/f44/nixblitz_ng';
+const _kRepoUrl = 'https://github.com/raspiblitz/nixblitz';
 
 /// Top-level navigation rendered both as keybind links under the header
 /// strip and as the footer hint bar. Each entry is `(key, label, href,

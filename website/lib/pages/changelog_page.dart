@@ -36,7 +36,7 @@ class ChangelogPage extends StatelessComponent {
           p(styles: Styles(raw: {'color': 'var(--color-tui-muted)'}), [
             Component.text('Track development at '),
             a(
-              href: 'https://forge.f44.fyi/f44/nixblitz_ng',
+              href: 'https://github.com/raspiblitz/nixblitz',
               attributes: {'target': '_blank', 'rel': 'noopener noreferrer'},
               styles: Styles(
                 raw: {
@@ -45,7 +45,7 @@ class ChangelogPage extends StatelessComponent {
                   'text-underline-offset': '4px',
                 },
               ),
-              [Component.text('forge.f44.fyi/f44/nixblitz_ng')],
+              [Component.text('github.com/raspiblitz/nixblitz')],
             ),
             Component.text(
               '. Check `git log` on `main` for the latest activity, or '

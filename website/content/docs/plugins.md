@@ -12,10 +12,10 @@ How to build a NixBlitz plugin: directory layout, manifest
 reference, the load-bearing patterns that catch every first-time
 author, and worked examples cribbed from the tailscale + lnbits
 plugins shipped under
-[`nixblitz_official_plugins`](https://forge.f44.fyi/f44/nixblitz_official_plugins).
+[`nixblitz_official_plugins`](https://github.com/raspiblitz/nixblitz_official_plugins).
 
 This doc is the practical "how do I build one" companion to
-[`docs/decisions/plugins.md`](https://forge.f44.fyi/f44/nixblitz_ng/src/branch/main/docs/decisions/plugins.md), which
+[`docs/decisions/plugins.md`](https://github.com/raspiblitz/nixblitz/src/branch/main/docs/decisions/plugins.md), which
 captures the architectural rationale (D1-D19). Read this first if
 you just want to ship a plugin.
 
@@ -46,7 +46,7 @@ common to both tiers unless noted. The WASM-specific shapes — the
 the logic-only tier — are collected under
 [Sandboxed WASM actions (schema v5)](#sandboxed-wasm-actions-schema-v5);
 the trust-model rationale is D14/D19 in the
-[design log](https://forge.f44.fyi/f44/nixblitz_ng/src/branch/main/docs/decisions/plugins.md).
+[design log](https://github.com/raspiblitz/nixblitz/src/branch/main/docs/decisions/plugins.md).
 
 ## What you're shipping
 
@@ -88,8 +88,8 @@ or as a subdir of a multi-plugin repo. The `nixblitz plugin add`
 command supports both:
 
 ```
-nixblitz plugin add forgejo:forge.f44.fyi/f44/my-plugin
-nixblitz plugin add forgejo:forge.f44.fyi/f44/all-plugins/tailscale
+nixblitz plugin add forgejo:codeberg.org/you/my-plugin
+nixblitz plugin add forgejo:codeberg.org/you/all-plugins/tailscale
 nixblitz plugin add github:fusion44/some-plugin
 ```
 
@@ -471,7 +471,7 @@ filesystem — there's no escape hatch by construction, only the
 `host_call` door, and that door only opens onto what `sandbox`
 grants.
 
-[`node-summary`](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/node-summary)
+[`node-summary`](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/node-summary)
 is the reference: a read-only bitcoind status report compiled from
 Rust to `wasm32-wasip1`. Read it end to end before writing your
 own — this section explains the shapes it uses.
@@ -686,7 +686,7 @@ funds" and "this plugin is read-only."
 The guest is any language that targets `wasm32-wasip1` and can
 declare the one `nixblitz.host_call` import plus the `alloc` export.
 `node-summary` is Rust; its
-[`flake.nix`](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/node-summary/flake.nix)
+[`flake.nix`](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/node-summary/flake.nix)
 is the reference build recipe, and worth reading before you set up
 your own — nixpkgs' `pkgsCross.wasi32` cargo wrapper hardcodes a
 `--config target.wasm32-wasip1.linker=<clang-wrapper>` that doesn't
@@ -804,7 +804,7 @@ already byte-identical, so it runs cheaply on every start.
 This pattern is borrowed verbatim from
 [nix-bitcoin's `modules/rtl.nix`](https://github.com/fort-nix/nix-bitcoin/blob/master/modules/rtl.nix).
 The lnbits dogfood plugin
-([`examples_redesign/nixblitz_official_plugins/lnbits/plugin.nix`](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/lnbits/plugin.nix))
+([`examples_redesign/nixblitz_official_plugins/lnbits/plugin.nix`](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/lnbits/plugin.nix))
 shows the full integration including waiting for the backend
 service.
 
@@ -893,7 +893,7 @@ when bumping versions.
 ### `nixblitz_official_plugins`
 
 The
-[`nixblitz_official_plugins`](https://forge.f44.fyi/f44/nixblitz_official_plugins)
+[`nixblitz_official_plugins`](https://github.com/raspiblitz/nixblitz_official_plugins)
 repo is for plugins the NixBlitz team takes responsibility for.
 Open a PR there if your plugin:
 
@@ -939,15 +939,15 @@ gets updated alongside.
 
 Three in-tree plugins exercise everything in this doc:
 
-- [**tailscale**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/tailscale)
+- [**tailscale**](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/tailscale)
   — secret config field (`auth_key`), tile with state-machine
   status, autoconnect systemd unit gated on the auth key, no
   privileged actions.
-- [**lnbits**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/lnbits)
+- [**lnbits**](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/lnbits)
   — `select` config field (`backend`), credential-staging from
   LND's macaroon (the RTL pattern), one privileged `unit:`
   action (`reset_db`).
-- [**node-summary**](https://forge.f44.fyi/f44/nixblitz_official_plugins/src/branch/main/node-summary)
+- [**node-summary**](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/node-summary)
   — the logic-only WASM tier: no `plugin.nix`, a Rust guest compiled
   to `wasm32-wasip1` with `run` / `tile` / `check_sandbox` exports, a
   read-only `bitcoin_rpc` allowlist, a sandboxed dashboard tile, and
@@ -960,8 +960,8 @@ you'll need; everything else is straightforward NixOS.
 ## Where to ask
 
 Issues + design discussion in
-[`forge.f44.fyi/f44/nixblitz_ng/issues`](https://forge.f44.fyi/f44/nixblitz_ng/issues).
+[`github.com/raspiblitz/nixblitz/issues`](https://github.com/raspiblitz/nixblitz/issues).
 Plugin-system design rationale is in
-[`docs/decisions/plugins.md`](https://forge.f44.fyi/f44/nixblitz_ng/src/branch/main/docs/decisions/plugins.md) — read D14
+[`docs/decisions/plugins.md`](https://github.com/raspiblitz/nixblitz/src/branch/main/docs/decisions/plugins.md) — read D14
 (threat model + permissions) and D18 (sudo posture) before
 proposing changes to the security surface.

@@ -208,8 +208,8 @@ class _SetupViewState extends State<SetupView> {
     }
 
     final url = backend == 'lnd'
-        ? 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/lnd'
-        : 'forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/cln';
+        ? 'github:raspiblitz/nixblitz_official_plugins/lnd'
+        : 'github:raspiblitz/nixblitz_official_plugins/cln';
 
     context.read(_pluginInstallStatusProvider.notifier).state = (
       message: 'Fetching $backend plugin from forge…',
@@ -273,7 +273,7 @@ class _SetupViewState extends State<SetupView> {
 
     final pluginService = context.read(pluginServiceProvider);
     pluginService
-        .install('forgejo:forge.f44.fyi/f44/nixblitz_official_plugins/bitcoind')
+        .install('github:raspiblitz/nixblitz_official_plugins/bitcoind')
         .then((marker) {
           if (!mounted) return;
           LogService.info('installBitcoindPlugin: success (rev=${marker.rev})');

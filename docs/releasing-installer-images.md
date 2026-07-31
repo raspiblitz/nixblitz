@@ -21,13 +21,13 @@ target never does a memory-heavy on-device build. A capable machine on the
 network can instead take the lighter **official image + `nix run`** path (the
 TUI bootstraps over the network on first run).
 
-| Target                       | When                         | Medium                                                        | How                                                                                              |
-| ---------------------------- | ---------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| x86 VM                       | testing / eval               | **Prebuilt NixBlitz ISO**                                     | `just vm-boot`, or attach `nixblitz-installer.iso`                                               |
-| x86 bare metal               | < 8 GB RAM, or offline       | **Prebuilt NixBlitz ISO**                                     | flash `nixblitz-installer.iso`, boot                                                             |
-| x86 bare metal               | ≥ 8 GB RAM + network         | Official NixOS minimal ISO + `nix run`                        | download the stock ISO from nixos.org, boot, `nix run git+https://forge.f44.fyi/f44/nixblitz_ng` |
-| Pi 5 (all models are ≥ 8 GB) | network install              | Upstream `nixos-raspberrypi#installerImages.rpi5` + `nix run` | build & flash the upstream image (below), then `nix run`                                         |
-| Pi 5                         | offline / download-and-flash | **Prebuilt NixBlitz Pi 5 image**                              | flash `nixblitz-pi5-installer.img.zst`                                                           |
+| Target                       | When                         | Medium                                                        | How                                                                               |
+| ---------------------------- | ---------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| x86 VM                       | testing / eval               | **Prebuilt NixBlitz ISO**                                     | `just vm-boot`, or attach `nixblitz-installer.iso`                                |
+| x86 bare metal               | < 8 GB RAM, or offline       | **Prebuilt NixBlitz ISO**                                     | flash `nixblitz-installer.iso`, boot                                              |
+| x86 bare metal               | ≥ 8 GB RAM + network         | Official NixOS minimal ISO + `nix run`                        | download the stock ISO from nixos.org, boot, `nix run github:raspiblitz/nixblitz` |
+| Pi 5 (all models are ≥ 8 GB) | network install              | Upstream `nixos-raspberrypi#installerImages.rpi5` + `nix run` | build & flash the upstream image (below), then `nix run`                          |
+| Pi 5                         | offline / download-and-flash | **Prebuilt NixBlitz Pi 5 image**                              | flash `nixblitz-pi5-installer.img.zst`                                            |
 
 Note the asymmetry: x86's "official image" is a direct download from nixos.org;
 Pi 5 has **no** downloadable official image — you `nix build` the
@@ -140,9 +140,9 @@ manually:
    minisign -Sm release/<version>/SHA256SUMS
    ```
    Keep the signing key out of the repo; publish the public key once.
-2. **Publish** to a Forgejo release on `forge.f44.fyi/f44/nixblitz_ng`:
+2. **Publish** to a GitHub release on `github.com/raspiblitz/nixblitz`:
    ```bash
-   fj release create <version> release/<version>/*
+   gh release create <version> release/<version>/*
    ```
 
 ## Offline behavior

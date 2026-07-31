@@ -126,7 +126,7 @@ void main() {
             e.stopPropagation();
             e.stopImmediatePropagation();
             var a = document.createElement('a');
-            a.href = 'https://forge.f44.fyi/f44/nixblitz_ng';
+            a.href = 'https://github.com/raspiblitz/nixblitz';
             a.target = '_blank';
             a.rel = 'noopener noreferrer';
             document.body.appendChild(a);

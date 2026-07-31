@@ -264,7 +264,7 @@ class ScaffoldService {
 /// Handles the nested-block style used in `templates/flake.nix`:
 ///
 ///     nixblitz = {
-///       url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+///       url = "git+https://github.com/raspiblitz/nixblitz";
 ///       inputs.nixpkgs.follows = "nixpkgs";
 ///     };
 String substituteNixblitzRef(String template, String ref) {

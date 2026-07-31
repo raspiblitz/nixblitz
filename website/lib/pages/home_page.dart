@@ -20,7 +20,7 @@ const String _asciiBanner = r'''
 ╚═╝  ╚═══╝╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝   ╚═╝   ╚══════╝
 ''';
 
-const String _kRepoUrl = 'https://forge.f44.fyi/f44/nixblitz_ng';
+const String _kRepoUrl = 'https://github.com/raspiblitz/nixblitz';
 
 class HomePage extends StatelessComponent {
   const HomePage({super.key});

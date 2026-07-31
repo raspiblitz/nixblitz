@@ -235,7 +235,7 @@ class UpstreamProber {
       return null;
     }
     if (entry.type == 'git' && entry.host != null) {
-      // Forgejo / Gitea API shape (forge.f44.fyi runs Forgejo).
+      // Forgejo / Gitea API shape (third-party forges, e.g. Codeberg).
       final ref = entry.ref ?? 'main';
       final api =
           'https://${entry.host}/api/v1/repos/${entry.owner}/${entry.repo}'

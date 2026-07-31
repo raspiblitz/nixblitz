@@ -815,7 +815,7 @@ This system does not appear to be a NixBlitz installation.
 
 To install NixBlitz:
   1. Boot a NixOS ISO (any recent 25.11 image)
-  2. Run: nix run git+https://forge.f44.fyi/f44/nixblitz_ng
+  2. Run: nix run github:raspiblitz/nixblitz
 
 Refusing to start install mode on an installed system to prevent
 accidental disk wipe.

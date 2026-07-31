@@ -472,7 +472,7 @@ vm-deploy:
   scp -oUserKnownHostsFile=/dev/null -oStrictHostKeyChecking=no -P 10022 $"($unwrapped)/bin/nixblitz-bin" nixos@localhost:/tmp/nixblitz
   print "Deployed. Run on VM: /tmp/nixblitz"
   print "For full install test (with disko), run on the VM instead:"
-  print "  nix run git+https://forge.f44.fyi/f44/nixblitz_ng"
+  print "  nix run github:raspiblitz/nixblitz"
 
 # SSH into the installer VM (live ISO)
 vm-ssh-installer:

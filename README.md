@@ -30,7 +30,7 @@ files — the TUI is a typed editor over that JSON.
 Boot a stock NixOS 25.11 ISO, then:
 
 ```bash
-nix run git+https://forge.f44.fyi/f44/nixblitz_ng \
+nix run github:raspiblitz/nixblitz \
   --experimental-features "nix-command flakes" \
   --no-write-lock-file --refresh
 ```

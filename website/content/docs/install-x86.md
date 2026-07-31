@@ -332,7 +332,7 @@ typing it.
 From the live ISO shell:
 
 ```bash
-nix run git+https://forge.f44.fyi/f44/nixblitz_ng \
+nix run github:raspiblitz/nixblitz \
   --experimental-features "nix-command flakes" \
   --no-write-lock-file --refresh
 ```

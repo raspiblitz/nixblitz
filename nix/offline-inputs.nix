@@ -218,7 +218,7 @@ in rec {
   # The exact input set templates/flake.nix's `outputs` function receives,
   # mirroring templates/flake.nix's own `inputs` block (nixpkgs follows
   # nvmd's nixpkgs; disko and nixos-raspberrypi are direct; nixblitz is
-  # this very repo, published at forge.f44.fyi/f44/nixblitz_ng and pulled
+  # this very repo, published at github.com/raspiblitz/nixblitz and pulled
   # back in by templates/flake.nix as a git+https input).
   templatesInputs = {
     # Epoch-aligned (see nixpkgsEpoch above): the bake's version suffix must
@@ -277,7 +277,7 @@ in rec {
       path = nixos-raspberrypi.inputs.nixpkgs;
     }
     # The `nixblitz` input in templates/flake.nix is this very repo
-    # (git+https://forge.f44.fyi/f44/nixblitz_ng). On the live medium it is
+    # (git+https://github.com/raspiblitz/nixblitz). On the live medium it is
     # path-locked to the STAMPED source copy (not raw `self`) so its version
     # block reads the baked stamp and reproduces the baked TUI drv offline.
     {

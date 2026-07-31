@@ -587,7 +587,7 @@ shippable on its own. Status as of 2026-04-26:
 
 Open follow-ups + cross-cutting work track on the forgejo repo as
 issues, not in this document. See
-`forge.f44.fyi/f44/nixblitz_ng/issues`.
+`github.com/raspiblitz/nixblitz/issues`.
 
 ---
 

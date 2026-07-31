@@ -332,7 +332,7 @@ nix run \
   --extra-trusted-public-keys "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI=" \
   --experimental-features "nix-command flakes" \
   --no-write-lock-file --refresh \
-  git+https://forge.f44.fyi/f44/nixblitz_ng
+  git+https://github.com/raspiblitz/nixblitz
 ```
 
 The `--extra-substituters` / `--extra-trusted-public-keys` flags

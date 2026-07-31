@@ -8,7 +8,7 @@ void main() {
       const template = '''
 inputs = {
   nixblitz = {
-    url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+    url = "git+https://github.com/raspiblitz/nixblitz";
     inputs.nixpkgs.follows = "nixpkgs";
   };
 };
@@ -16,7 +16,7 @@ inputs = {
       final result = substituteNixblitzRef(template, 'main');
       expect(
         result,
-        contains('url = "git+https://forge.f44.fyi/f44/nixblitz_ng?ref=main"'),
+        contains('url = "git+https://github.com/raspiblitz/nixblitz?ref=main"'),
       );
       // The follows line must not be mangled
       expect(result, contains('inputs.nixpkgs.follows = "nixpkgs"'));
@@ -25,7 +25,7 @@ inputs = {
     test('replaces an existing ?ref= in place', () {
       const template = '''
 nixblitz = {
-  url = "git+https://forge.f44.fyi/f44/nixblitz_ng?ref=old";
+  url = "git+https://github.com/raspiblitz/nixblitz?ref=old";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 ''';
@@ -45,7 +45,7 @@ nixblitz = {
     test('handles ref with slash (e.g. release/1.0)', () {
       const template = '''
 nixblitz = {
-  url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+  url = "git+https://github.com/raspiblitz/nixblitz";
 };
 ''';
       final result = substituteNixblitzRef(template, 'release/1.0');

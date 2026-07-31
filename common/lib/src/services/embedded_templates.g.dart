@@ -63,7 +63,7 @@ const String _flake = r'''
     # bitcoind / lnd / cln plugins now via builtins.getFlake at a
     # coordinated rev. The operator's flake input list is shorter for it.
     nixblitz = {
-      url = "git+https://forge.f44.fyi/f44/nixblitz_ng";
+      url = "git+https://github.com/raspiblitz/nixblitz";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

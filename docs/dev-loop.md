@@ -368,7 +368,7 @@ you created a new file, that's the cause.
 
 ## Submitting changes
 
-The repo lives at `forge.f44.fyi/f44/nixblitz_ng`. Issues + PRs
+The repo lives at `github.com/raspiblitz/nixblitz`. Issues + PRs
 both go there.
 
 Before pushing:
