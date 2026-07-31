@@ -35,15 +35,15 @@ bitcoind + LND — no Nix or NixOS background required.
 ## 1. Download the image
 
 Download
-[`260728_01_nixblitz-pi5-installer.img.zst`](https://zipline.f44.fyi/u/260728_01_nixblitz-pi5-installer.img.zst).
+[`260731_02_nixblitz-pi5-installer.img.zst`](https://zipline.f44.fyi/u/260731_02_nixblitz-pi5-installer.img.zst).
 It carries the TUI and a full offline install closure baked in —
 nothing is fetched during install.
 
 Verify the download before flashing:
 
 ```bash
-sha256sum 260728_01_nixblitz-pi5-installer.img.zst
-# 4949252870915f5a3ce440f2f56326d95e2b122245cb38d75e2647423da6e420
+sha256sum 260731_02_nixblitz-pi5-installer.img.zst
+# 5961ba90aa7181a84932f3c74a43ea49661a4ddf21d5d359ae39fc0eeef7acf3
 ```
 
 ## 2. Flash it
@@ -54,8 +54,8 @@ drives interactively (no `/dev/sdX` guessing), decompresses the
 `.img.zst` on the fly, and verifies the write afterwards:
 
 ```bash
-nix run nixpkgs#caligula -- burn 260728_01_nixblitz-pi5-installer.img.zst \
-  -s sha256-4949252870915f5a3ce440f2f56326d95e2b122245cb38d75e2647423da6e420
+nix run nixpkgs#caligula -- burn 260731_02_nixblitz-pi5-installer.img.zst \
+  -s sha256-5961ba90aa7181a84932f3c74a43ea49661a4ddf21d5d359ae39fc0eeef7acf3
 ```
 
 (The `-s` flag makes caligula verify the download hash before it
@@ -66,7 +66,7 @@ above is of the `.img.zst` exactly as downloaded.)
 Plain `dd` works too (the image is zstd-compressed):
 
 ```bash
-zstd -dc 260728_01_nixblitz-pi5-installer.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+zstd -dc 260731_02_nixblitz-pi5-installer.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 Replace `/dev/sdX` with your card/stick's actual device (check with

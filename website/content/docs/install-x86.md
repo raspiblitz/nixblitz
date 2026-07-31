@@ -38,15 +38,15 @@ instead of a hypervisor.
 ## 1. Download the ISO
 
 Download
-[`260728_01_nixblitz_x86_installer.iso`](https://zipline.f44.fyi/u/260728_01_nixblitz_x86_installer.iso).
+[`260731_02_nixblitz_x86_installer.iso`](https://zipline.f44.fyi/u/260731_02_nixblitz_x86_installer.iso).
 It carries the TUI and a full offline install closure baked in —
 nothing is fetched during install.
 
 Verify the download first:
 
 ```bash
-sha256sum 260728_01_nixblitz_x86_installer.iso
-# 8c0a8f3e85a3a63a1f232d815ef65613135301fa1b19af1f7ab5b312aad432d8
+sha256sum 260731_02_nixblitz_x86_installer.iso
+# b28919ebc868b82b9a42f213b2af167ac366363f96de3d867bd0372d314ea368
 ```
 
 ## 2. Attach or flash
@@ -59,8 +59,8 @@ removable drives interactively (no `/dev/sdX` guessing) and verifies
 the write:
 
 ```bash
-nix run nixpkgs#caligula -- burn 260728_01_nixblitz_x86_installer.iso \
-  -s sha256-8c0a8f3e85a3a63a1f232d815ef65613135301fa1b19af1f7ab5b312aad432d8
+nix run nixpkgs#caligula -- burn 260731_02_nixblitz_x86_installer.iso \
+  -s sha256-b28919ebc868b82b9a42f213b2af167ac366363f96de3d867bd0372d314ea368
 ```
 
 (The `-s` flag makes caligula verify the download hash before it
@@ -69,7 +69,7 @@ touches any disk.)
 Plain `dd` works too:
 
 ```bash
-sudo dd if=260728_01_nixblitz_x86_installer.iso of=/dev/sdX bs=4M conv=fsync status=progress
+sudo dd if=260731_02_nixblitz_x86_installer.iso of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 Replace `/dev/sdX` with your USB stick's actual device (check with
