@@ -267,7 +267,7 @@ class _SetupViewState extends State<SetupView> {
     _installBitcoindPluginStarted = true;
 
     context.read(_pluginInstallStatusProvider.notifier).state = (
-      message: 'Fetching bitcoind plugin from forge…',
+      message: 'Fetching bitcoind plugin from GitHub…',
       error: false,
     );
 
@@ -308,7 +308,12 @@ class _SetupViewState extends State<SetupView> {
             message: 'Install failed: $e',
             error: true,
           );
-          _installBitcoindPluginStarted = false; // allow retry
+          // Deliberately DO NOT reset _installBitcoindPluginStarted
+          // here: the build method auto-fires the install on every
+          // rebuild, and the error write above triggers one — a reset
+          // would auto-retry in a tight loop, flickering the error in
+          // and out (seen live when the plugins repo 404'd). Only the
+          // explicit [r] handler resets the guard.
         });
   }
 
@@ -323,6 +328,7 @@ class _SetupViewState extends State<SetupView> {
       onKeyEvent: (event) {
         try {
           if (status.error && event.logicalKey == LogicalKey.keyR) {
+            _installBitcoindPluginStarted = false;
             _startInstallBitcoindPlugin();
             return true;
           }
