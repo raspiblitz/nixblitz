@@ -42,10 +42,12 @@ class HomePage extends StatelessComponent {
         media: const AsciinemaCast(
           src: '/casts/install-demo.cast',
           caption:
-              'Bootstrap from a stock NixOS ISO into the install wizard. '
-              'Placeholder — a recording of the real wizard run lands here '
-              'soon.',
-          rows: 18,
+              'The real thing: SSH into the live ISO, pick a disk, and the '
+              'fully offline install runs to completion — recorded '
+              'unscripted, install phase time-compressed 4x.',
+          cols: 100,
+          poster: 'npt:0:06',
+          rows: 34,
         ),
       ),
       _section(
