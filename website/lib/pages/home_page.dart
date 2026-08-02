@@ -51,6 +51,22 @@ class HomePage extends StatelessComponent {
         ),
       ),
       _section(
+        anchor: 'first-boot',
+        title: 'first-boot setup',
+        text: const _FirstBootBody(),
+        media: const AsciinemaCast(
+          src: '/casts/setup-demo.cast',
+          caption:
+              'First boot after install: set the admin password, pick a '
+              'network and Lightning backend, one rebuild brings up '
+              'bitcoind + LND, back up the seed, land on the dashboard — '
+              'rebuild phase time-compressed.',
+          cols: 100,
+          poster: 'npt:0:05',
+          rows: 34,
+        ),
+      ),
+      _section(
         anchor: 'the-tui',
         title: 'the tui',
         text: const _TuiBody(),
@@ -323,6 +339,56 @@ class _InstallationBody extends StatelessComponent {
           styles: Styles(raw: {'color': 'var(--color-tui-muted)'}),
           [Component.text('— linear guides, flash to first boot')],
         ),
+      ]),
+    ]);
+  }
+
+  Component _step(String n, String text) {
+    return li(classes: 'flex gap-3', [
+      span(
+        styles: Styles(
+          raw: {'color': 'var(--color-tui-orange)', 'font-weight': '700'},
+        ),
+        [Component.text('$n.')],
+      ),
+      span([Component.text(text)]),
+    ]);
+  }
+}
+
+class _FirstBootBody extends StatelessComponent {
+  const _FirstBootBody();
+
+  @override
+  Component build(BuildContext context) {
+    return div([
+      p(classes: 'mb-3', [
+        Component.text(
+          'After the reboot the TUI comes back up in setup mode and '
+          'walks the first boot: a handful of choices, one rebuild, '
+          'and the node is live.',
+        ),
+      ]),
+      ul(classes: 'space-y-1.5 mt-2', [
+        _step('1', 'Set the admin password (used for SSH and sudo).'),
+        _step('2', 'Pick the Bitcoin network — mainnet or regtest.'),
+        _step(
+          '3',
+          'Pick the Lightning backend — LND, CLN, or none. LND is '
+              'the most tested.',
+        ),
+        _step(
+          '4',
+          'One nixos-rebuild brings up bitcoind, LND, and the rest of '
+              'the stack.',
+        ),
+        _step(
+          '5',
+          'Back up the wallet seed. Show it on screen and write it '
+              'down, or skip the reveal and read the seed file later '
+              'in private.',
+        ),
+        _step('6', 'Land on the dashboard. The node is running.'),
       ]),
     ]);
   }
