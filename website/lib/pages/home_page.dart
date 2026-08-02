@@ -84,32 +84,46 @@ class HomePage extends StatelessComponent {
         anchor: 'configure-apply',
         title: 'configure → apply',
         text: const _ConfigureApplyBody(),
-        media: const _Screenshot(
-          src: '/screenshots/2026-05-13-configuration-menu.png',
-          alt:
-              'The Configure view: left sidebar lists System and each '
-              'installed app (Bitcoin Core, Blitz API, LNBits, LND, '
-              'Tailscale, Plugins); right pane shows the selected '
-              'section\'s editable rows.',
-          caption: 'Configure — edit values; apply commits and rebuilds.',
+        media: const AsciinemaCast(
+          src: '/casts/configure-demo.cast',
+          caption:
+              'Configure: set the LND alias, review the exact diff, '
+              'apply — one nixos-rebuild later the dashboard shows the '
+              'new alias. Rebuild time-compressed.',
+          cols: 100,
+          poster: 'npt:0:10',
+          rows: 34,
+        ),
+      ),
+      _section(
+        anchor: 'plugins',
+        title: 'plugins',
+        text: const _PluginsBody(),
+        media: const AsciinemaCast(
+          src: '/casts/plugin-demo.cast',
+          caption:
+              'Install LNBits from the catalog: pinned rev + signature '
+              'and an honest root-grant consent, one apply, and the '
+              'dashboard grows an LNBits tile. Rebuild time-compressed.',
+          cols: 100,
+          poster: 'npt:0:17',
+          rows: 45,
         ),
       ),
       _section(
         anchor: 'system',
         title: 'system menu',
         text: const _UpdateBody(),
-        media: const _Screenshot(
-          src: '/screenshots/2026-05-13-system-update-menu.png',
-          alt:
-              'The System view: sidebar splits Check / Apply / Power; '
-              'the Check pane shows a "Last check" status panel with '
-              'flake inputs (resolved + follows-only entries dimmed), '
-              'plugin updates, and a "9 need compile" system-closure '
-              'signal, plus the action list (Check for updates, View '
-              'package diff, View packages to compile).',
+        media: const AsciinemaCast(
+          src: '/casts/updates-demo.cast',
           caption:
-              'System — read-only checks, the single Apply path, and '
-              'shutdown / reboot on one sidebar.',
+              'Updates: the check re-locks and probes the cache '
+              'read-only, "What\'s changing" lists what a real apply '
+              'would build, then one apply brings the node current. '
+              'Rebuild time-compressed.',
+          cols: 100,
+          poster: 'npt:0:08',
+          rows: 34,
         ),
       ),
       _section(
@@ -453,6 +467,47 @@ class _TuiBody extends StatelessComponent {
         [Component.text(key)],
       ),
       span([Component.text(value)]),
+    ]);
+  }
+}
+
+class _PluginsBody extends StatelessComponent {
+  const _PluginsBody();
+
+  @override
+  Component build(BuildContext context) {
+    return div([
+      p(classes: 'mb-3', [
+        Component.text(
+          'Everything beyond the base system is a plugin — even '
+          'bitcoind and LND arrive that way during setup. The '
+          'Configure → Plugins screen offers the official catalog '
+          'as one-tap installs; third-party plugins install from a '
+          'git URL.',
+        ),
+      ]),
+      ul(classes: 'space-y-2', [
+        li([
+          Component.text(
+            'Before anything is fetched you see the pinned revision, '
+            'the signature, and a plain-language warning: installing '
+            'a plugin runs its Nix code as root on the next rebuild. '
+            'Consent, not a sandbox.',
+          ),
+        ]),
+        li([
+          Component.text(
+            'One apply activates the service; the plugin can bring '
+            'its own dashboard tile, config section, and actions.',
+          ),
+        ]),
+      ]),
+      p(classes: 'mt-4', [
+        a(href: href('/docs/plugins'), classes: 'keybind', [
+          span(classes: 'key', [Component.text('[>]')]),
+          Component.text(' plugin docs & authoring'),
+        ]),
+      ]),
     ]);
   }
 }
