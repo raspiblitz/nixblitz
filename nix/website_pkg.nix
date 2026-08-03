@@ -48,7 +48,7 @@ in
     # branch). Single-commit fork carrying the offline-build patch we
     # PRed upstream — see jaspr_cli's lib/src/dev/util.dart.
     gitHashes = {
-      jaspr_cli = "sha256-lZ0Qo3u3D3dqHD/MBbzdhCXsOZKONyNTxEy5Skfdpoc=";
+      jaspr_cli = "sha256-a4aW+mnymPlMjkjwecYWNmFiPQZXk1kHnDGWqWMbL5c=";
     };
 
     workspaceMembers = ["website"];
