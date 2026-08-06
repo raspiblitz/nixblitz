@@ -470,7 +470,7 @@ filesystem — there's no escape hatch by construction, only the
 `host_call` door, and that door only opens onto what `sandbox`
 grants.
 
-[`node-summary`](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/node-summary)
+[`node-summary`](https://github.com/raspiblitz/nixblitz_official_plugins/tree/main/node-summary)
 is the reference: a read-only bitcoind status report compiled from
 Rust to `wasm32-wasip1`. Read it end to end before writing your
 own — this section explains the shapes it uses.
@@ -685,7 +685,7 @@ funds" and "this plugin is read-only."
 The guest is any language that targets `wasm32-wasip1` and can
 declare the one `nixblitz.host_call` import plus the `alloc` export.
 `node-summary` is Rust; its
-[`flake.nix`](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/node-summary/flake.nix)
+[`flake.nix`](https://github.com/raspiblitz/nixblitz_official_plugins/blob/main/node-summary/flake.nix)
 is the reference build recipe, and worth reading before you set up
 your own — nixpkgs' `pkgsCross.wasi32` cargo wrapper hardcodes a
 `--config target.wasm32-wasip1.linker=<clang-wrapper>` that doesn't
@@ -803,7 +803,7 @@ already byte-identical, so it runs cheaply on every start.
 This pattern is borrowed verbatim from
 [nix-bitcoin's `modules/rtl.nix`](https://github.com/fort-nix/nix-bitcoin/blob/master/modules/rtl.nix).
 The lnbits dogfood plugin
-([`examples_redesign/nixblitz_official_plugins/lnbits/plugin.nix`](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/lnbits/plugin.nix))
+([`examples_redesign/nixblitz_official_plugins/lnbits/plugin.nix`](https://github.com/raspiblitz/nixblitz_official_plugins/blob/main/lnbits/plugin.nix))
 shows the full integration including waiting for the backend
 service.
 
@@ -938,15 +938,15 @@ gets updated alongside.
 
 Three in-tree plugins exercise everything in this doc:
 
-- [**tailscale**](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/tailscale)
+- [**tailscale**](https://github.com/raspiblitz/nixblitz_official_plugins/tree/main/tailscale)
   — secret config field (`auth_key`), tile with state-machine
   status, autoconnect systemd unit gated on the auth key, no
   privileged actions.
-- [**lnbits**](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/lnbits)
+- [**lnbits**](https://github.com/raspiblitz/nixblitz_official_plugins/tree/main/lnbits)
   — `select` config field (`backend`), credential-staging from
   LND's macaroon (the RTL pattern), one privileged `unit:`
   action (`reset_db`).
-- [**node-summary**](https://github.com/raspiblitz/nixblitz_official_plugins/src/branch/main/node-summary)
+- [**node-summary**](https://github.com/raspiblitz/nixblitz_official_plugins/tree/main/node-summary)
   — the logic-only WASM tier: no `plugin.nix`, a Rust guest compiled
   to `wasm32-wasip1` with `run` / `tile` / `check_sandbox` exports, a
   read-only `bitcoin_rpc` allowlist, a sandboxed dashboard tile, and

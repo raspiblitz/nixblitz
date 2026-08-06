@@ -260,17 +260,17 @@ Global hotkeys work from any view:
   first `q` arms a 3-second confirm window; second `q` actually
   quits
 
-In **System → Check**, `[v]` opens the "packages to compile" viewer
-when a Heavy check finds something that would need a local build,
-and `[o]` opens the full transcript of the last check in a
-scrollable popup — handy when the inline summary truncates a long
-`nix` error.
+In **System → Updates**, `[v]` jumps to the "What's changing"
+viewer (the package version diff, or the list of packages a rebuild
+would compile locally), and `[o]` opens the full transcript of the
+last check in a scrollable popup — handy when the inline summary
+truncates a long `nix` error.
 
 After a few hours the node tile's `system updates` row populates
 once the periodic check timer (`nixblitz-check.timer`) has
 run, folding into the same `<n> to apply` badge. Trigger a check on
-demand from **System → Check** (the **Updates** sidebar entry), or
-from any shell with `nixblitz check`.
+demand from **System → Updates** (`Check for updates`), or from
+any shell with `nixblitz check`.
 
 If something doesn't work, `~/nixblitz.log` on the box is the first
 place to look.

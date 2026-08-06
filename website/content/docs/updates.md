@@ -42,50 +42,50 @@ Two places to look:
 pending — could be your own edits, an upstream input bump, or a
 rebuild that never finished from a previous session).
 
-**System → Check.** Opens a status panel listing each flake input
-(`disko`, `nixblitz`, `nixos-raspberrypi`, `nixpkgs`, …) with one
-of three icons:
+**System → Updates.** Opens a status panel with a **NixBlitz** row
+(the system + all its flake inputs, rolled up) and a **Plugins**
+row (with a per-plugin breakdown when something moved), each
+showing one of three states:
 
 - `✓ up to date` — nothing waiting.
 - `↑ update available` — upstream has moved past your locked version.
-- a plain dash — the periodic check hasn't run yet (fresh install).
+- `not checked yet` — the periodic check hasn't run (fresh install).
 
-The "checks" are passive — they just look. Nothing changes on
-your node until you decide to act.
+A check is read-only with respect to your node: it looks upstream,
+stages what it finds as a _candidate_, and stops. Nothing changes
+on the running system until you decide to Apply.
 
 ## How to actually apply an update
 
-Three flows, three sections of the System view:
+Two steps, whatever kind of update is waiting:
 
-### Your own edits — `[a]` Apply
+### 1. Check (usually already done for you)
 
-You changed something in Configure (a hostname, a network, a
-plugin toggle), the badge flipped to `1 to apply`, you want to
-deploy it. Open the dashboard, press `[a]`. The TUI shows a
-unified diff of what you changed, asks for sudo, commits the
-change to its internal git history, and runs the rebuild. Output
-streams live; success or failure is reported on a final screen.
+The daily timer runs the check on its own; **System → Updates →
+Check for updates** runs the same thing on demand. The check
+looks upstream, and when something moved it stages the result as
+a candidate — your node keeps running exactly what it ran before.
 
-### Everything together — `[u]` Update entire system
+**What's changing…** (same panel) shows the details: a
+package-by-package version diff (`Bitcoin Core 27.1 → 28.0`,
+`nginx 1.26.0 → 1.26.1`, …) when everything is downloadable, or
+the list of packages your node would have to compile locally when
+it isn't (see the Pi warning below).
 
-You want fresh versions of bitcoind, lnd, nginx, and the kernel
-all in one go. Same view (`System`), pick `Update entire system`.
-The TUI fetches new metadata for each input, asks you to confirm
-the package-by-package diff (`Bitcoin Core 27.1 → 28.0`,
-`nginx 1.26.0 → 1.26.1`, …), then commits + rebuilds in one
-transaction.
+### 2. Apply — `[a]`
 
-### Individual plugins — `Update plugins`
+One Apply deploys everything queued, whatever the mix: your own
+Configure edits, a staged system update, plugin updates. Press
+`[a]` (or pick **System → Apply → Apply pending changes**). The
+review screen lists each queued category — your config diff,
+upstream pin updates, plugin bumps — then asks for sudo, commits
+to the internal git history, and streams the rebuild live.
+Success or failure is reported on a final screen.
 
-LNbits ships a fix you want without touching the rest of the
-system. Same System view, pick `Update plugins`. The TUI
-refreshes each installed plugin's source, shows what changed,
-and chains a rebuild.
-
-These three flows are independent. Applying your config edits
-doesn't fetch new upstream versions; updating upstream doesn't
-deploy your config edits. The TUI just makes sure you can do any
-of them in one keystroke.
+There's deliberately no second deploy verb in the TUI. The review
+screen's `[d] Discard all` resets the whole queue if you change
+your mind; for scripted or granular bumps the CLI keeps separate
+verbs (`nixblitz update tui`, `nixblitz update plugins`).
 
 ## What can go wrong (and how the node protects you)
 
@@ -101,24 +101,25 @@ those packages from source**. On a 4-core Pi 5, a fresh build of
 the Rust toolchain alone can take 1-3 hours; a full rebuild of
 the closure can take longer.
 
-You'll see this coming **before** it happens. After running
-`Heavy check` (under System → Check), the status panel will say
-something like `↑ system closure: 108 need compile`. That's the
-TUI telling you: "if you Apply right now, the Pi will compile
-108 packages from source, and that takes hours."
+You'll see this coming **before** it happens. The check probes the
+caches as part of its dry run, and when packages would have to
+build locally the Updates panel warns you — "Applying builds 108
+packages on the node first — can be slow on a Pi 5." That's the
+TUI telling you: "if you Apply right now, the Pi will compile 108
+packages from source, and that takes hours."
 
 What to do:
 
 - **Wait a day or two.** Upstream caches catch up regularly. Run
-  `Heavy check` again later; the number usually drops to near
-  zero once the cache rebuilds.
+  `Check for updates` again later; the number usually drops to
+  near zero once the cache rebuilds.
 - **Apply anyway.** If you have the time and you want the
   update, go ahead — the node stays responsive (we cap nix to 3
   of the 4 cores so bitcoind and the dashboard keep working
   during the build) but the rebuild itself is slow. The TUI
   streams output live; you can watch progress.
-- **`View packages to compile`** lists exactly which packages
-  would be built. Same panel, action right below `Heavy check`.
+- **`What's changing…`** lists exactly which packages would be
+  built. Same panel, action right below `Check for updates`.
 
 On x86 hardware (VM or bare metal), this case is rare — the
 public Nix cache covers nearly everything you'll need, and
@@ -160,9 +161,9 @@ went in — diff, sudo, commit, rebuild. Or `sudo nixos-rebuild
 ## When should you update?
 
 Honest answer: there's no urgency the dashboard doesn't already
-tell you. The check timers run on their own (daily for cheap
-probes, weekly for the heavy one) and surface whatever's
-available; you decide when to act.
+tell you. The check timer runs on its own (daily, with a few
+hours of random spread) and surfaces whatever's available; you
+decide when to act.
 
 A few rules of thumb:
 
@@ -172,8 +173,8 @@ A few rules of thumb:
 - **Regtest / evaluation**: update whenever you want. Worst case,
   rollback.
 - **A security fix is announced**: don't wait for the timer. Run
-  `Simple check` manually (System → Check → Simple check); if
-  the affected input has moved, run `Update entire system`.
+  `Check for updates` manually (System → Updates); if the
+  affected input has moved, Apply.
 - **The Pi shows "N need compile"**: revisit in a few days unless
   you're ready for the wait.
 
